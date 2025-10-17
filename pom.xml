@@ -22,7 +22,7 @@
         <jiconfont-font_awesome.version>4.7.0.1</jiconfont-font_awesome.version>
         <logback-classic.version>1.5.19</logback-classic.version>
         <jfreechart.version>1.5.5</jfreechart.version>
-        <okhttp.version>4.12.0</okhttp.version>
+        <okhttp.version>5.2.1</okhttp.version>
         <polyglot.version>24.2.1</polyglot.version>
         <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
     </properties>

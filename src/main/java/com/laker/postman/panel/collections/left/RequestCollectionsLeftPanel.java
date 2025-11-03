@@ -44,6 +44,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -93,7 +94,7 @@ public class RequestCollectionsLeftPanel extends SingletonBasePanel {
         rootTreeNode = new DefaultMutableTreeNode(ROOT);
         treeModel = new DefaultTreeModel(rootTreeNode);
         Workspace currentWorkspace = WorkspaceService.getInstance().getCurrentWorkspace();
-        String filePath = SystemUtil.getCollectionPathForWorkspace(currentWorkspace);
+        Path filePath = SystemUtil.getCollectionPathForWorkspace(currentWorkspace);
         // 初始化持久化工具
         persistence = new RequestsPersistence(filePath, rootTreeNode, treeModel);
         // 创建树组件
@@ -875,7 +876,7 @@ public class RequestCollectionsLeftPanel extends SingletonBasePanel {
     /**
      * 切换到指定工作区的请求集合文件，并刷新树UI
      */
-    public void switchWorkspaceAndRefreshUI(String collectionFilePath) {
+    public void switchWorkspaceAndRefreshUI(Path collectionFilePath) {
         if (persistence != null) {
             persistence.setDataFilePath(collectionFilePath);
         }
@@ -1019,7 +1020,7 @@ public class RequestCollectionsLeftPanel extends SingletonBasePanel {
         DefaultMutableTreeNode copiedNode = deepCopyGroupNode(collectionNode);
 
         // 2. 获取目标工作区的集合文件路径
-        String targetCollectionPath = SystemUtil.getCollectionPathForWorkspace(targetWorkspace);
+        Path targetCollectionPath = SystemUtil.getCollectionPathForWorkspace(targetWorkspace);
 
         // 3. 创建目标工作区的持久化工具
         DefaultMutableTreeNode targetRootNode = new DefaultMutableTreeNode(ROOT);

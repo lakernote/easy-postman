@@ -2,6 +2,8 @@ package com.laker.postman.model;
 
 import lombok.Data;
 
+import java.nio.file.Path;
+
 // Workspace模型类
 @Data
 public class Workspace {
@@ -10,7 +12,7 @@ public class Workspace {
     private String description; // 工作空间描述
     private WorkspaceType type; // LOCAL/GIT
     private GitRepoSource gitRepoSource; // 仓库来源：INITIALIZED（本地初始化）/ CLONED（远程克隆）
-    private String path; // 本地路径
+    private Path path; // 本地路径
     private String gitRemoteUrl; // Git远程仓库地址
     private String currentBranch; // 当前分支名称
     private String remoteBranch; // 当前跟踪的远程分支名称
@@ -23,4 +25,5 @@ public class Workspace {
     private GitAuthType gitAuthType; // 认证类型
     private String sshPrivateKeyPath; // SSH 私钥文件路径
     private String sshPassphrase;     // SSH 私钥密码（可选）
+
 }

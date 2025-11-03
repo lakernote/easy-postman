@@ -10,17 +10,18 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 @Slf4j
 public class RequestsPersistence {
-    private String filePath;
+    private Path filePath;
     private final DefaultMutableTreeNode rootTreeNode;
     private final DefaultTreeModel treeModel;
 
-    public RequestsPersistence(String filePath, DefaultMutableTreeNode rootTreeNode, DefaultTreeModel treeModel) {
+    public RequestsPersistence(Path filePath, DefaultMutableTreeNode rootTreeNode, DefaultTreeModel treeModel) {
         this.filePath = filePath;
         this.rootTreeNode = rootTreeNode;
         this.treeModel = treeModel;
@@ -38,7 +39,7 @@ public class RequestsPersistence {
     }
 
     public void initRequestGroupsFromFile() {
-        File file = new File(filePath);
+        File file = filePath.toFile();
         if (!file.exists()) { // 如果文件不存在，则创建默认请求组
             RequestsFactory.createDefaultRequestGroups(rootTreeNode, treeModel); // 创建默认请求组
             saveRequestGroups(); // 保存默认请求组到文件
@@ -63,7 +64,7 @@ public class RequestsPersistence {
     }
 
     public void saveRequestGroups() {
-        try (Writer writer = new OutputStreamWriter(new FileOutputStream(filePath), StandardCharsets.UTF_8)) {
+        try (Writer writer = new OutputStreamWriter(new FileOutputStream(filePath.toFile()), StandardCharsets.UTF_8)) {
             JSONArray array = new JSONArray();
             for (int i = 0; i < rootTreeNode.getChildCount(); i++) {
                 DefaultMutableTreeNode groupNode = (DefaultMutableTreeNode) rootTreeNode.getChildAt(i);
@@ -133,8 +134,8 @@ public class RequestsPersistence {
     /**
      * 切换数据文件路径并重新加载集合
      */
-    public void setDataFilePath(String path) {
-        if (path == null || path.isBlank()) return;
+    public void setDataFilePath(Path path) {
+        if (path == null) return;
         this.filePath = path;
         // 清空现有树
         rootTreeNode.removeAllChildren();

@@ -7,10 +7,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Properties;
 
 public class SettingManager {
-    private static final String CONFIG_FILE = SystemUtil.getUserHomeEasyPostmanPath() + "easy_postman_settings.properties";
+    private static final Path CONFIG_FILE = SystemUtil.EASY_POSTMAN_HOME.resolve("easy_postman_settings.properties");
     private static final Properties props = new Properties();
 
     // 私有构造函数，防止实例化
@@ -23,7 +24,7 @@ public class SettingManager {
     }
 
     public static void load() {
-        File file = new File(CONFIG_FILE);
+        File file = CONFIG_FILE.toFile();
         if (file.exists()) {
             try (FileInputStream fis = new FileInputStream(file)) {
                 props.load(fis);
@@ -34,7 +35,7 @@ public class SettingManager {
     }
 
     public static void save() {
-        try (FileOutputStream fos = new FileOutputStream(CONFIG_FILE)) {
+        try (FileOutputStream fos = new FileOutputStream(CONFIG_FILE.toFile())) {
             props.store(fos, "EasyPostman Settings");
         } catch (IOException e) {
             // ignore

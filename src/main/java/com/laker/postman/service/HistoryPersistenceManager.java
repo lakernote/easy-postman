@@ -26,7 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 @Slf4j
 public class HistoryPersistenceManager {
-    private static final String HISTORY_FILE = SystemUtil.getUserHomeEasyPostmanPath() + "request_history.json";
+    private static final Path HISTORY_FILE = SystemUtil.EASY_POSTMAN_HOME.resolve("request_history.json");
 
     private static HistoryPersistenceManager instance;
     private final List<RequestHistoryItem> historyItems = new CopyOnWriteArrayList<>();
@@ -45,7 +45,7 @@ public class HistoryPersistenceManager {
 
     private void ensureHistoryDirExists() {
         try {
-            Path historyDir = Paths.get(SystemUtil.getUserHomeEasyPostmanPath());
+            Path historyDir = SystemUtil.EASY_POSTMAN_HOME;
             if (!Files.exists(historyDir)) {
                 Files.createDirectories(historyDir);
             }
@@ -104,7 +104,7 @@ public class HistoryPersistenceManager {
 
             // 写入文件
             String jsonString = JSONUtil.toJsonPrettyStr(jsonArray);
-            Files.writeString(Paths.get(HISTORY_FILE), jsonString, StandardCharsets.UTF_8);
+            Files.writeString(HISTORY_FILE, jsonString, StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.error("Failed to save history: {}", e.getMessage());
         }
@@ -123,13 +123,13 @@ public class HistoryPersistenceManager {
      * 加载历史记录
      */
     private void loadHistory() {
-        File file = new File(HISTORY_FILE);
+        File file = HISTORY_FILE.toFile();
         if (!file.exists()) {
             return;
         }
 
         try {
-            String jsonString = Files.readString(Paths.get(HISTORY_FILE), StandardCharsets.UTF_8);
+            String jsonString = Files.readString(HISTORY_FILE, StandardCharsets.UTF_8);
             if (jsonString.trim().isEmpty()) {
                 return;
             }

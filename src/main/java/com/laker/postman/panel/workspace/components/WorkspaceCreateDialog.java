@@ -23,6 +23,9 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * 创建工作区对话框
@@ -120,16 +123,16 @@ public class WorkspaceCreateDialog extends ProgressDialog {
      * 设置默认的工作区路径
      */
     private void setDefaultWorkspacePath() {
-        String defaultWorkspaceDir = SystemUtil.getUserHomeEasyPostmanPath() + WORKSPACES;
-        pathField.setText(defaultWorkspaceDir);
+        Path defaultWorkspaceDir = SystemUtil.EASY_POSTMAN_HOME.resolve(WORKSPACES);
+        pathField.setText(defaultWorkspaceDir.toString());
     }
 
     /**
      * 根据工作区名称生成符合路径规则的目录名
      */
-    private String generatePathFromName(String name) {
+    private Path generatePathFromName(String name) {
         if (name == null || name.trim().isEmpty()) {
-            return "";
+            return null;
         }
 
         // 清理名称，生成合法的目录名
@@ -143,7 +146,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
             cleanName = RandomUtil.randomString(10); // 如果清理后为空，使用随机字符串
         }
 
-        return SystemUtil.getUserHomeEasyPostmanPath() + WORKSPACES + File.separator + cleanName;
+        return SystemUtil.EASY_POSTMAN_HOME.resolve(WORKSPACES).resolve(cleanName);
     }
 
     @Override
@@ -256,8 +259,8 @@ public class WorkspaceCreateDialog extends ProgressDialog {
      */
     private void updatePathFromName() {
         String name = nameField.getText();
-        String generatedPath = generatePathFromName(name);
-        pathField.setText(generatedPath);
+        Path generatedPath = generatePathFromName(name);
+        pathField.setText(generatedPath == null ? "":generatedPath.toString());
     }
 
     private JPanel createBasicInfoPanel() {
@@ -426,17 +429,18 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.WORKSPACE_SELECT_PATH));
 
-        String currentPath = pathField.getText().trim();
-        if (currentPath.isEmpty()) {
-            currentPath = SystemUtil.getUserHomeEasyPostmanPath() + WORKSPACES;
+        String currentPathStr = pathField.getText().trim();
+        Path currentPath = SystemUtil.EASY_POSTMAN_HOME.resolve(WORKSPACES);
+        if (!currentPathStr.isEmpty()) {
+            currentPath = Paths.get(currentPathStr);
         }
 
         // 确保父目录存在
-        File parentDir = new File(currentPath).getParentFile();
-        if (parentDir != null && parentDir.exists()) {
-            chooser.setCurrentDirectory(parentDir);
+        Path parentDir = currentPath.getParent();
+        if (parentDir != null && Files.exists(parentDir)) {
+            chooser.setCurrentDirectory(parentDir.toFile());
         } else {
-            chooser.setCurrentDirectory(new File(SystemUtil.getUserHomeEasyPostmanPath()));
+            chooser.setCurrentDirectory(SystemUtil.EASY_POSTMAN_HOME.toFile());
         }
 
         int result = chooser.showOpenDialog(this);
@@ -558,7 +562,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         Workspace ws = new Workspace();
         ws.setName(nameField.getText().trim());
         ws.setDescription(descriptionArea.getText().trim());
-        ws.setPath(pathField.getText().trim());
+        ws.setPath(Paths.get(pathField.getText().trim()));
 
         if (localTypeRadio.isSelected()) {
             ws.setType(WorkspaceType.LOCAL);

@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -16,7 +17,7 @@ public class UserSettingsUtil {
     private static final String KEY_WINDOW_HEIGHT = "windowHeight";
     private static final String KEY_WINDOW_MAXIMIZED = "windowMaximized";
     private static final String KEY_LANGUAGE = "language";
-    private static final String SETTINGS_PATH = SystemUtil.getUserHomeEasyPostmanPath() + "user_settings.json";
+    private static final Path SETTINGS_PATH = SystemUtil.EASY_POSTMAN_HOME.resolve("user_settings.json");
     private static final Object lock = new Object();
     private static Map<String, Object> settingsCache = null;
 
@@ -27,7 +28,7 @@ public class UserSettingsUtil {
     private static Map<String, Object> readSettings() {
         synchronized (lock) {
             if (settingsCache != null) return settingsCache;
-            File file = new File(SETTINGS_PATH);
+            File file = SETTINGS_PATH.toFile();
             if (!file.exists()) {
                 settingsCache = new HashMap<>();
                 return settingsCache;
@@ -51,7 +52,7 @@ public class UserSettingsUtil {
         synchronized (lock) {
             try {
                 String json = JSONUtil.toJsonPrettyStr(settingsCache);
-                FileUtil.writeString(json, new File(SETTINGS_PATH), StandardCharsets.UTF_8);
+                FileUtil.writeString(json, SETTINGS_PATH.toFile(), StandardCharsets.UTF_8);
             } catch (Exception e) {
                 log.warn("保存用户设置失败", e);
             }

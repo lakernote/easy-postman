@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,8 +23,8 @@ public class WorkspaceStorageUtil {
 
     private static final String WORKSPACES_FILE = "workspaces.json";
     private static final String WORKSPACE_SETTINGS_FILE = "workspace_settings.json";
-    private static final String WORKSPACES_PATH = SystemUtil.getUserHomeEasyPostmanPath() + WORKSPACES_FILE;
-    private static final String WORKSPACE_SETTINGS_PATH = SystemUtil.getUserHomeEasyPostmanPath() + WORKSPACE_SETTINGS_FILE;
+    private static final Path WORKSPACES_PATH = SystemUtil.EASY_POSTMAN_HOME.resolve(WORKSPACES_FILE);
+    private static final Path WORKSPACE_SETTINGS_PATH = SystemUtil.EASY_POSTMAN_HOME.resolve(WORKSPACE_SETTINGS_FILE);
     private static final Object lock = new Object();
 
     private static final String DEFAULT_WORKSPACE_ID = "default-workspace";
@@ -49,7 +50,7 @@ public class WorkspaceStorageUtil {
         ws.setId(DEFAULT_WORKSPACE_ID);
         ws.setName(DEFAULT_WORKSPACE_NAME);
         ws.setType(WorkspaceType.LOCAL);
-        ws.setPath(SystemUtil.getUserHomeEasyPostmanPath());
+        ws.setPath(SystemUtil.EASY_POSTMAN_HOME);
         ws.setDescription(DEFAULT_WORKSPACE_DESCRIPTION);
         ws.setCreatedAt(System.currentTimeMillis());
         ws.setUpdatedAt(System.currentTimeMillis());
@@ -63,7 +64,7 @@ public class WorkspaceStorageUtil {
         synchronized (lock) {
             try {
                 // 确保目录存在
-                File file = new File(WORKSPACES_PATH);
+                File file = WORKSPACES_PATH.toFile();
                 FileUtil.mkParentDirs(file);
                 // 保证默认工作区始终存在
                 boolean hasDefault = workspaces.stream().anyMatch(WorkspaceStorageUtil::isDefaultWorkspace);
@@ -86,7 +87,7 @@ public class WorkspaceStorageUtil {
     public static List<Workspace> loadWorkspaces() {
         synchronized (lock) {
             try {
-                File file = new File(WORKSPACES_PATH);
+                File file = WORKSPACES_PATH.toFile();
                 List<Workspace> workspaces;
                 if (!file.exists()) {
                     log.debug("Workspaces file not found, returning default workspace");
@@ -123,7 +124,7 @@ public class WorkspaceStorageUtil {
     public static void saveCurrentWorkspace(String workspaceId) {
         synchronized (lock) {
             try {
-                File file = new File(WORKSPACE_SETTINGS_PATH);
+                File file = WORKSPACE_SETTINGS_PATH.toFile();
                 FileUtil.mkParentDirs(file);
 
                 Map<String, Object> settings = loadWorkspaceSettings();
@@ -159,7 +160,7 @@ public class WorkspaceStorageUtil {
      */
     private static Map<String, Object> loadWorkspaceSettings() {
         try {
-            File file = new File(WORKSPACE_SETTINGS_PATH);
+            File file = WORKSPACE_SETTINGS_PATH.toFile();
             if (!file.exists()) {
                 return new HashMap<>();
             }

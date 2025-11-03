@@ -29,6 +29,7 @@ import org.eclipse.jgit.treewalk.filter.PathFilter;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -53,12 +54,12 @@ public class GitConflictDetector {
     /**
      * 检查Git仓库状态，判断是否可以执行指定操作
      */
-    public static GitStatusCheck checkGitStatus(String workspacePath, String operationType,
+    public static GitStatusCheck checkGitStatus(Path workspacePath, String operationType,
                                                 CredentialsProvider credentialsProvider,
                                                 SshCredentialsProvider sshCredentialsProvider) {
         GitStatusCheck result = new GitStatusCheck();
 
-        try (Git git = Git.open(new File(workspacePath))) {
+        try (Git git = Git.open(workspacePath.toFile())) {
             // 获取基本信息
             result.currentBranch = git.getRepository().getBranch();
 
@@ -100,7 +101,7 @@ public class GitConflictDetector {
         result.canCommit = totalChanges > 0 && result.conflicting.isEmpty();
     }
 
-    private static void checkRemoteStatus(Git git, String workspacePath, GitStatusCheck result,
+    private static void checkRemoteStatus(Git git, Path workspacePath, GitStatusCheck result,
                                           CredentialsProvider credentialsProvider,
                                           SshCredentialsProvider sshCredentialsProvider) {
         try {
@@ -707,7 +708,7 @@ public class GitConflictDetector {
      * 执行冲突检测
      * 通过分析本地和远程的变更，判断是否存在实际冲突以及是否可以自动合并
      */
-    private static void performIntelligentConflictDetection(Git git, String workspacePath, GitStatusCheck result, ObjectId localId, ObjectId remoteId) {
+    private static void performIntelligentConflictDetection(Git git, Path workspacePath, GitStatusCheck result, ObjectId localId, ObjectId remoteId) {
         try {
             // 如果本地或远程仓库为空，则无法进行智能冲突检测
             if (localId == null || remoteId == null) {
@@ -776,7 +777,7 @@ public class GitConflictDetector {
     /**
      * 分析文件级别的冲突
      */
-    private static void analyzeFileConflicts(Git git, String workspacePath, GitStatusCheck result, ObjectId mergeBase,
+    private static void analyzeFileConflicts(Git git, Path workspacePath, GitStatusCheck result, ObjectId mergeBase,
                                              ObjectId localId, ObjectId remoteId) {
         try {
             // 获取从merge base到本地的变更

@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -42,7 +43,7 @@ public class EnvironmentService {
     private static final ThreadLocal<Map<String, String>> temporaryVariables = ThreadLocal.withInitial(ConcurrentHashMap::new);
 
     // 当前数据文件路径
-    private static String currentDataFilePath;
+    private static Path currentDataFilePath;
 
     static {
         loadEnvironments();
@@ -68,7 +69,7 @@ public class EnvironmentService {
     /**
      * 获取当前数据文件路径
      */
-    public static String getDataFilePath() {
+    public static Path getDataFilePath() {
         if (currentDataFilePath != null) {
             return currentDataFilePath;
         }
@@ -80,8 +81,8 @@ public class EnvironmentService {
     /**
      * 切换环境变量数据文件路径，并重新加载
      */
-    public static void setDataFilePath(String path) {
-        if (path == null || path.isBlank()) return;
+    public static void setDataFilePath(Path path) {
+        if (path == null) return;
         currentDataFilePath = path;
         loadEnvironmentsFromPath(path);
     }
@@ -89,8 +90,8 @@ public class EnvironmentService {
     /**
      * 从指定路径加载环境变量
      */
-    private static void loadEnvironmentsFromPath(String filePath) {
-        File file = new File(filePath);
+    private static void loadEnvironmentsFromPath(Path filePath) {
+        File file = filePath.toFile();
         if (!file.exists()) {
             log.info("环境变量文件不存在: {}, 将创建默认环境", filePath);
             createDefaultEnvironments();
@@ -129,7 +130,7 @@ public class EnvironmentService {
             loadEnvironmentsFromPath(currentDataFilePath);
         } else {
             Workspace currentWorkspace = WorkspaceService.getInstance().getCurrentWorkspace();
-            String filePath = SystemUtil.getEnvPathForWorkspace(currentWorkspace);
+            Path filePath = SystemUtil.getEnvPathForWorkspace(currentWorkspace);
             loadEnvironmentsFromPath(filePath);
         }
     }
@@ -165,7 +166,7 @@ public class EnvironmentService {
      */
     public static void saveEnvironments() {
         try {
-            String filePath;
+            Path filePath;
             if (currentDataFilePath != null) {
                 filePath = currentDataFilePath;
             } else {
@@ -173,7 +174,7 @@ public class EnvironmentService {
                 filePath = SystemUtil.getEnvPathForWorkspace(currentWorkspace);
             }
 
-            File file = new File(filePath);
+            File file = filePath.toFile();
             File parentDir = file.getParentFile();
             if (!parentDir.exists()) {
                 parentDir.mkdirs();

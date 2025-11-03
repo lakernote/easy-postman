@@ -81,7 +81,7 @@ public class WorkspaceService {
 
         // 对于非Git克隆模式，创建本地目录
         if (workspace.getType() != WorkspaceType.GIT || workspace.getGitRepoSource() != GitRepoSource.CLONED) {
-            Path workspacePath = Paths.get(workspace.getPath());
+            Path workspacePath = workspace.getPath();
             if (!Files.exists(workspacePath)) {
                 Files.createDirectories(workspacePath);
             }
@@ -144,7 +144,7 @@ public class WorkspaceService {
     private void cloneRepository(Workspace workspace) throws Exception {
         CloneCommand cloneCommand = Git.cloneRepository()
                 .setURI(workspace.getGitRemoteUrl())
-                .setDirectory(new File(workspace.getPath()));
+                .setDirectory(workspace.getPath().toFile());
         cloneCommand.setTimeout(GIT_OPERATION_TIMEOUT); // 设置超时时间
 
         // 如果用户指定了特定的分支，设置分支名称
@@ -204,7 +204,7 @@ public class WorkspaceService {
      * 初始化本地Git仓库
      */
     private void initializeGitRepository(Workspace workspace) throws Exception {
-        try (Git git = Git.init().setDirectory(new File(workspace.getPath())).call()) {
+        try (Git git = Git.init().setDirectory(workspace.getPath().toFile()).call()) {
             // 创建初始提交
             createInitialCommit(git, workspace);
 
@@ -242,7 +242,7 @@ public class WorkspaceService {
      */
     private void createInitialCommit(Git git, Workspace workspace) throws Exception {
         // 创建README文件
-        Path readmePath = Paths.get(workspace.getPath(), "README.md");
+        Path readmePath = workspace.getPath().resolve("README.md");
         Files.write(readmePath, String.format("# %s\n\n%s",
                 workspace.getName(),
                 workspace.getDescription() != null ? workspace.getDescription() : "EasyPostman Workspace").getBytes());
@@ -287,7 +287,7 @@ public class WorkspaceService {
             throw new IllegalArgumentException("Workspace name is required");
         }
 
-        if (workspace.getPath() == null || workspace.getPath().trim().isEmpty()) {
+        if (workspace.getPath() == null) {
             throw new IllegalArgumentException("Workspace path is required");
         }
 
@@ -310,9 +310,9 @@ public class WorkspaceService {
         }
 
         // 检查路径是否已被其他工作区使用
-        String normalizedPath = Paths.get(workspace.getPath()).toAbsolutePath().normalize().toString();
+        Path normalizedPath = workspace.getPath().toAbsolutePath().normalize();
         boolean pathExists = workspaces.stream()
-                .anyMatch(w -> Paths.get(w.getPath()).toAbsolutePath().normalize().toString().equals(normalizedPath));
+                .anyMatch(w -> w.getPath().toAbsolutePath().normalize().equals(normalizedPath));
 
         if (pathExists) {
             throw new IllegalArgumentException("Path is already used by another workspace");
@@ -320,7 +320,7 @@ public class WorkspaceService {
 
         // 对于Git克隆模式，检查目标目录是否已存在且不为空
         if (workspace.getType() == WorkspaceType.GIT && workspace.getGitRepoSource() == GitRepoSource.CLONED) {
-            Path targetPath = Paths.get(workspace.getPath());
+            Path targetPath = workspace.getPath();
             if (Files.exists(targetPath)) {
                 try {
                     // 检查目录是否为空
@@ -363,7 +363,7 @@ public class WorkspaceService {
             throw new IllegalArgumentException("Default workspace cannot be deleted");
         }
         // 删除工作区文件
-        Path workspacePath = Paths.get(workspace.getPath());
+        Path workspacePath = workspace.getPath();
         if (Files.exists(workspacePath)) {
             deleteDirectoryRecursively(workspacePath);
         }
@@ -450,7 +450,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             String branch = git.getRepository().getBranch();
             String tracking = git.getRepository().getConfig().getString("branch", branch, "merge");
             log.info("Current branch: {}, tracking: {}", branch, tracking);
@@ -626,7 +626,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             // 检查是否有远程仓库
             var remotes = git.remoteList().call();
             if (remotes.isEmpty()) {
@@ -831,7 +831,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             String currentBranch = git.getRepository().getBranch();
 
             // 获取认证信息
@@ -891,7 +891,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             // 获取暂存前的状态
             var status = git.status().call();
 
@@ -938,7 +938,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             // 检查是否有暂存
             var stashList = git.stashList().call();
             if (!stashList.iterator().hasNext()) {
@@ -980,7 +980,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             // 记录拉取前的未提交变更（将被丢弃）
             var statusBefore = git.status().call();
             result.affectedFiles.addAll(statusBefore.getModified());
@@ -1044,7 +1044,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             // 检查是否有文件需要提交
             var status = git.status().call();
             boolean hasChanges = !status.getAdded().isEmpty() ||
@@ -1115,7 +1115,7 @@ public class WorkspaceService {
      */
     public List<String> getChangedFilesBetweenCommits(String workspaceId, String oldCommitId, String newCommitId) throws Exception {
         Workspace workspace = getWorkspaceById(workspaceId);
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             ObjectId oldId = git.getRepository().resolve(oldCommitId);
             ObjectId newId = git.getRepository().resolve(newCommitId);
             List<DiffEntry> diffs = git.diff()
@@ -1210,7 +1210,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Only Git workspaces of type INITIALIZED can add a remote repository");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             // 添加远程仓库
             git.remoteAdd()
                     .setName("origin")
@@ -1271,7 +1271,7 @@ public class WorkspaceService {
             throw new IllegalStateException("Not a Git workspace");
         }
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = Git.open(workspace.getPath().toFile())) {
             RemoteStatus status = new RemoteStatus();
 
             // 获取远程仓库列表

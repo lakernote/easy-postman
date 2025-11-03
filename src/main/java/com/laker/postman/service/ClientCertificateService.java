@@ -11,6 +11,7 @@ import com.laker.postman.util.SystemUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 @Slf4j
 public class ClientCertificateService {
-    private static final String CERT_CONFIG_FILE = SystemUtil.getUserHomeEasyPostmanPath() + "client_certificates.json";
+    private static final Path CERT_CONFIG_FILE = SystemUtil.EASY_POSTMAN_HOME.resolve("client_certificates.json");
     private static final List<ClientCertificate> certificates = new CopyOnWriteArrayList<>();
 
     private ClientCertificateService() {
@@ -38,7 +39,7 @@ public class ClientCertificateService {
      * 从文件加载证书配置
      */
     public static void load() {
-        File file = new File(CERT_CONFIG_FILE);
+        File file = CERT_CONFIG_FILE.toFile();
         if (!file.exists()) {
             log.info("Client certificate config file not found, creating new one");
             return;
@@ -63,7 +64,7 @@ public class ClientCertificateService {
      */
     public static void save() {
         try {
-            File file = new File(CERT_CONFIG_FILE);
+            File file = CERT_CONFIG_FILE.toFile();
             File parent = file.getParentFile();
             if (parent != null && !parent.exists()) {
                 boolean created = parent.mkdirs();

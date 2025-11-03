@@ -15,13 +15,13 @@ import java.nio.file.Paths;
 
 @Slf4j
 public class SystemUtil {
-    public static final String LOG_DIR = getUserHomeEasyPostmanPath() + "logs" + File.separator;
-    private static final String COLLECTION_PATH = getUserHomeEasyPostmanPath() + "collections.json";
-    private static final String ENV_PATH = getUserHomeEasyPostmanPath() + "environments.json";
-
-    public static String getUserHomeEasyPostmanPath() {
-        return System.getProperty("user.home") + File.separator + "EasyPostman" + File.separator;
-    }
+    public static final Path EASY_POSTMAN_HOME = Paths.get(
+            System.getProperty("user.home"),
+            "EasyPostman"
+    ).toAbsolutePath();
+    public static final Path LOG_DIR = EASY_POSTMAN_HOME.resolve("logs");
+    private static final Path COLLECTION_PATH = EASY_POSTMAN_HOME.resolve("collections.json");
+    private static final Path ENV_PATH = EASY_POSTMAN_HOME.resolve("environments.json");
 
     /**
      * 获取当前版本号：优先从 MANIFEST.MF Implementation-Version，若无则尝试读取 pom.xml
@@ -76,17 +76,17 @@ public class SystemUtil {
         return null;
     }
 
-    public static String getEnvPathForWorkspace(Workspace ws) {
+    public static Path getEnvPathForWorkspace(Workspace ws) {
         if (ws == null) {
             return ENV_PATH;
         }
-        return ws.getPath() + File.separator + "environments.json";
+        return ws.getPath().resolve("environments.json");
     }
 
-    public static String getCollectionPathForWorkspace(Workspace ws) {
+    public static Path getCollectionPathForWorkspace(Workspace ws) {
         if (ws == null) {
             return COLLECTION_PATH;
         }
-        return ws.getPath() + File.separator + "collections.json";
+        return ws.getPath().resolve("collections.json");
     }
 }

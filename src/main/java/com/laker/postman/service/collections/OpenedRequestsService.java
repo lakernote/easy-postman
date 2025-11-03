@@ -19,20 +19,21 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 public class OpenedRequestsService {
 
-    public static final String PATHNAME = SystemUtil.getUserHomeEasyPostmanPath() + "opened_requests.json";
+    public static final Path PATHNAME = SystemUtil.EASY_POSTMAN_HOME.resolve("opened_requests.json");
 
     private OpenedRequestsService() {
         throw new IllegalStateException("Utility class");
     }
 
     public static List<HttpRequestItem> getAll() {
-        File file = new File(PATHNAME);
+        File file = PATHNAME.toFile();
         if (!file.exists()) {
             return List.of();
         }
@@ -119,7 +120,7 @@ public class OpenedRequestsService {
         // 保存所有到单独的 JSON 文件
         if (!openedRequestItem.isEmpty()) {
             try {
-                File file = new File(PATHNAME);
+                File file = PATHNAME.toFile();
                 JSONArray arr = new JSONArray();
                 for (HttpRequestItem item : openedRequestItem) {
                     arr.add(JSONUtil.parse(item));
@@ -133,7 +134,7 @@ public class OpenedRequestsService {
     }
 
     public static void clear() {
-        File file = new File(PATHNAME);
+        File file = PATHNAME.toFile();
         if (file.exists()) {
             try {
                 FileUtil.del(file);

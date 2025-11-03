@@ -59,7 +59,7 @@ public class WorkspaceDetailPanel extends JPanel {
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        JLabel pathLabel = new JLabel(workspace.getPath());
+        JLabel pathLabel = new JLabel(workspace.getPath().toString());
         infoSection.add(pathLabel, gbc);
 
         // 描述

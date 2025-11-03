@@ -42,6 +42,7 @@ import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -704,7 +705,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
     /**
      * 切换到指定工作区的环境数据文件，并刷新UI
      */
-    public void switchWorkspaceAndRefreshUI(String envFilePath) {
+    public void switchWorkspaceAndRefreshUI(Path envFilePath) {
         EnvironmentService.setDataFilePath(envFilePath);
         this.refreshUI();
         // 同步刷新顶部环境下拉框
@@ -856,10 +857,10 @@ public class EnvironmentPanel extends SingletonBasePanel {
         }
 
         // 2. 获取目标工作区的环境文件路径
-        String targetEnvPath = SystemUtil.getEnvPathForWorkspace(targetWorkspace);
+        Path targetEnvPath = SystemUtil.getEnvPathForWorkspace(targetWorkspace);
 
         // 3. 临时切换到目标工作区的环境服务
-        String originalDataFilePath = EnvironmentService.getDataFilePath();
+        Path originalDataFilePath = EnvironmentService.getDataFilePath();
         try {
             // 切换到目标工作区
             EnvironmentService.setDataFilePath(targetEnvPath);

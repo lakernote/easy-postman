@@ -187,6 +187,13 @@
             <artifactId>okhttp-brotli</artifactId>
             <version>4.12.0</version>
         </dependency>
+
+        <!--证书加载支持-->
+        <dependency>
+            <groupId>io.github.hakky54</groupId>
+            <artifactId>ayza-for-pem</artifactId>
+            <version>10.0.1</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

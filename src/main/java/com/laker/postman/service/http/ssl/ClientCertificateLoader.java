@@ -1,11 +1,16 @@
 package com.laker.postman.service.http.ssl;
 
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import com.laker.postman.model.ClientCertificate;
 import lombok.extern.slf4j.Slf4j;
+import nl.altindag.ssl.pem.util.PemUtils;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509KeyManager;
+import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.Socket;
@@ -70,82 +75,15 @@ public class ClientCertificateLoader {
      * 从 PEM 文件创建 KeyManager
      */
     private static KeyManager[] createKeyManagersFromPEM(ClientCertificate cert) throws Exception {
-        // 加载证书
-        X509Certificate certificate = loadCertificateFromPEM(cert.getCertPath());
+        log.debug("Loaded PEM certificate from: {} and key from: {}", cert.getCertPath(), cert.getKeyPath());
+        try (BufferedInputStream certInputStream = FileUtil.getInputStream(cert.getCertPath());
+             BufferedInputStream keyInputStream = FileUtil.getInputStream(cert.getKeyPath())) {
 
-        // 加载私钥
-        PrivateKey privateKey = loadPrivateKeyFromPEM(cert.getKeyPath(), cert.getKeyPassword());
+            X509ExtendedKeyManager keyManager = StrUtil.isNotBlank(cert.getKeyPassword())
+                    ? PemUtils.loadIdentityMaterial(certInputStream, keyInputStream, cert.getKeyPassword().toCharArray())
+                    : PemUtils.loadIdentityMaterial(certInputStream, keyInputStream);
 
-        // 创建 KeyStore 并添加证书和私钥
-        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-        keyStore.load(null, null);
-
-        Certificate[] certChain = new Certificate[]{certificate};
-        char[] keyPassword = cert.getKeyPassword() != null ?
-            cert.getKeyPassword().toCharArray() : new char[0];
-
-        keyStore.setKeyEntry("client-cert", privateKey, keyPassword, certChain);
-
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, keyPassword);
-
-        log.debug("Loaded PEM certificate from: {} and key from: {}",
-            cert.getCertPath(), cert.getKeyPath());
-        return kmf.getKeyManagers();
-    }
-
-    /**
-     * 从 PEM 文件加载 X509 证书
-     */
-    private static X509Certificate loadCertificateFromPEM(String certPath) throws IOException, CertificateException {
-        String content = new String(Files.readAllBytes(Paths.get(certPath)));
-        content = content.replace("-----BEGIN CERTIFICATE-----", "")
-                         .replace("-----END CERTIFICATE-----", "")
-                         .replaceAll("\\s", "");
-
-        byte[] certBytes = Base64.getDecoder().decode(content);
-        CertificateFactory cf = CertificateFactory.getInstance("X.509");
-        return (X509Certificate) cf.generateCertificate(
-            new java.io.ByteArrayInputStream(certBytes));
-    }
-
-    /**
-     * 从 PEM 文件加载私钥
-     */
-    private static PrivateKey loadPrivateKeyFromPEM(String keyPath, String password)
-            throws IOException, GeneralSecurityException {
-        String content = new String(Files.readAllBytes(Paths.get(keyPath)));
-
-        // 检查是否是加密的私钥
-        if (content.contains("ENCRYPTED")) {
-            // 注意：password 参数预留用于未来支持加密私钥
-            throw new IllegalArgumentException(
-                "Encrypted PEM private keys are not supported yet. " +
-                "Please use unencrypted PEM or convert to PFX/P12 format. " +
-                "Password parameter: " + (password != null ? "provided" : "not provided"));
-        }
-
-        // 移除 PEM 头尾和空白字符
-        content = content.replaceAll("-----BEGIN.*PRIVATE KEY-----", "")
-                         .replaceAll("-----END.*PRIVATE KEY-----", "")
-                         .replaceAll("\\s", "");
-
-        byte[] keyBytes = Base64.getDecoder().decode(content);
-        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
-
-        // 尝试 RSA
-        try {
-            KeyFactory kf = KeyFactory.getInstance("RSA");
-            return kf.generatePrivate(spec);
-        } catch (Exception e) {
-            // 尝试 EC
-            try {
-                KeyFactory kf = KeyFactory.getInstance("EC");
-                return kf.generatePrivate(spec);
-            } catch (Exception e2) {
-                throw new GeneralSecurityException(
-                    "Failed to load private key. Supported algorithms: RSA, EC", e);
-            }
+            return new KeyManager[]{keyManager};
         }
     }
 

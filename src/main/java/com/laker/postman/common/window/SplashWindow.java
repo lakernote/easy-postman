@@ -300,20 +300,18 @@ public class SplashWindow extends JWindow {
 
             @Override
             protected void done() {
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        if (isDisposed) return;
+                try {
+                    if (isDisposed) return;
 
-                        setStatus(MessageKeys.SPLASH_STATUS_DONE);
-                        MainFrame mainFrame = get();
+                    setStatus(MessageKeys.SPLASH_STATUS_DONE);
+                    MainFrame mainFrame = get();
 
-                        // 启动渐隐动画关闭 SplashWindow
-                        startFadeOutAnimation(mainFrame);
+                    // 启动渐隐动画关闭 SplashWindow
+                    startFadeOutAnimation(mainFrame);
 
-                    } catch (Exception e) {
-                        handleMainFrameLoadError(e);
-                    }
-                });
+                } catch (Exception e) {
+                    handleMainFrameLoadError(e);
+                }
             }
         };
         worker.execute();

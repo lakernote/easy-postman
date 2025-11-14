@@ -23,7 +23,7 @@
         <logback-classic.version>1.5.20</logback-classic.version>
         <jfreechart.version>1.5.5</jfreechart.version>
         <okhttp.version>4.12.0</okhttp.version>
-        <polyglot.version>24.2.1</polyglot.version>
+        <polyglot.version>25.0.1</polyglot.version>
         <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
     </properties>
     <dependencies>

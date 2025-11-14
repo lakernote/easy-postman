@@ -2,5 +2,6 @@
 /target/
 /dist/
 /.idea/
+/.vscode/
 .DS_Store
 **/.DS_Store

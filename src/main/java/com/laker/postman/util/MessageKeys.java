@@ -470,6 +470,7 @@ public final class MessageKeys {
     public static final String COLLECTIONS_IMPORT_CURL_TITLE = "collections.import.curl.title";
     public static final String COLLECTIONS_IMPORT_EASY = "collections.import.easy";
     public static final String COLLECTIONS_IMPORT_POSTMAN = "collections.import.postman";
+    public static final String COLLECTIONS_IMPORT_HAR = "collections.import.har";
     public static final String COLLECTIONS_IMPORT_CURL = "collections.import.curl";
 
     // ============ 集合菜单相关 ============
@@ -501,6 +502,8 @@ public final class MessageKeys {
     public static final String COLLECTIONS_IMPORT_FAIL = "collections.import.fail";
     public static final String COLLECTIONS_IMPORT_POSTMAN_DIALOG_TITLE = "collections.import.postman.dialog_title";
     public static final String COLLECTIONS_IMPORT_POSTMAN_INVALID = "collections.import.postman.invalid";
+    public static final String COLLECTIONS_IMPORT_HAR_DIALOG_TITLE = "collections.import.har.dialog_title";
+    public static final String COLLECTIONS_IMPORT_HAR_INVALID = "collections.import.har.invalid";
     public static final String COLLECTIONS_IMPORT_CURL_DIALOG_TITLE = "collections.import.curl.dialog_title";
     public static final String COLLECTIONS_IMPORT_CURL_DIALOG_PROMPT = "collections.import.curl.dialog_prompt";
     public static final String COLLECTIONS_IMPORT_CURL_PARSE_FAIL = "collections.import.curl.parse_fail";

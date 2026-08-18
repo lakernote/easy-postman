@@ -10,6 +10,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertSame;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 public class SwingSavedResponseTreeMutationTest {
@@ -50,6 +51,34 @@ public class SwingSavedResponseTreeMutationTest {
         SwingSavedResponseTreeMutation.appendSavedResponse(root, treeItem, savedResponse).orElseThrow();
 
         assertEquals(treeItem.getResponse().size(), 1);
+    }
+
+    @Test
+    public void shouldUpdateAndRemoveSavedResponseById() {
+        HttpRequestItem request = new HttpRequestItem();
+        request.setId("request-1");
+        SavedResponse original = new SavedResponse();
+        original.setId("response-1");
+        original.setBody("old");
+        request.setResponse(new java.util.ArrayList<>(java.util.List.of(original)));
+        DefaultMutableTreeNode requestNode = CollectionTreeNodes.requestNode(request);
+        requestNode.add(CollectionTreeNodes.savedResponseNode(original));
+        DefaultMutableTreeNode root = rootWith(requestNode);
+
+        SavedResponse updated = new SavedResponse();
+        updated.setId("response-1");
+        updated.setBody("new");
+        updated.setMockScript("pm.response.setStatusCode(201);");
+        SwingSavedResponseTreeMutation.upsertSavedResponse(root, "request-1", updated).orElseThrow();
+
+        assertEquals(request.getResponse().size(), 1);
+        assertSame(request.getResponse().get(0), updated);
+        assertSame(CollectionTreeNodes.savedResponse((DefaultMutableTreeNode) requestNode.getChildAt(0)).orElseThrow(), updated);
+
+        SwingSavedResponseTreeMutation.removeSavedResponse(root, "request-1", "response-1").orElseThrow();
+        assertTrue(request.getResponse().isEmpty());
+        assertEquals(requestNode.getChildCount(), 0);
+        assertFalse(SwingSavedResponseTreeMutation.removeSavedResponse(root, "request-1", "missing").isPresent());
     }
 
     private DefaultMutableTreeNode rootWith(DefaultMutableTreeNode requestNode) {

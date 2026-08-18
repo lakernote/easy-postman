@@ -9,6 +9,20 @@ import static org.testng.Assert.assertEquals;
 
 public class SidebarTabTest {
 
+    @Test(description = "默认侧边栏应按配置、Mock、测试、工具的顺序排列")
+    public void testDefaultOrder_ShouldPlaceMockServerAfterWorkspaces() {
+        assertEquals(List.of(SidebarTab.values()), List.of(
+                SidebarTab.COLLECTIONS,
+                SidebarTab.ENVIRONMENTS,
+                SidebarTab.WORKSPACES,
+                SidebarTab.MOCK_SERVER,
+                SidebarTab.FUNCTIONAL,
+                SidebarTab.PERFORMANCE,
+                SidebarTab.TOOLBOX,
+                SidebarTab.HISTORY
+        ));
+    }
+
     @Test(description = "侧边栏排序配置应忽略未知和重复项，并补齐遗漏项")
     public void testResolveOrderedTabs_ShouldNormalizeConfiguredOrder() {
         List<SidebarTab> tabs = SidebarTab.resolveOrderedTabs(List.of(
@@ -31,6 +45,7 @@ public class SidebarTabTest {
                 "WORKSPACES",
                 "FUNCTIONAL",
                 "PERFORMANCE",
+                "MOCK_SERVER",
                 "TOOLBOX",
                 "HISTORY"
         );

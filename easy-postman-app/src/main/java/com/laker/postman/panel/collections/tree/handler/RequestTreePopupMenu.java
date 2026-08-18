@@ -1,5 +1,10 @@
 package com.laker.postman.panel.collections.tree.handler;
 
+import com.laker.postman.collection.model.RequestGroup;
+import com.laker.postman.common.UiSingletonFactory;
+import com.laker.postman.panel.mock.MockServerPanel;
+import com.laker.postman.panel.sidebar.SidebarTab;
+import com.laker.postman.panel.sidebar.SidebarTabPanel;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
 import com.laker.postman.panel.collections.tree.coordinator.RequestTreeCoordinator;
 import com.laker.postman.service.collections.CollectionTreeNodes;
@@ -93,6 +98,14 @@ public class RequestTreePopupMenu {
                 e -> coordinator.addSelectedRequestsToFunctionalTest()
         );
         menu.add(addToFunctional);
+
+        JMenuItem createMockServer = createMenuItem(
+                MessageKeys.COLLECTIONS_MENU_CREATE_MOCK_SERVER,
+                "icons/mock-server.svg",
+                e -> openMockServerForCollection(selectedNode)
+        );
+        createMockServer.setEnabled(!isMultipleSelection);
+        menu.add(createMockServer);
         menu.addSeparator();
 
         // 新增请求
@@ -154,6 +167,14 @@ public class RequestTreePopupMenu {
                 e -> coordinator.addSelectedRequestsToFunctionalTest()
         );
         menu.add(addToFunctional);
+
+        JMenuItem addMockResponse = createMenuItem(
+                MessageKeys.COLLECTIONS_MENU_ADD_MOCK_RESPONSE,
+                "icons/mock-server.svg",
+                e -> addMockResponse(selectedNode)
+        );
+        addMockResponse.setEnabled(!isMultipleSelection);
+        menu.add(addMockResponse);
         menu.addSeparator();
 
         // 新增请求（在同级分组下）
@@ -263,5 +284,32 @@ public class RequestTreePopupMenu {
         );
         item.addActionListener(listener);
         return item;
+    }
+
+    private void openMockServerForCollection(DefaultMutableTreeNode node) {
+        RequestGroup collection = rootCollection(node);
+        if (collection == null) return;
+        SidebarTabPanel sidebar = UiSingletonFactory.getInstance(SidebarTabPanel.class);
+        if (!sidebar.showTab(SidebarTab.MOCK_SERVER)) return;
+        MockServerPanel mockPanel = UiSingletonFactory.getInstance(MockServerPanel.class);
+        SwingUtilities.invokeLater(() -> mockPanel.createServerForCollection(collection.getId()));
+    }
+
+    private void addMockResponse(DefaultMutableTreeNode requestNode) {
+        RequestGroup collection = rootCollection(requestNode);
+        String requestId = CollectionTreeNodes.request(requestNode).map(item -> item.getId()).orElse(null);
+        if (collection == null || requestId == null) return;
+        SidebarTabPanel sidebar = UiSingletonFactory.getInstance(SidebarTabPanel.class);
+        if (!sidebar.showTab(SidebarTab.MOCK_SERVER)) return;
+        MockServerPanel mockPanel = UiSingletonFactory.getInstance(MockServerPanel.class);
+        SwingUtilities.invokeLater(() -> mockPanel.addMockResponseForRequest(collection.getId(), requestId));
+    }
+
+    private RequestGroup rootCollection(DefaultMutableTreeNode node) {
+        DefaultMutableTreeNode current = node;
+        while (current != null && current.getParent() != leftPanel.getRootTreeNode()) {
+            current = (DefaultMutableTreeNode) current.getParent();
+        }
+        return CollectionTreeNodes.group(current).orElse(null);
     }
 }

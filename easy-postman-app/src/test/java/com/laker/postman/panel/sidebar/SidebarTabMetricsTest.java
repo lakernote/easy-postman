@@ -63,8 +63,9 @@ public class SidebarTabMetricsTest {
         assertEquals(SidebarTabMetrics.TAB_AREA_INSET_LEFT, 2);
         assertEquals(SidebarTabMetrics.TAB_AREA_INSET_RIGHT, 2);
         assertEquals(SidebarTabMetrics.COLLAPSED_VISUAL_CENTER_OFFSET_X, 2);
-        assertEquals(SidebarTabMetrics.collapsedSelectedBackgroundX(0, 36, 32), 4);
-        assertEquals(SidebarTabMetrics.collapsedSelectedBackgroundX(0, 32, 32), 0);
+        assertEquals(SidebarTabMetrics.COLLAPSED_STATE_BACKGROUND_GUTTER_OFFSET_X, 1);
+        assertEquals(SidebarTabMetrics.collapsedSelectedBackgroundX(0, 36, 32), 5);
+        assertEquals(SidebarTabMetrics.collapsedSelectedBackgroundX(0, 32, 32), 1);
     }
 
     @Test
@@ -85,8 +86,8 @@ public class SidebarTabMetricsTest {
         );
 
         assertEquals(railWidth, 40);
-        assertEquals(backgroundX, 6);
-        assertEquals(railWidth - backgroundX - SidebarTabMetrics.COLLAPSED_SELECTED_BACKGROUND_WIDTH, 2);
+        assertEquals(backgroundX, 7);
+        assertEquals(railWidth - backgroundX - SidebarTabMetrics.COLLAPSED_SELECTED_BACKGROUND_WIDTH, 1);
     }
 
     @Test

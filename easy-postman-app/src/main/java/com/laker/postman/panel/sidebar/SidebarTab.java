@@ -6,6 +6,7 @@ import com.laker.postman.panel.collections.RequestCollectionsPanel;
 import com.laker.postman.panel.env.EnvironmentPanel;
 import com.laker.postman.panel.functional.FunctionalPanel;
 import com.laker.postman.panel.history.HistoryPanel;
+import com.laker.postman.panel.mock.MockServerPanel;
 import com.laker.postman.panel.performance.PerformancePanel;
 import com.laker.postman.panel.toolbox.ToolboxPanel;
 import com.laker.postman.panel.workspace.WorkspacePanel;
@@ -41,6 +42,11 @@ public enum SidebarTab {
             MessageKeys.MENU_WORKSPACES,
             "icons/workspace.svg",
             () -> UiSingletonFactory.getInstance(WorkspacePanel.class)
+    ),
+    MOCK_SERVER(
+            MessageKeys.MENU_MOCK_SERVER,
+            "icons/mock-server.svg",
+            () -> UiSingletonFactory.getInstance(MockServerPanel.class)
     ),
     FUNCTIONAL(
             MessageKeys.MENU_FUNCTIONAL,

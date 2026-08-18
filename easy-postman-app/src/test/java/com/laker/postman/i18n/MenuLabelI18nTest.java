@@ -16,6 +16,7 @@ public class MenuLabelI18nTest {
 
         assertEquals(zh.getString(MessageKeys.COLLECTIONS_MENU_ADD_TO_FUNCTIONAL), "功能测试");
         assertEquals(zh.getString(MessageKeys.MENU_PERFORMANCE), "性能测试");
+        assertEquals(zh.getString(MessageKeys.MENU_MOCK_SERVER), "Mock Server");
     }
 
     @Test
@@ -24,5 +25,6 @@ public class MenuLabelI18nTest {
 
         assertEquals(en.getString(MessageKeys.COLLECTIONS_MENU_ADD_TO_FUNCTIONAL), "Functional");
         assertEquals(en.getString(MessageKeys.MENU_FUNCTIONAL), "Functional");
+        assertEquals(en.getString(MessageKeys.MENU_MOCK_SERVER), "Mock Server");
     }
 }

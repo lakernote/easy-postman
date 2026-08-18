@@ -307,6 +307,25 @@ public class CollectionTreePanel extends UiSingletonPanel {
         return true;
     }
 
+    public boolean upsertResponseForRequest(String requestId, SavedResponse savedResponse) {
+        SwingCollectionRequestSaveCoordinator.SavedResponseSaveResult result = requestSaveCoordinator
+                .upsertSavedResponse(requestId, savedResponse)
+                .orElse(null);
+        if (result == null) return false;
+        treeModel.reload(result.requestNode());
+        requestTree.expandPath(new TreePath(result.requestNode().getPath()));
+        return true;
+    }
+
+    public boolean deleteResponseForRequest(String requestId, String responseId) {
+        SwingCollectionRequestSaveCoordinator.RequestSaveResult result = requestSaveCoordinator
+                .removeSavedResponse(requestId, responseId)
+                .orElse(null);
+        if (result == null) return false;
+        treeModel.reload(result.requestNode());
+        return true;
+    }
+
 
     /**
      * 获取分组树的 TreeModel（用于分组选择树）

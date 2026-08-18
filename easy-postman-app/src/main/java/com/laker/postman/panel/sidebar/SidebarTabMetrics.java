@@ -20,6 +20,10 @@ class SidebarTabMetrics {
     static final int COLLAPSED_SELECTED_BACKGROUND_HEIGHT = 32;
     // 折叠态菜单左侧紧贴窗口边缘，右侧又临近内容卡片 gap，需要轻微右移抵消视觉偏左。
     static final int COLLAPSED_VISUAL_CENTER_OFFSET_X = 2;
+    // BasicTabbedPaneUI 会给未选中 tab label 一个 +1px 位移，选中态默认则是 -1px。
+    // 统一 label 位移后，状态背景也向内容卡片 gutter 补偿 1px，才能和图标共享视觉中心。
+    static final int COLLAPSED_TAB_LABEL_SHIFT_X = 1;
+    static final int COLLAPSED_STATE_BACKGROUND_GUTTER_OFFSET_X = 1;
     static final int SELECTED_BACKGROUND_ARC = 10;
 
     static final int EXPANDED_TAB_PADDING_VERTICAL = 6;
@@ -81,7 +85,9 @@ class SidebarTabMetrics {
     static int collapsedSelectedBackgroundX(int tabX, int tabWidth, int backgroundWidth) {
         int availableSpace = Math.max(0, tabWidth - backgroundWidth);
         int centeredX = availableSpace / 2 + COLLAPSED_VISUAL_CENTER_OFFSET_X;
-        return tabX + Math.min(centeredX, availableSpace);
+        return tabX
+                + Math.min(centeredX, availableSpace)
+                + COLLAPSED_STATE_BACKGROUND_GUTTER_OFFSET_X;
     }
 
     static int collapsedIconPaddingLeft() {

@@ -45,6 +45,7 @@ public class ToolWindowStyleConventionsTest {
             "easy-postman-plugins/plugin-redis/src/main/java/com/laker/postman/plugin/redis/RedisPanel.java"
     );
     private static final List<String> SIDEBAR_SECTION_HEADERS = List.of(
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/ElasticsearchPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/InfluxDbPanel.java",
             "easy-postman-plugins/plugin-kafka/src/main/java/com/laker/postman/plugin/kafka/ui/KafkaTopicPanel.java",
@@ -55,6 +56,7 @@ public class ToolWindowStyleConventionsTest {
             "easy-postman-app/src/main/java/com/laker/postman/panel/functional/ExecutionResultsPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/functional/FunctionalPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/history/HistoryPanel.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/performance/PerformancePanelViewFactory.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/performance/config/CsvDataSetPropertyPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/performance/result/PerformanceReportPanel.java",
@@ -90,6 +92,8 @@ public class ToolWindowStyleConventionsTest {
     private static final List<String> COMPACT_TOOL_WINDOW_FONT_PANELS = List.of(
             "easy-postman-app/src/main/java/com/laker/postman/common/component/dialog/WorkspaceSelectionDialog.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/collections/editor/request/sub/AuthTabPanel.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerConfigDialog.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/CronPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/CryptoPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/DiffPanel.java",
@@ -123,6 +127,7 @@ public class ToolWindowStyleConventionsTest {
             "easy-postman-app/src/main/java/com/laker/postman/panel/env/EnvironmentPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/functional/FunctionalPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/history/HistoryPanel.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/performance/PerformancePanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/ToolboxPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java",
@@ -139,6 +144,7 @@ public class ToolWindowStyleConventionsTest {
             "easy-postman-app/src/main/java/com/laker/postman/panel/env/EnvironmentPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/functional/FunctionalPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/history/HistoryPanel.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/performance/PerformancePanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/ToolboxPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java"
@@ -148,6 +154,7 @@ public class ToolWindowStyleConventionsTest {
             "easy-postman-app/src/main/java/com/laker/postman/panel/env/EnvironmentPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/functional/ExecutionResultsPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/history/HistoryPanel.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/performance/PerformancePanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/ToolboxPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java",
@@ -156,11 +163,13 @@ public class ToolWindowStyleConventionsTest {
     private static final List<String> STACKED_TOOL_WINDOW_SPLITS = List.of();
     private static final List<String> TOOL_WINDOW_DIALOG_SHELLS = List.of(
             "easy-postman-app/src/main/java/com/laker/postman/common/component/dialog/SnippetDialog.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerConfigDialog.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/sidebar/cookie/CookieManagerDialog.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/sidebar/global/GlobalVariablesDialog.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/topmenu/setting/ModernSettingsDialog.java"
     );
     private static final List<String> MAC_TITLE_BAR_AWARE_DIALOGS = List.of(
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerConfigDialog.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/components/GitOperationDialog.java"
     );
     private static final List<String> SETTINGS_TABLE_SURFACES = List.of(
@@ -170,6 +179,7 @@ public class ToolWindowStyleConventionsTest {
     private static final List<String> LIST_SCROLL_SURFACES = List.of(
             "easy-postman-app/src/main/java/com/laker/postman/panel/env/EnvironmentPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/history/HistoryPanel.java",
+            "easy-postman-app/src/main/java/com/laker/postman/panel/mock/MockServerPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/ElasticsearchPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/toolbox/InfluxDbPanel.java",
             "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java",

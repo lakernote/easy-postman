@@ -18,6 +18,7 @@ import com.laker.postman.model.WorkspaceType;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
 import com.laker.postman.panel.env.EnvironmentPanel;
 import com.laker.postman.panel.functional.FunctionalPanel;
+import com.laker.postman.panel.mock.MockServerPanel;
 import com.laker.postman.panel.performance.PerformancePanel;
 import com.laker.postman.panel.topmenu.TopMenuBar;
 import com.laker.postman.panel.workspace.components.*;
@@ -549,6 +550,8 @@ public class WorkspacePanel extends UiSingletonPanel {
                 .ifPresent(FunctionalPanel::switchWorkspaceAndRefreshUI);
         UiSingletonFactory.getExistingInstance(PerformancePanel.class)
                 .ifPresent(PerformancePanel::switchWorkspaceAndRefreshUI);
+        UiSingletonFactory.getExistingInstance(MockServerPanel.class)
+                .ifPresent(MockServerPanel::switchWorkspaceAndRefreshUI);
     }
 
     /**

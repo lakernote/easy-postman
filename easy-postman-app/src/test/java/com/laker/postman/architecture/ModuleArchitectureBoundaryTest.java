@@ -52,6 +52,7 @@ public class ModuleArchitectureBoundaryTest {
         assertTrue(Files.isDirectory(root.resolve("easy-postman-request-core")));
         assertTrue(Files.isDirectory(root.resolve("easy-postman-http-runtime")));
         assertTrue(Files.isDirectory(root.resolve("easy-postman-collection-core")));
+        assertTrue(Files.isDirectory(root.resolve("easy-postman-mock-core")));
         assertTrue(Files.isDirectory(root.resolve("easy-postman-platform")));
         assertTrue(Files.isDirectory(root.resolve("easy-postman-ui")));
         assertFalse(Files.exists(root.resolve("easy-postman-core")));
@@ -188,6 +189,34 @@ public class ModuleArchitectureBoundaryTest {
 
         assertTrue(violations.isEmpty(),
                 "Collection core must stay UI-free and host/runtime/transport-free: " + violations);
+    }
+
+    @Test
+    public void mockCoreStaysHeadlessLocalAndDependencyLight() throws IOException {
+        Path root = repositoryRoot();
+        Path sourceRoot = root.resolve("easy-postman-mock-core/src/main/java");
+        List<String> sourceViolations = sourcePackageViolations(sourceRoot, List.of(
+                "javax.swing", "java.awt", "com.laker.postman.panel", "com.laker.postman.service",
+                "com.laker.postman.ioc", "com.laker.postman.collection", "com.laker.postman.request",
+                "org.graalvm", "okhttp3", "io.netty", "org.nanohttpd"
+        ));
+        assertTrue(sourceViolations.isEmpty(),
+                "Mock core must stay headless, host-free, and independent of external server/script stacks: "
+                        + sourceViolations);
+
+        String pom = Files.readString(root.resolve("easy-postman-mock-core/pom.xml"));
+        List<String> dependencyViolations = List.of(
+                        "<artifactId>easy-postman</artifactId>",
+                        "<artifactId>easy-postman-ui</artifactId>",
+                        "<artifactId>easy-postman-platform</artifactId>",
+                        "<artifactId>easy-postman-request-core</artifactId>",
+                        "<artifactId>easy-postman-collection-core</artifactId>",
+                        "<artifactId>polyglot</artifactId>",
+                        "<artifactId>okhttp", "<artifactId>netty", "<artifactId>nanohttpd"
+                ).stream().filter(pom::contains).toList();
+        assertTrue(dependencyViolations.isEmpty(),
+                "Mock core pom must not pull host, UI, collection/request, or external server/script dependencies: "
+                        + dependencyViolations);
     }
 
     @Test

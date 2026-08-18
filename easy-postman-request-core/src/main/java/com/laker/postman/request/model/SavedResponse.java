@@ -29,6 +29,10 @@ public class SavedResponse implements Serializable {
     private String body; // 响应体
     private String previewLanguage; // 预览语言类型，如 "json", "html", "xml" 等
 
+    // 本地 Mock 扩展。为空时保持普通静态 Example 行为。
+    private int mockDelayMs;
+    private String mockScript = "";
+
     // 性能信息
     private long costMs; // 请求耗时（毫秒）
     private long bodySize; // 响应体大小（字节）

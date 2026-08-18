@@ -69,6 +69,24 @@ public final class SwingCollectionRequestSaveCoordinator {
         ));
     }
 
+    public Optional<SavedResponseSaveResult> upsertSavedResponse(String requestId, SavedResponse savedResponse) {
+        Optional<SwingSavedResponseTreeMutation.Result> mutation = SwingSavedResponseTreeMutation
+                .upsertSavedResponse(rootTreeNode, requestId, savedResponse);
+        if (mutation.isEmpty()) return Optional.empty();
+        persist();
+        SwingSavedResponseTreeMutation.Result result = mutation.get();
+        return Optional.of(new SavedResponseSaveResult(result.requestNode(), result.treeRequestItem(), savedResponse));
+    }
+
+    public Optional<RequestSaveResult> removeSavedResponse(String requestId, String responseId) {
+        Optional<SwingSavedResponseTreeMutation.Result> mutation = SwingSavedResponseTreeMutation
+                .removeSavedResponse(rootTreeNode, requestId, responseId);
+        if (mutation.isEmpty()) return Optional.empty();
+        persist();
+        SwingSavedResponseTreeMutation.Result result = mutation.get();
+        return Optional.of(new RequestSaveResult(null, result.requestNode(), result.treeRequestItem()));
+    }
+
     public DefaultMutableTreeNode findGroupNode(DefaultMutableTreeNode node, RequestGroup targetGroup) {
         if (node == null || targetGroup == null) {
             return null;

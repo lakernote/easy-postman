@@ -64,6 +64,50 @@
 - ✅ Formatted response display (JSON, XML, HTML)
 - ✅ Response time, status code, size statistics
 
+### Self-hosted Mock Server
+- ✅ Create workspace-scoped servers from the top-level **Mock Server** sidebar menu
+- ✅ Collections are optional: link zero, one, or multiple collections and show all HTTP requests, including requests without a configured response
+- ✅ Add standalone routes and edit status, headers, body, and delay without calling a real API or creating a collection first
+- ✅ Create a server from a collection menu or add a Mock response from a request menu
+- ✅ Keep collection-backed responses as Examples; persist standalone routes directly in `mock_servers.json`
+- ✅ Match method/path/query, with optional named headers and JSON/text request bodies
+- ✅ Select Examples with `x-mock-response-id`, `x-mock-response-name`, or `x-mock-response-code`
+- ✅ Enable exact matching per call with `x-mock-match-request-body` or `x-mock-match-request-headers`
+- ✅ Route-level **Code Mock** plus an optional global script through `pm.request`, `pm.response`, and `pm.state`
+- ✅ `pm.*` completion, enabled state, API quick reference, and 8 curated built-in examples with preview and insert/replace actions
+- ✅ CORS, server/route delay, per-call `x-mock-response-delay`, bounded/optional call logs, and `x-mock-session-id` state isolation
+- ✅ Zero-dependency JDK `HttpServer` runtime with CPU-scaled workers and method-indexed routes for concurrent development and lightweight load tests
+- ✅ Listen on all network interfaces by default and display a shareable LAN URL, with an optional shared `x-api-key`
+- ✅ Store `mock_servers.json` beside `collections.json` in the current workspace so Git workspaces version them together
+- ✅ Run headlessly with `mock run` after copying the workspace to a server or CI runner
+- ✅ Copy the workspace-specific self-host command directly from the management page
+- ✅ No EasyPostman cloud hosting, team permissions, external npm packages, or AI generation
+
+Server example:
+
+```bash
+EASY_POSTMAN_MOCK_API_KEY=change-me \
+java -jar easy-postman.jar mock run /path/to/workspace \
+  --server "Payments Mock" --host 0.0.0.0 --port 3001
+```
+
+For internet-facing use, terminate HTTPS behind Nginx, Caddy, or a cloud load balancer and restrict the inbound firewall rule.
+
+Script example:
+
+```javascript
+const input = JSON.parse(pm.request.body || "{}");
+if (Number(input.amount) === 0.5) {
+  pm.response.setStatusCode(402);
+  pm.response.setBody(JSON.stringify({ status: "deny" }));
+} else if (Number(input.amount) === 1.1) {
+  pm.response.setStatusCode(200);
+  pm.response.setBody(JSON.stringify({ status: "partial_approval" }));
+}
+```
+
+`pm.request` exposes `method`, `path`, `body`, `header(name)`, `query(name)`, and `pathVariable(name)`. `pm.response` lets scripts set the status code, headers, body, and `delayMs`. State is memory-only and is discarded when cleared, when the runtime is refreshed, or when the app exits.
+
 ---
 
 ## 🌍 Environment Management

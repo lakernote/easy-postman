@@ -104,6 +104,7 @@ EasyPostman is a GUI-first tool, and the project value is easier to judge when b
 - **Variables** - Environment, global, request, and iteration data support for repeatable runs
 - **Import/Export** - Postman v2.1 and cURL support, with HAR and OpenAPI/Swagger paths under active development
 - **Headless workspace runs** - Use separate collection and functional commands to run native EasyPostman workspaces from the cross-platform JAR with CI exit codes
+- **Self-hosted Mock Server** - Create standalone routes or link multiple collections, share them on your LAN, or run them headlessly on a server, with static responses, route-level Code Mock, access keys, session state, and optional call logs
 
 ### ⚡ JMeter-style Performance Testing
 - **Scenario design in the GUI** - Thread groups, timers, extractors, assertions, and result views

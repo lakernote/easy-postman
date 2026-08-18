@@ -10,6 +10,7 @@ easy-postman-parent
 ├── easy-postman-request-core
 ├── easy-postman-http-runtime
 ├── easy-postman-collection-core
+├── easy-postman-mock-core
 ├── easy-postman-plugin-api
 ├── easy-postman-platform
 ├── easy-postman-ui
@@ -28,6 +29,8 @@ easy-postman-parent
 `easy-postman-http-runtime` 是无 UI 的 HTTP 传输运行时层。它放发送态模型 `PreparedRequest`、`HttpResponse`、`HttpEventInfo`，以及 `http.runtime.transport`、`http.runtime.okhttp`、`http.runtime.ssl`、`http.runtime.sse`、`http.runtime.cookie`、`http.runtime.redirect`、`http.runtime.error`、`http.runtime.config`、`http.runtime.interaction`、`http.runtime.observation` 下的传输执行、OkHttp 适配、TLS/证书、SSE、Cookie、redirect、错误映射、运行期设置、交互端口和观测端口。该模块可以依赖 foundation、request-core 和 OkHttp，但不能依赖 Swing/AWT、panel、app `SettingManager`、插件宿主访问器或 IOC。宿主必须通过 `HttpRuntimeSettingsProvider`、`ClientCertificateProvider`、sink/dispatcher 等端口注入设置、证书和 UI 交互实现。
 
 `easy-postman-collection-core` 是集合领域核心层。它放集合树和导入解析可复用的无 UI 类型，例如 `RequestGroup`、`CollectionNode`、`CollectionNodeType`、`CollectionParseResult`、集合认证解析 helper，以及 Postman collection parser。它可以依赖 `easy-postman-foundation` 和 `easy-postman-request-core`，但不能依赖 Swing/AWT、OkHttp、app service/panel/runtime、platform、plugin-runtime、IOC 或具体发送/渲染实现。`TreeNodeBuilder`、集合树 UI、持久化服务、导出器和其他仍绑定宿主 UI/服务的逻辑先留在 `easy-postman-app`。
+
+`easy-postman-mock-core` 是自托管 Mock Server 的无 UI 运行时。它放 Mock 定义、Example 路由快照、method/path/query/header/body 匹配、JDK `HttpServer`、有界调用日志、内存会话状态、可选共享访问密钥和中立 `MockScriptExecutor` 端口。它只依赖 foundation 和 JDK，不引入 Swing/AWT、collection/request 模型、app service、GraalVM、OkHttp/Netty、platform IOC 或 plugin runtime。集合到路由的映射、工作区持久化、GraalJS 脚本适配、无头 CLI 和 Swing 管理页属于 `easy-postman-app`。运行时可以绑定 loopback、本机网卡或所有网卡，用于本机开发、局域网共享和用户自行部署；不承担 EasyPostman 云端托管、团队权限、npm 包或 AI 生成能力。
 
 `easy-postman-plugin-api` 是插件契约层。它放插件 SPI、插件描述、插件上下文、扩展点数据结构和插件服务接口，例如 `GitPluginService`、`ClientCertificatePluginService`、`RequestCollectionImportService`。插件和宿主通过这里的类型建立契约。
 
@@ -77,10 +80,11 @@ HTTP 发送执行链按“准备在 app，传输在 runtime，UI 在 adapter”�
 2. 是否是请求配置/保存响应/请求协议这类可复用请求规格模型？是则 `request-core`。
 3. 是否是集合树/集合分组/导入解析这类可复用且无 UI 的集合领域模型？是则 `collection-core`。
 4. 是否是插件对宿主声明能力的契约？是则 `plugin-api`。
-5. 是否是可复用 Swing 组件、颜色、字体、图标或 UI 工具？是则 `ui`。
-6. 是否是插件加载、扫描、生命周期或 registry？是则 `plugin-runtime`。
-7. 是否是平台框架能力，例如 IOC、启动编排、升级、欢迎页、帮助、设置中心、主题/字体应用编排？能脱离具体 app UI 时放 `platform`，否则先留 `app`。
-8. 是否是具体宿主页面、菜单或业务组装？是则放 `app`。
+5. 是否是无 UI 的本地 Mock 路由匹配、会话状态或 JDK HTTP 运行时？是则 `mock-core`；集合/GraalJS/Swing 适配留在 `app`。
+6. 是否是可复用 Swing 组件、颜色、字体、图标或 UI 工具？是则 `ui`。
+7. 是否是插件加载、扫描、生命周期或 registry？是则 `plugin-runtime`。
+8. 是否是平台框架能力，例如 IOC、启动编排、升级、欢迎页、帮助、设置中心、主题/字体应用编排？能脱离具体 app UI 时放 `platform`，否则先留 `app`。
+9. 是否是具体宿主页面、菜单或业务组装？是则放 `app`。
 
 更新能力按这条边界拆：版本检查、更新源、资产解析、变更日志和 `UpdateInfo`/`UpdateCheckFrequency` 这类平台数据放 `easy-postman-platform`；`AppUpdateCheckCoordinator`、`UpdateUiController`、`UpdateDownloader`、更新弹窗、安装/退出流程、插件市场更新 UI 留在 `easy-postman-app`。platform 不能直接依赖 app 的 `SettingManager`，需要通过 `UpdateSettingsProvider` 这类最小接口由 app 适配。
 
@@ -92,6 +96,7 @@ HTTP 发送执行链按“准备在 app，传输在 runtime，UI 在 adapter”�
 - 不要把请求规格模型重新放回 `easy-postman-app` 的 `com.laker.postman.model`。
 - 不要让 `easy-postman-request-core` 依赖 Swing、OkHttp、app service、panel 或插件运行时。
 - 不要把集合核心模型或 Postman collection parser 放回 `easy-postman-app`，也不要让 `easy-postman-collection-core` 依赖 Swing、OkHttp、app service/panel/runtime、platform、plugin-runtime 或 IOC。
+- 不要让 `easy-postman-mock-core` 依赖 Swing/AWT、collection/request 模型、app service、GraalVM、OkHttp/Netty、platform IOC 或 plugin runtime，也不要在这里扩展云端部署、权限和 npm 生态。
 - 不要让 HTTP 发送、OkHttp 适配、SSL、Cookie 通知这类 runtime/service 代码直接依赖 Swing/panel；使用中立 sink/dispatcher，由 Swing/JavaFX adapter 实现。
 - 不要把插件服务接口放进 `foundation`。
 - 不要让普通官方插件依赖 `easy-postman-app`；`easy-postman-plugins/plugin-manager` 是宿主 app 可直接依赖的插件管理特例，不能作为新插件模板。
@@ -116,6 +121,10 @@ easy-postman-request-core
 easy-postman-collection-core
   已有：集合树纯模型、分组模型、解析结果、Postman collection parser
   后续：导出中立 DTO、集合读写契约、非 UI 查询/复制/继承逻辑
+
+easy-postman-mock-core
+  已有：本地 JDK HTTP 服务、Example 路由匹配、会话状态、日志和脚本端口
+  边界：支持本机、局域网和自托管运行，不增加 EasyPostman 云端、团队权限、npm 或 AI 生成依赖
 
 easy-postman-runtime-core
   后续：变量解析、脚本流水线契约、断言/提取器中立运行模型；具体 Rhino/Graal/HTTP 适配仍按依赖拆分

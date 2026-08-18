@@ -3,6 +3,8 @@ package com.laker.postman.util;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class JsonUtilTest {
 
@@ -36,5 +38,12 @@ public class JsonUtilTest {
                 {
                     "url": "https://example.com/a//b"
                 }""");
+    }
+
+    @Test(description = "JSON 结构比较应忽略对象字段顺序，但保留数组顺序")
+    public void structurallyEqualShouldCompareParsedJson() {
+        assertTrue(JsonUtil.isStructurallyEqual("{\"a\":1,\"b\":[2,3]}", "{\"b\":[2,3],\"a\":1}"));
+        assertFalse(JsonUtil.isStructurallyEqual("[1,2]", "[2,1]"));
+        assertFalse(JsonUtil.isStructurallyEqual("plain text", "plain text"));
     }
 }

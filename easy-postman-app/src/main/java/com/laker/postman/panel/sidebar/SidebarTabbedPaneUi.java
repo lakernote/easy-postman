@@ -113,6 +113,17 @@ final class SidebarTabbedPaneUi extends BasicTabbedPaneUI {
     }
 
     @Override
+    protected int getTabLabelShiftX(int tabPlacement, int tabIndex, boolean isSelected) {
+        if (!sidebarExpandedSupplier.getAsBoolean()) {
+            // BasicTabbedPaneUI defaults to -1 for the selected LEFT tab and +1 for the others.
+            // That makes the icon jump left as soon as it is selected. Keep every collapsed icon
+            // on the same visual center regardless of selection state.
+            return SidebarTabMetrics.COLLAPSED_TAB_LABEL_SHIFT_X;
+        }
+        return super.getTabLabelShiftX(tabPlacement, tabIndex, isSelected);
+    }
+
+    @Override
     protected JButton createScrollButton(int direction) {
         return new SidebarScrollButton(direction);
     }

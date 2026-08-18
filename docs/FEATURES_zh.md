@@ -64,6 +64,50 @@
 - ✅ 响应数据格式化显示（JSON、XML、HTML）
 - ✅ 响应时间、状态码、大小统计
 
+### 自托管 Mock Server
+- ✅ 从左侧一级菜单“Mock Server”为当前工作区创建服务
+- ✅ 集合不是必选项；一个服务可关联 0～多个集合，并列出其中全部 HTTP 请求（包括尚未配置响应的请求）
+- ✅ 无需先调用真实接口或创建集合，可直接新增独立路由并编辑状态码、响应头、Body 和延迟
+- ✅ 集合右键可创建 Mock Server，请求右键可直接添加 Mock 响应
+- ✅ 集合请求的响应仍保存为集合 Example；独立路由直接保存在 `mock_servers.json`
+- ✅ 匹配 method/path/query，可选匹配指定 header 和 JSON/文本 body
+- ✅ 支持 `x-mock-response-id`、`x-mock-response-name`、`x-mock-response-code` 选择 Example
+- ✅ 支持 `x-mock-match-request-body`、`x-mock-match-request-headers` 按单次请求启用精确匹配
+- ✅ 支持路由级 **Code Mock** 和可选全局脚本，通过 `pm.request`、`pm.response`、`pm.state` 动态响应
+- ✅ Code Mock 编辑器支持 `pm.*` 自动补全、启用状态、API 速查，以及 8 个精选常用示例，可预览、插入或替换
+- ✅ 支持 CORS、固定/路由延迟、`x-mock-response-delay` 临时延迟、有界/可关闭的调用日志和 `x-mock-session-id` 会话状态
+- ✅ 使用零额外服务端依赖的 JDK `HttpServer`，按 CPU 扩展工作线程并按 HTTP Method 预索引路由，适合并发联调和轻量压测
+- ✅ 默认监听所有网卡并显示可分享的局域网 URL；可通过 `x-api-key` 设置共享访问密钥
+- ✅ `mock_servers.json` 与 `collections.json` 一同保存在当前工作区，Git 工作区会一起版本管理
+- ✅ 支持 `mock run` 无界面运行，可将工作区复制到服务器或 CI 自行托管
+- ✅ 管理页可直接复制对应工作区和服务的自托管启动命令
+- ✅ 不包含 EasyPostman 云端托管、团队权限、外部 npm 包或 AI 生成
+
+服务器启动示例：
+
+```bash
+EASY_POSTMAN_MOCK_API_KEY=change-me \
+java -jar easy-postman.jar mock run /path/to/workspace \
+  --server "Payments Mock" --host 0.0.0.0 --port 3001
+```
+
+公网使用建议放在 Nginx、Caddy 或云负载均衡后面终止 HTTPS，并限制防火墙入站端口。
+
+脚本示例：
+
+```javascript
+const input = JSON.parse(pm.request.body || "{}");
+if (Number(input.amount) === 0.5) {
+  pm.response.setStatusCode(402);
+  pm.response.setBody(JSON.stringify({ status: "deny" }));
+} else if (Number(input.amount) === 1.1) {
+  pm.response.setStatusCode(200);
+  pm.response.setBody(JSON.stringify({ status: "partial_approval" }));
+}
+```
+
+`pm.request` 提供 `method`、`path`、`body`、`header(name)`、`query(name)` 和 `pathVariable(name)`；`pm.response` 可设置状态码、header、body 和 `delayMs`。状态仅存于内存，清空状态、刷新服务运行时或退出应用后不保留。
+
 ---
 
 ## 🌍 环境管理

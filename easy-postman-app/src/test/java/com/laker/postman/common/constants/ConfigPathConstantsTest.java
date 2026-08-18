@@ -62,4 +62,16 @@ public class ConfigPathConstantsTest {
                 ConfigPathConstants.DEFAULT_WORKSPACE_DIR + "functional_config.json"
         );
     }
+
+    @Test(description = "Mock Server 配置路径应位于指定工作区目录内")
+    public void shouldResolveMockServersPathForWorkspace() {
+        Workspace workspace = new Workspace();
+        workspace.setPath("/tmp/easy-postman-workspace" + File.separator);
+
+        assertEquals(
+                ConfigPathConstants.getMockServersPath(workspace),
+                "/tmp/easy-postman-workspace" + File.separator + "mock_servers.json"
+        );
+        assertEquals(ConfigPathConstants.getMockServersPath(null), ConfigPathConstants.MOCK_SERVERS);
+    }
 }

@@ -195,6 +195,22 @@ public class JsonUtil {
     }
 
     /**
+     * Compares JSON objects or arrays by structure, ignoring object field order and formatting.
+     */
+    public static boolean isStructurallyEqual(String left, String right) {
+        if (CharSequenceUtil.isBlank(left) || CharSequenceUtil.isBlank(right)) return false;
+        try {
+            JsonNode leftNode = mapper.readTree(left);
+            JsonNode rightNode = mapper.readTree(right);
+            boolean structured = (leftNode.isObject() || leftNode.isArray())
+                    && (rightNode.isObject() || rightNode.isArray());
+            return structured && leftNode.equals(rightNode);
+        } catch (JacksonException exception) {
+            return false;
+        }
+    }
+
+    /**
      * 读取 json
      *
      * @param json 待读取的 json

@@ -39,6 +39,14 @@ public final class CollectionTreeEditorGateway {
         return collectionTreePanel().saveResponseForRequest(requestItem, savedResponse);
     }
 
+    public boolean upsertResponseForRequest(String requestId, SavedResponse savedResponse) {
+        return collectionTreePanel().upsertResponseForRequest(requestId, savedResponse);
+    }
+
+    public boolean deleteResponseForRequest(String requestId, String responseId) {
+        return collectionTreePanel().deleteResponseForRequest(requestId, responseId);
+    }
+
     private CollectionTreePanel collectionTreePanel() {
         return UiSingletonFactory.getInstance(CollectionTreePanel.class);
     }

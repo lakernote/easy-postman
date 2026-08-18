@@ -28,25 +28,28 @@ Read `docs/ARCHITECTURE_MODULES_zh.md` first when the task is about module place
 5. Put HTTP transport runtime in `easy-postman-http-runtime`.
    Examples: `PreparedRequest`, `HttpResponse`, `HttpEventInfo`, runtime settings/provider, OkHttp adapters, TLS/client certificate ports, Cookie store, SSE callbacks, redirect execution, UI-neutral interaction sinks, and network observation sinks. Keep it UI-free and host-free: no Swing/AWT, app `SettingManager`, app plugin-host accessors, panel code, platform IOC, or JavaFX/Swing-specific adapters.
 
-6. Put shared Swing design-system code in `easy-postman-ui`.
+6. Put the self-hosted Mock Server runtime in `easy-postman-mock-core`.
+   Examples: mock definition DTOs, Example route snapshots, method/path/query/header/body matching, JDK `HttpServer`, bounded call logs, volatile session state, optional shared access-key enforcement, and the neutral `MockScriptExecutor` port. Keep it UI-free and host-free: no Swing/AWT, collection/request models, app services, GraalVM, OkHttp/Netty, platform IOC, or plugin runtime. Collection mapping, workspace persistence, GraalJS adaptation, headless CLI, and Swing UI stay in `easy-postman-app`.
+
+7. Put shared Swing design-system code in `easy-postman-ui`.
    Examples: `FontsUtil`, `IconUtil`, `NotificationCenter`, `EditorThemeUtil`, `ModernColors`, reusable toolbar buttons/search/table/dialog/form controls such as `EditButton`, `SaveButton`, `WrapToggleButton`, `EasyComboBox`, `EasyJSpinner`, `EasyPasswordField`, and the icons/resources those reusable components directly reference.
    UI singleton framework classes such as `UiSingletonFactory`, `UiSingletonPanel`, `UiSingletonMenuBar`, plus Swing refresh/save helpers such as `IRefreshable` and `DebouncedSaveSupport`, also belong here.
    Generic action/control/status icons such as save, copy, paste, search, clear, cancel, close, delete, duplicate, eye, info, warning, arrows, chevrons, wrap, start, stop, send, connect, collapse, expand, more, detail, import, and export belong here. Do not duplicate the same `icons/*.svg` resource path in `easy-postman-app`, and do not make official plugins depend on app-only icon resources.
 
-7. Put plugin loading mechanics in `easy-postman-plugin-runtime`.
+8. Put plugin loading mechanics in `easy-postman-plugin-runtime`.
    Examples: plugin scanning, descriptor parsing, classloaders, registry, lifecycle, disabled/uninstall state.
 
-8. Put performance domain core contracts in `easy-postman-performance-core`: editable plan data, executable `plan.json`, runtime contracts, stats/report snapshots, worker assignments, and asset references. Keep concrete GUI/headless execution adapters in `easy-postman-app` until the app execution semantics can be extracted without pulling in Swing, workspace services, or app-only state.
+9. Put performance domain core contracts in `easy-postman-performance-core`: editable plan data, executable `plan.json`, runtime contracts, stats/report snapshots, worker assignments, and asset references. Keep concrete GUI/headless execution adapters in `easy-postman-app` until the app execution semantics can be extracted without pulling in Swing, workspace services, or app-only state.
 
-9. Put host platform framework capabilities in `easy-postman-platform` when they can be separated from concrete app UI.
+10. Put host platform framework capabilities in `easy-postman-platform` when they can be separated from concrete app UI.
    Current examples: the custom IOC container under `com.laker.postman.ioc`, and update discovery core under `com.laker.postman.platform.update` (version comparison, update source selection, asset resolution, changelog fetching/formatting, update result models).
    Future examples: startup orchestration, welcome/help, settings center, and theme/font application orchestration.
 
-10. Keep concrete host UI and composition in `easy-postman-app`.
+11. Keep concrete host UI and composition in `easy-postman-app`.
    Examples: `App`, `MainFrame`, menus, app-only panels, settings pages, update dialogs, update download/install/exit flow, welcome/help pages, and concrete startup wiring that still depends on app UI.
    Do not recreate a generic app model package for HTTP runtime exchange snapshots. Domain-specific app models should live with their owner package, such as `functional.model`, `script.model`, `stream`, `snippet`, `history`, `certificate`, `variable`, `environment`, or `service.curl`.
 
-11. Keep HTTP request preparation adapters separated from HTTP transport runtime.
+12. Keep HTTP request preparation adapters separated from HTTP transport runtime.
    Request preparation, validation, collection inheritance, variable resolution, scripts, and default request factories may stay in `easy-postman-app/http.request` while they still depend on app services. URL/query helpers belong in request-core. Transport execution belongs in `easy-postman-http-runtime`. Swing implementations belong in UI adapters such as `com.laker.postman.panel.http.runtime`, and app-specific runtime bootstrap belongs under `com.laker.postman.http.runtime.app`.
 
 ## Plugin Compatibility Boundary
@@ -103,6 +106,7 @@ If preserving compatibility is the goal instead, keep a binary-compatible facade
 - Do not make `easy-postman-request-core` depend on Swing, OkHttp, app service/panel code, or plugin runtime.
 - Do not put collection core models or Postman collection parsing back into `easy-postman-app`.
 - Do not make `easy-postman-collection-core` depend on Swing, OkHttp, app service/panel/runtime code, platform, plugin runtime, or IOC.
+- Do not make `easy-postman-mock-core` depend on Swing/AWT, collection/request models, app services, GraalVM, OkHttp/Netty, platform IOC, or plugin runtime. Keep it self-hosted and dependency-light; LAN/server binding is allowed, but cloud control planes and team authorization are not.
 - Do not make HTTP runtime/service classes depend directly on Swing/panel or app `SettingManager`; adapt UI through neutral sinks/dispatchers and settings through `HttpRuntimeSettingsProvider` so Swing, CLI tests, and future JavaFX hosts can provide separate implementations.
 - Do not put UI view-state, importer scratch DTOs, script snippets, functional runner rows/results, stream message types, certificate settings rows, or history records back into `easy-postman-app/src/main/java/com/laker/postman/model`.
 - Do not put plugin service contracts in `foundation`.

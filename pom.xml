@@ -15,19 +15,21 @@
         2. easy-postman-request-core：请求规格核心模型，只放请求配置、header/body/auth/protocol 等无 UI/无传输实现类型
         3. easy-postman-http-runtime：HTTP 传输运行时，只放 PreparedRequest/HttpResponse、OkHttp/SSL/SSE/Cookie/redirect 和中立端口
         4. easy-postman-collection-core：集合领域模型和 Postman collection 解析，只放无 UI/无执行链的集合核心能力
-        5. easy-postman-plugin-api：稳定扩展接口，只放插件可依赖的公共 SPI 与插件服务契约
-        6. easy-postman-platform：宿主平台框架能力，当前承接自定义 IOC 容器和更新发现核心，后续承接启动/欢迎/设置编排
-        7. easy-postman-performance-core：压测计划、运行态 plan.json、运行编排、统计等无 UI/无传输实现的核心能力
-        8. easy-postman-ui：宿主和插件共享的 UI 基础组件、样式和视觉工具
-        9. easy-postman-plugin-runtime：插件扫描、加载、启停、状态持久化
-        10. easy-postman-plugins：官方插件聚合目录，每个 plugin-* 独立打包发布
-        11. easy-postman-app：宿主应用，只保留组合入口、具体页面和插件宿主访问点
+        5. easy-postman-mock-core：本地 Mock Server 的路由匹配、JDK HTTP 运行时、会话状态和调用日志
+        6. easy-postman-plugin-api：稳定扩展接口，只放插件可依赖的公共 SPI 与插件服务契约
+        7. easy-postman-platform：宿主平台框架能力，当前承接自定义 IOC 容器和更新发现核心，后续承接启动/欢迎/设置编排
+        8. easy-postman-performance-core：压测计划、运行态 plan.json、运行编排、统计等无 UI/无传输实现的核心能力
+        9. easy-postman-ui：宿主和插件共享的 UI 基础组件、样式和视觉工具
+        10. easy-postman-plugin-runtime：插件扫描、加载、启停、状态持久化
+        11. easy-postman-plugins：官方插件聚合目录，每个 plugin-* 独立打包发布
+        12. easy-postman-app：宿主应用，只保留组合入口、具体页面和插件宿主访问点
      -->
     <modules>
         <module>easy-postman-foundation</module>
         <module>easy-postman-request-core</module>
         <module>easy-postman-http-runtime</module>
         <module>easy-postman-collection-core</module>
+        <module>easy-postman-mock-core</module>
         <module>easy-postman-plugin-api</module>
         <module>easy-postman-platform</module>
         <module>easy-postman-performance-core</module>
@@ -44,7 +46,7 @@
             plugin-* 不跟随这里自动升级，而是在各自 pom.xml 里单独维护版本，
             这样后续可以按“哪个插件改了就只发哪个插件”的节奏独立发版。
          -->
-        <revision>6.0.18</revision>
+        <revision>6.0.19</revision>
         <!--
             插件平台兼容版本。
             它表达的是“插件 SPI / 运行时装配边界”，不等同于宿主 revision。

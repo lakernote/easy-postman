@@ -33,7 +33,8 @@ public class AppCommandRouterTest {
                 {new String[]{"performance", "worker", "--help"}},
                 {new String[]{"performance", "master", "run", "--help"}},
                 {new String[]{"collection", "run", "--help"}},
-                {new String[]{"functional", "run", "--help"}}
+                {new String[]{"functional", "run", "--help"}},
+                {new String[]{"mock", "run", "--help"}}
         };
     }
 
@@ -85,6 +86,21 @@ public class AppCommandRouterTest {
         assertTrue(exitCode.isPresent());
         assertEquals(exitCode.getAsInt(), 0);
         assertTrue(stdout.toString().contains("functional run <workspace-directory>"));
+    }
+
+    @Test
+    public void shouldRouteMockCommandsBeforeSwingStartup() {
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+
+        OptionalInt exitCode = new AppCommandRouter().route(
+                new String[]{"mock", "run", "--help"},
+                new PrintStream(stdout),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+
+        assertTrue(exitCode.isPresent());
+        assertEquals(exitCode.getAsInt(), 0);
+        assertTrue(stdout.toString().contains("mock run <workspace-directory>"));
     }
 
     @Test

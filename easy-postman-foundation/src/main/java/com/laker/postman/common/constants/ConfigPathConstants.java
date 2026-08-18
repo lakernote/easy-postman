@@ -66,6 +66,11 @@ public class ConfigPathConstants {
     public static final String PERFORMANCE_CONFIG = getDataRootPath() + "performance_config.json";
 
     /**
+     * Mock Server 配置文件（默认工作区）。
+     */
+    public static final String MOCK_SERVERS = DEFAULT_WORKSPACE_DIR + "mock_servers.json";
+
+    /**
      * Elasticsearch 连接配置文件
      */
     public static final String ELASTICSEARCH_CONNECTION_PROFILES = getDataRootPath() + "elasticsearch_connection_profiles.json";
@@ -162,5 +167,15 @@ public class ConfigPathConstants {
             return DEFAULT_WORKSPACE_DIR + "performance_config.json";
         }
         return workspace.getPath() + "performance_config.json";
+    }
+
+    /**
+     * 获取指定工作区的 Mock Server 配置文件路径。
+     */
+    public static String getMockServersPath(Workspace workspace) {
+        if (workspace == null || workspace.getPath() == null || workspace.getPath().isBlank()) {
+            return MOCK_SERVERS;
+        }
+        return workspace.getPath() + "mock_servers.json";
     }
 }

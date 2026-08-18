@@ -282,7 +282,7 @@ easy-postman/
 - 🚧 插件系统以实现可扩展性
 - 🚧 GraphQL 支持
 - 🚧 gRPC 协议支持
-- 🚧 Mock 服务器功能
+- ✅ 自托管 Mock Server（集合 Example、动态脚本、局域网/CLI、访问密钥、会话状态、调用日志）
 - 🚧 API 文档生成
 - 🚧 云工作区同步（可选）
 - 🚧 移动端配套应用

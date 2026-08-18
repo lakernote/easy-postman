@@ -28,6 +28,8 @@ public class CollectionDocumentJsonCodecTest {
         request.setBody(null);
         SavedResponse savedResponse = new SavedResponse();
         savedResponse.setId("response-1");
+        savedResponse.setMockDelayMs(75);
+        savedResponse.setMockScript("pm.response.setStatusCode(201);");
         request.setResponse(List.of(savedResponse));
 
         CollectionNode rootNode = CollectionNode.group(rootGroup);
@@ -47,6 +49,8 @@ public class CollectionDocumentJsonCodecTest {
         assertEquals(decodedRequest.getId(), "request-1");
         assertEquals(decodedRequest.getBody(), "");
         assertEquals(decodedRequest.getResponse().get(0).getId(), "response-1");
+        assertEquals(decodedRequest.getResponse().get(0).getMockDelayMs(), 75);
+        assertEquals(decodedRequest.getResponse().get(0).getMockScript(), "pm.response.setStatusCode(201);");
     }
 
     @Test

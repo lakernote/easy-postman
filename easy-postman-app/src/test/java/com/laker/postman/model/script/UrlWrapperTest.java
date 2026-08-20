@@ -5,6 +5,7 @@ import org.testng.annotations.Test;
 import java.util.ArrayList;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
 
 /**
  * UrlWrapper 测试
@@ -90,13 +91,21 @@ public class UrlWrapperTest {
     }
 
     @Test
-    public void testToString_preservesTrailingEmptyQuerySeparators() {
+    public void testToString_preservesRawPostmanQueryEntries() {
         UrlWrapper emptyQuery = new UrlWrapper("https://api.example.com/users?", new ArrayList<>());
         UrlWrapper trailingEmptyParam = new UrlWrapper("https://api.example.com/users?id=1&", new ArrayList<>());
+        UrlWrapper middleEmptyParam = new UrlWrapper("https://api.example.com/users?id=1&&active=true", new ArrayList<>());
+        UrlWrapper encodedParam = new UrlWrapper("https://api.example.com/users?%61=%26", new ArrayList<>());
 
         assertEquals(emptyQuery.toString(), "https://api.example.com/users?");
         assertEquals(emptyQuery.getPathWithQuery(), "/users");
         assertEquals(trailingEmptyParam.toString(), "https://api.example.com/users?id=1&");
+        assertEquals(middleEmptyParam.toString(), "https://api.example.com/users?id=1&&active=true");
+        assertEquals(middleEmptyParam.query.count(), 3);
+        assertNull(middleEmptyParam.query.all().get(1).key);
+        assertEquals(encodedParam.toString(), "https://api.example.com/users?%61=%26");
+        assertEquals(encodedParam.query.all().get(0).key, "%61");
+        assertEquals(encodedParam.query.all().get(0).value, "%26");
     }
 
     @Test

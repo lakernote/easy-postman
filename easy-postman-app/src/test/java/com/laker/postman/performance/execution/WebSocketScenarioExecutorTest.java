@@ -634,11 +634,73 @@ public class WebSocketScenarioExecutorTest {
     }
 
     @Test
+    public void shouldRunSendPreScriptBeforeRejectingEmptyRequestBody() throws Exception {
+        VariablesService.getInstance().detachContext();
+        IterationDataVariableService.getInstance().detachContext();
+
+        CountDownLatch serverReceivedMessage = new CountDownLatch(1);
+        AtomicReference<String> receivedPayload = new AtomicReference<>();
+
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new ClosingWebSocketListener() {
+                @Override
+                public void onMessage(WebSocket webSocket, String text) {
+                    receivedPayload.set(text);
+                    serverReceivedMessage.countDown();
+                    webSocket.close(1000, "done");
+                }
+            }));
+            server.start();
+
+            HttpRequestItem item = new HttpRequestItem();
+            item.setId("ws-empty-body-send-script-test");
+            item.setName("WS Empty Body Send Script Test");
+            item.setProtocol(RequestItemProtocolEnum.WEBSOCKET);
+            item.setMethod("GET");
+            item.setUrl(server.url("/socket").toString().replaceFirst("^http", "ws"));
+
+            WebSocketPerformanceData requestCfg = new WebSocketPerformanceData();
+            requestCfg.connectTimeoutMs = 2000;
+
+            PerformanceTreeNode requestData = new PerformanceTreeNode("request", NodeType.REQUEST, item);
+            requestData.webSocketPerformanceData = requestCfg;
+            PerformanceTestPlanNode requestNode = new PerformanceTestPlanNode(requestData);
+            addConnectStep(requestNode, requestCfg);
+
+            PerformanceTreeNode sendStep = new PerformanceTreeNode("send", NodeType.WS_SEND);
+            sendStep.webSocketPerformanceData = new WebSocketPerformanceData();
+            sendStep.webSocketPerformanceData.sendMode = WebSocketPerformanceData.SendMode.REQUEST_BODY_ON_CONNECT;
+            sendStep.webSocketPerformanceData.sendContentSource = WebSocketPerformanceData.SendContentSource.REQUEST_BODY;
+            sendStep.webSocketPerformanceData.sendPreScript = "pm.request.body = 'created-by-send-script';";
+            requestNode.add(new PerformanceTestPlanNode(sendStep));
+
+            PerformanceRequestExecutor executor = new PerformanceRequestExecutor(
+                    () -> true,
+                    throwable -> false,
+                    ConcurrentHashMap.newKeySet(),
+                    ConcurrentHashMap.newKeySet()
+            );
+
+            executor.execute(
+                    PerformanceTestPlanCompiler.compileRequestSampler(requestNode),
+                    new ExecutionVariableContext()
+            );
+
+            assertTrue(serverReceivedMessage.await(1, TimeUnit.SECONDS),
+                    "WebSocket send script should be able to create an initially empty payload");
+            assertEquals(receivedPayload.get(), "created-by-send-script");
+        } finally {
+            VariablesService.getInstance().detachContext();
+            IterationDataVariableService.getInstance().detachContext();
+        }
+    }
+
+    @Test
     public void shouldResolveRequestBodyTemplateAndHonorPerSendBodyMutation() throws Exception {
         VariablesService.getInstance().detachContext();
         IterationDataVariableService.getInstance().detachContext();
 
-        CountDownLatch serverReceivedMessages = new CountDownLatch(3);
+        CountDownLatch serverReceivedMessages = new CountDownLatch(4);
         List<String> receivedPayloads = new CopyOnWriteArrayList<>();
 
         try (MockWebServer server = new MockWebServer()) {
@@ -685,11 +747,13 @@ public class WebSocketScenarioExecutorTest {
             sendStep.webSocketPerformanceData = new WebSocketPerformanceData();
             sendStep.webSocketPerformanceData.sendMode = WebSocketPerformanceData.SendMode.REQUEST_BODY_REPEAT;
             sendStep.webSocketPerformanceData.sendContentSource = WebSocketPerformanceData.SendContentSource.REQUEST_BODY;
-            sendStep.webSocketPerformanceData.sendCount = 3;
+            sendStep.webSocketPerformanceData.sendCount = 4;
             sendStep.webSocketPerformanceData.sendIntervalMs = 0;
             sendStep.webSocketPerformanceData.sendPreScript = """
                     pm.variables.set('a', 'body-' + pm.info.wsSendIndex);
                     if (pm.info.wsSendIndex === 1) {
+                        pm.request.body = 'wrapped-connect-value';
+                    } else if (pm.info.wsSendIndex === 2) {
                         pm.request.body = 'direct-' + pm.info.wsSendIndex;
                     }
                     """;
@@ -708,7 +772,8 @@ public class WebSocketScenarioExecutorTest {
             );
 
             assertTrue(serverReceivedMessages.await(1, TimeUnit.SECONDS), "WebSocket server should receive repeated body messages");
-            assertEquals(receivedPayloads, List.of("wrapped-body-0", "direct-1", "direct-1"));
+            assertEquals(receivedPayloads,
+                    List.of("wrapped-body-0", "wrapped-connect-value", "direct-2", "direct-2"));
         } finally {
             VariablesService.getInstance().detachContext();
             IterationDataVariableService.getInstance().detachContext();

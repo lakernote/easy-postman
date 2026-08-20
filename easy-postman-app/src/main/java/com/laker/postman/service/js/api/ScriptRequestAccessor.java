@@ -211,7 +211,7 @@ public class ScriptRequestAccessor {
      * 避免覆盖通过 {@code pm.request.raw} 或 {@code request} 直接完成的修改。
      * </p>
      */
-    public void syncToRaw() {
+    public boolean syncToRaw() {
         headers.sync();
         formData.sync();
         urlencoded.sync();
@@ -219,7 +219,7 @@ public class ScriptRequestAccessor {
         if (!Objects.equals(method, syncedMethod)) {
             raw.method = method == null ? "GET" : method.toUpperCase(Locale.ROOT);
         }
-        syncBody();
+        boolean bodyMutated = syncBody();
         if (followRedirects != syncedFollowRedirects) {
             raw.followRedirects = followRedirects;
         }
@@ -234,6 +234,7 @@ public class ScriptRequestAccessor {
         }
 
         refreshScalarSnapshot();
+        return bodyMutated;
     }
 
     private boolean hasEnabledFormData() {
@@ -303,12 +304,9 @@ public class ScriptRequestAccessor {
         return !(converted instanceof CharSequence text) || !text.isEmpty();
     }
 
-    private void syncBody() {
+    private boolean syncBody() {
         if (body == bodyAccessor) {
-            if (bodyAccessor != null) {
-                bodyAccessor.syncToRaw();
-            }
-            return;
+            return bodyAccessor != null && bodyAccessor.syncToRaw();
         }
 
         if (body == null) {
@@ -317,12 +315,13 @@ public class ScriptRequestAccessor {
             raw.formDataList = new ArrayList<>();
             raw.urlencodedList = new ArrayList<>();
             raw.isMultipart = false;
-            return;
+            return true;
         }
 
         ScriptRequestBodyAccessor replacement = new ScriptRequestBodyAccessor(raw);
         replacement.update(body);
         replacement.syncToRaw();
+        return true;
     }
 
     private void refreshScalarSnapshot() {

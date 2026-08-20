@@ -1,7 +1,6 @@
 package com.laker.postman.service.js.api;
 
 import com.laker.postman.request.model.HttpParam;
-import com.laker.postman.request.util.HttpUrlUtil;
 import org.graalvm.polyglot.Value;
 
 import java.util.ArrayList;
@@ -222,20 +221,20 @@ public class UrlWrapper {
         Object converted = ScriptRequestBodyAccessor.toJavaObject(definition);
         if (converted instanceof UrlWrapper wrapper) {
             String resolved = wrapper.toString();
-            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
         }
         if (converted instanceof CharSequence text) {
             String resolved = text.toString();
-            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
         }
         if (!(converted instanceof Map<?, ?> map)) {
             String resolved = Objects.toString(converted, "");
-            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
         }
 
         if (!hasParsedUrlFields(map)) {
             String resolved = Objects.toString(javaValue(map, "raw"), "");
-            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
         }
 
         List<HttpParam> queryParams = parseQueryDefinition(javaValue(map, "query"));
@@ -381,6 +380,23 @@ public class UrlWrapper {
         return result;
     }
 
+    private static List<HttpParam> parseUrlQuery(String url) {
+        if (url == null) {
+            return new ArrayList<>();
+        }
+        int queryIndex = url.indexOf('?');
+        int fragmentIndex = url.indexOf('#');
+        if (queryIndex < 0 || (fragmentIndex >= 0 && fragmentIndex < queryIndex)) {
+            return new ArrayList<>();
+        }
+        int queryEnd = fragmentIndex >= 0 ? fragmentIndex : url.length();
+        String queryString = url.substring(queryIndex + 1, queryEnd);
+        if (queryString.isEmpty()) {
+            return new ArrayList<>(List.of(new HttpParam(true, "", null)));
+        }
+        return parseQueryString(queryString);
+    }
+
     private static void addQueryItem(List<HttpParam> target, Object definition) {
         Object converted = ScriptRequestBodyAccessor.toJavaObject(definition);
         if (converted instanceof CharSequence text) {
@@ -426,8 +442,7 @@ public class UrlWrapper {
     }
 
     private static void mergeUrlQueryIntoParams(String url, List<HttpParam> params) {
-        List<HttpParam> parsed = new ArrayList<>(HttpUrlUtil.parseQueryParams(url));
-        appendTrailingEmptyQueryParams(url, parsed);
+        List<HttpParam> parsed = parseUrlQuery(url);
         if (parsed.isEmpty()) {
             return;
         }
@@ -468,26 +483,6 @@ public class UrlWrapper {
         params.addAll(merged);
     }
 
-    private static void appendTrailingEmptyQueryParams(String url, List<HttpParam> parsed) {
-        if (url == null) {
-            return;
-        }
-        int queryIndex = url.indexOf('?');
-        int firstFragmentIndex = url.indexOf('#');
-        if (queryIndex < 0 || (firstFragmentIndex >= 0 && firstFragmentIndex < queryIndex)) {
-            return;
-        }
-        int fragmentIndex = url.indexOf('#', queryIndex + 1);
-        int queryEnd = fragmentIndex >= 0 ? fragmentIndex : url.length();
-        if (queryEnd == queryIndex + 1) {
-            parsed.add(new HttpParam(true, "", null));
-            return;
-        }
-        for (int index = queryEnd - 1; index > queryIndex && url.charAt(index) == '&'; index--) {
-            parsed.add(new HttpParam(true, "", null));
-        }
-    }
-
     private static int findMatchingEnabledParam(HttpParam parsed,
                                                 List<HttpParam> existing,
                                                 boolean[] consumed) {
@@ -496,12 +491,20 @@ public class UrlWrapper {
             if (!consumed[index]
                     && candidate != null
                     && candidate.isEnabled()
-                    && Objects.equals(parsed.getKey(), candidate.getKey())
-                    && Objects.equals(parsed.getValue(), candidate.getValue())) {
+                    && sameQueryComponent(parsed.getKey(), candidate.getKey(), true)
+                    && sameQueryComponent(parsed.getValue(), candidate.getValue(), false)) {
                 return index;
             }
         }
         return -1;
+    }
+
+    private static boolean sameQueryComponent(String parsedValue,
+                                              String existingValue,
+                                              boolean encodeEquals) {
+        return Objects.equals(parsedValue, existingValue)
+                || Objects.equals(parsedValue,
+                        ScriptRequestBodyAccessor.normalizeQueryParamComponent(existingValue, encodeEquals));
     }
 
     record ResolvedUrl(String url, List<HttpParam> params) {

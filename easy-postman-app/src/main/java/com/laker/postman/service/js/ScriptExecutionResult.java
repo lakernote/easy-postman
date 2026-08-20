@@ -36,6 +36,11 @@ public class ScriptExecutionResult {
     private final Exception exception;
 
     /**
+     * 前置类脚本是否显式修改了请求体。
+     */
+    private final boolean requestBodyMutated;
+
+    /**
      * 创建成功的结果
      */
     public static ScriptExecutionResult success() {
@@ -97,4 +102,3 @@ public class ScriptExecutionResult {
         return testResults.stream().allMatch(test -> test.passed);
     }
 }
-

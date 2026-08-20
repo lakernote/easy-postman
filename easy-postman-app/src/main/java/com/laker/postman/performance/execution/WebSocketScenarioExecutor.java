@@ -413,8 +413,11 @@ public class WebSocketScenarioExecutor {
                         case WS_SEND -> {
                             WebSocketPerformanceData stepCfg = WebSocketScenarioStepSupport.webSocketData(stepElement, baseRequestCfg);
                             lastStepCfgRef.set(stepCfg);
-                            if (stepCfg.sendMode == WebSocketPerformanceData.SendMode.NONE
-                                    || !WebSocketScenarioStepSupport.hasSendPayload(req, effectiveRequestBodyTemplate, stepCfg)) {
+                            if (stepCfg.sendMode == WebSocketPerformanceData.SendMode.NONE) {
+                                break;
+                            }
+                            if (CharSequenceUtil.isBlank(stepCfg.sendPreScript)
+                                    && !WebSocketScenarioStepSupport.hasSendPayload(req, effectiveRequestBodyTemplate, stepCfg)) {
                                 break;
                             }
                             WebSocketScenarioSession session = sessionManager.currentOpenSession();
@@ -460,8 +463,16 @@ public class WebSocketScenarioExecutor {
                                     errorRef.set("WebSocket send pre-script failed: " + sendScriptResult.getErrorMessage());
                                     break;
                                 }
-                                if (!Objects.equals(req.body, bodyBeforeSendScript)) {
+                                if (sendScriptResult.isRequestBodyMutated()
+                                        || !Objects.equals(req.body, bodyBeforeSendScript)) {
                                     effectiveRequestBodyTemplate = req.body;
+                                }
+                                if (!WebSocketScenarioStepSupport.hasSendPayload(
+                                        req,
+                                        effectiveRequestBodyTemplate,
+                                        stepCfg
+                                )) {
+                                    break;
                                 }
                                 String payload = WebSocketScenarioStepSupport.resolveSendPayload(
                                         req,

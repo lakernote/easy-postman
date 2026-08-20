@@ -170,7 +170,7 @@ public class UrlWrapper {
 
         try {
             String queryString = getQueryString();
-            return getPath() + (hasEnabledQueryParameter() ? "?" + queryString : "");
+            return getPath() + (!queryString.isEmpty() ? "?" + queryString : "");
         } catch (Exception e) {
             return "/";
         }
@@ -426,7 +426,8 @@ public class UrlWrapper {
     }
 
     private static void mergeUrlQueryIntoParams(String url, List<HttpParam> params) {
-        List<HttpParam> parsed = HttpUrlUtil.parseQueryParams(url);
+        List<HttpParam> parsed = new ArrayList<>(HttpUrlUtil.parseQueryParams(url));
+        appendTrailingEmptyQueryParams(url, parsed);
         if (parsed.isEmpty()) {
             return;
         }
@@ -465,6 +466,26 @@ public class UrlWrapper {
         }
         params.clear();
         params.addAll(merged);
+    }
+
+    private static void appendTrailingEmptyQueryParams(String url, List<HttpParam> parsed) {
+        if (url == null) {
+            return;
+        }
+        int queryIndex = url.indexOf('?');
+        int firstFragmentIndex = url.indexOf('#');
+        if (queryIndex < 0 || (firstFragmentIndex >= 0 && firstFragmentIndex < queryIndex)) {
+            return;
+        }
+        int fragmentIndex = url.indexOf('#', queryIndex + 1);
+        int queryEnd = fragmentIndex >= 0 ? fragmentIndex : url.length();
+        if (queryEnd == queryIndex + 1) {
+            parsed.add(new HttpParam(true, "", null));
+            return;
+        }
+        for (int index = queryEnd - 1; index > queryIndex && url.charAt(index) == '&'; index--) {
+            parsed.add(new HttpParam(true, "", null));
+        }
     }
 
     private static int findMatchingEnabledParam(HttpParam parsed,

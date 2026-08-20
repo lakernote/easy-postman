@@ -90,6 +90,16 @@ public class UrlWrapperTest {
     }
 
     @Test
+    public void testToString_preservesTrailingEmptyQuerySeparators() {
+        UrlWrapper emptyQuery = new UrlWrapper("https://api.example.com/users?", new ArrayList<>());
+        UrlWrapper trailingEmptyParam = new UrlWrapper("https://api.example.com/users?id=1&", new ArrayList<>());
+
+        assertEquals(emptyQuery.toString(), "https://api.example.com/users?");
+        assertEquals(emptyQuery.getPathWithQuery(), "/users");
+        assertEquals(trailingEmptyParam.toString(), "https://api.example.com/users?id=1&");
+    }
+
+    @Test
     public void testGetPathWithQuery_withParams() {
         UrlWrapper url = new UrlWrapper("https://api.example.com/users?id=1&name=test", new ArrayList<>());
         assertEquals(url.getPathWithQuery(), "/users?id=1&name=test");
@@ -113,4 +123,3 @@ public class UrlWrapperTest {
         assertEquals(url.toString(), "https://api.example.com/users/123");
     }
 }
-

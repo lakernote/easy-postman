@@ -462,12 +462,17 @@ public class JsListWrapper<T> {
         }
 
         void sync() {
-            boolean effectiveEnabled = disabled != !syncedEnabled ? !disabled : enabled;
+            Boolean requestedEnabled = null;
+            if (disabled != !syncedEnabled) {
+                requestedEnabled = !disabled;
+            } else if (enabled != syncedEnabled) {
+                requestedEnabled = enabled;
+            }
             switch (listType) {
-                case HEADER -> syncHeader((HttpHeader) item, effectiveEnabled);
-                case FORM_DATA -> syncFormData((HttpFormData) item, effectiveEnabled);
-                case URLENCODED -> syncUrlencoded((HttpFormUrlencoded) item, effectiveEnabled);
-                case PARAM -> syncParam((HttpParam) item, effectiveEnabled);
+                case HEADER -> syncHeader((HttpHeader) item, requestedEnabled);
+                case FORM_DATA -> syncFormData((HttpFormData) item, requestedEnabled);
+                case URLENCODED -> syncUrlencoded((HttpFormUrlencoded) item, requestedEnabled);
+                case PARAM -> syncParam((HttpParam) item, requestedEnabled);
             }
             load();
             snapshot();
@@ -592,14 +597,16 @@ public class JsListWrapper<T> {
             src = null;
         }
 
-        private void syncHeader(HttpHeader header, boolean effectiveEnabled) {
+        private void syncHeader(HttpHeader header, Boolean requestedEnabled) {
             changed(key, syncedKey, header::setKey);
             changed(value, syncedValue, header::setValue);
             changed(description, syncedDescription, header::setDescription);
-            header.setEnabled(effectiveEnabled);
+            if (requestedEnabled != null) {
+                header.setEnabled(requestedEnabled);
+            }
         }
 
-        private void syncFormData(HttpFormData formData, boolean effectiveEnabled) {
+        private void syncFormData(HttpFormData formData, Boolean requestedEnabled) {
             changed(key, syncedKey, formData::setKey);
             changed(description, syncedDescription, formData::setDescription);
             changed(type, syncedType, formData::setType);
@@ -610,21 +617,27 @@ public class JsListWrapper<T> {
             } else {
                 changed(value, syncedValue, formData::setValue);
             }
-            formData.setEnabled(effectiveEnabled);
+            if (requestedEnabled != null) {
+                formData.setEnabled(requestedEnabled);
+            }
         }
 
-        private void syncUrlencoded(HttpFormUrlencoded urlencoded, boolean effectiveEnabled) {
+        private void syncUrlencoded(HttpFormUrlencoded urlencoded, Boolean requestedEnabled) {
             changed(key, syncedKey, urlencoded::setKey);
             changed(value, syncedValue, urlencoded::setValue);
             changed(description, syncedDescription, urlencoded::setDescription);
-            urlencoded.setEnabled(effectiveEnabled);
+            if (requestedEnabled != null) {
+                urlencoded.setEnabled(requestedEnabled);
+            }
         }
 
-        private void syncParam(HttpParam param, boolean effectiveEnabled) {
+        private void syncParam(HttpParam param, Boolean requestedEnabled) {
             changed(key, syncedKey, param::setKey);
             changed(value, syncedValue, param::setValue);
             changed(description, syncedDescription, param::setDescription);
-            param.setEnabled(effectiveEnabled);
+            if (requestedEnabled != null) {
+                param.setEnabled(requestedEnabled);
+            }
         }
 
         private void snapshot() {

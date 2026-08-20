@@ -842,6 +842,26 @@ public class ScriptExecutionPipelineTest {
     }
 
     @Test
+    public void shouldPreserveDirectRawListEnabledMutationAfterProxyAccess() {
+        PreparedRequest request = rawRequest(null);
+        request.headersList.add(new HttpHeader(true, "X-Trace", "value"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.headers.all();
+                        pm.request.raw.headersList.get(0).setEnabled(false);
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertFalse(request.headersList.get(0).isEnabled());
+    }
+
+    @Test
     public void shouldResolveGlobalsSetInPreScript() throws Exception {
         PreparedRequest request = new PreparedRequest();
         request.id = "script-pipeline-global-request";

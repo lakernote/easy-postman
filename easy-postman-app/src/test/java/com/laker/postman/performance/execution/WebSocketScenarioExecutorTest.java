@@ -638,7 +638,7 @@ public class WebSocketScenarioExecutorTest {
         VariablesService.getInstance().detachContext();
         IterationDataVariableService.getInstance().detachContext();
 
-        CountDownLatch serverReceivedMessages = new CountDownLatch(2);
+        CountDownLatch serverReceivedMessages = new CountDownLatch(3);
         List<String> receivedPayloads = new CopyOnWriteArrayList<>();
 
         try (MockWebServer server = new MockWebServer()) {
@@ -685,7 +685,7 @@ public class WebSocketScenarioExecutorTest {
             sendStep.webSocketPerformanceData = new WebSocketPerformanceData();
             sendStep.webSocketPerformanceData.sendMode = WebSocketPerformanceData.SendMode.REQUEST_BODY_REPEAT;
             sendStep.webSocketPerformanceData.sendContentSource = WebSocketPerformanceData.SendContentSource.REQUEST_BODY;
-            sendStep.webSocketPerformanceData.sendCount = 2;
+            sendStep.webSocketPerformanceData.sendCount = 3;
             sendStep.webSocketPerformanceData.sendIntervalMs = 0;
             sendStep.webSocketPerformanceData.sendPreScript = """
                     pm.variables.set('a', 'body-' + pm.info.wsSendIndex);
@@ -708,7 +708,7 @@ public class WebSocketScenarioExecutorTest {
             );
 
             assertTrue(serverReceivedMessages.await(1, TimeUnit.SECONDS), "WebSocket server should receive repeated body messages");
-            assertEquals(receivedPayloads, List.of("wrapped-body-0", "direct-1"));
+            assertEquals(receivedPayloads, List.of("wrapped-body-0", "direct-1", "direct-1"));
         } finally {
             VariablesService.getInstance().detachContext();
             IterationDataVariableService.getInstance().detachContext();

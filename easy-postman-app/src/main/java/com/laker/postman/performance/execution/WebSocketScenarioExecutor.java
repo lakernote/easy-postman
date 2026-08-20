@@ -393,6 +393,7 @@ public class WebSocketScenarioExecutor {
             if (!failed.get() && !interrupted.get()) {
                 WebSocketScenarioPlanStepCursor scenarioSteps = new WebSocketScenarioPlanStepCursor(requestSampler, runningSupplier);
                 boolean implicitConnectAllowed = true;
+                String effectiveRequestBodyTemplate = requestBodyTemplate;
                 while (runningSupplier.getAsBoolean() && !failed.get() && !interrupted.get()) {
                     PerformancePlanElement stepElement = scenarioSteps.next();
                     if (stepElement == null) {
@@ -413,7 +414,7 @@ public class WebSocketScenarioExecutor {
                             WebSocketPerformanceData stepCfg = WebSocketScenarioStepSupport.webSocketData(stepElement, baseRequestCfg);
                             lastStepCfgRef.set(stepCfg);
                             if (stepCfg.sendMode == WebSocketPerformanceData.SendMode.NONE
-                                    || !WebSocketScenarioStepSupport.hasSendPayload(req, requestBodyTemplate, stepCfg)) {
+                                    || !WebSocketScenarioStepSupport.hasSendPayload(req, effectiveRequestBodyTemplate, stepCfg)) {
                                 break;
                             }
                             WebSocketScenarioSession session = sessionManager.currentOpenSession();
@@ -459,12 +460,12 @@ public class WebSocketScenarioExecutor {
                                     errorRef.set("WebSocket send pre-script failed: " + sendScriptResult.getErrorMessage());
                                     break;
                                 }
-                                String effectiveBodyTemplate = Objects.equals(req.body, bodyBeforeSendScript)
-                                        ? requestBodyTemplate
-                                        : req.body;
+                                if (!Objects.equals(req.body, bodyBeforeSendScript)) {
+                                    effectiveRequestBodyTemplate = req.body;
+                                }
                                 String payload = WebSocketScenarioStepSupport.resolveSendPayload(
                                         req,
-                                        effectiveBodyTemplate,
+                                        effectiveRequestBodyTemplate,
                                         stepCfg
                                 );
                                 boolean sent = webSocket.send(payload == null ? "" : payload);

@@ -37,7 +37,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     private final JsListWrapper<HttpFormData> sharedFormData;
     private final JsListWrapper<HttpFormUrlencoded> sharedUrlencoded;
     private final ScriptRequestMutationTracker mutationTracker;
-    private PostmanRequestBodyCodec.BodySnapshot syncedSnapshot;
+    private PostmanRequestBodyCodec.BodyTransportSnapshot syncedTransportSnapshot;
     private boolean attached = true;
 
     public ScriptRequestBodyAccessor(PreparedRequest request) {
@@ -59,7 +59,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         this.sharedUrlencoded = sharedUrlencoded;
         this.mutationTracker = mutationTracker;
         loadFromRequest();
-        this.syncedSnapshot = snapshot();
+        this.syncedTransportSnapshot = transportSnapshot();
     }
 
     /**
@@ -77,9 +77,9 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     private void recordAppliedDefinition(Map<?, ?> definition) {
-        PostmanRequestBodyCodec.BodySnapshot previous = snapshot();
+        PostmanRequestBodyCodec.BodyTransportSnapshot previous = transportSnapshot();
         if (applyDefinition(definition)) {
-            commitCurrentView(!Objects.equals(snapshot(), previous));
+            commitCurrentView(!Objects.equals(transportSnapshot(), previous));
         }
     }
 
@@ -157,8 +157,8 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         if (!attached) {
             return false;
         }
-        PostmanRequestBodyCodec.BodySnapshot current = snapshot();
-        boolean bodyChanged = !Objects.equals(current, syncedSnapshot);
+        PostmanRequestBodyCodec.BodyTransportSnapshot current = transportSnapshot();
+        boolean bodyChanged = !Objects.equals(current, syncedTransportSnapshot);
         boolean mutationRequested = mutationTracker.consumeBodyWrite();
         if (!bodyChanged && !mutationRequested) {
             return false;
@@ -166,9 +166,9 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
 
         if (bodyChanged) {
             applyToRequest();
+            refreshActiveCollectionView();
         }
-        loadFromRequest();
-        syncedSnapshot = snapshot();
+        syncedTransportSnapshot = transportSnapshot();
         return true;
     }
 
@@ -199,6 +199,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         } else if ("file".equals(mode) && file instanceof CharSequence source) {
             file = new LinkedHashMap<>(Map.of("src", source.toString()));
         }
+        normalizeDefinitionCollections();
         return true;
     }
 
@@ -239,7 +240,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
 
     @Override
     public void putMember(String key, Value value) {
-        PostmanRequestBodyCodec.BodySnapshot previous = snapshot();
+        PostmanRequestBodyCodec.BodyTransportSnapshot previous = transportSnapshot();
         Object converted = ScriptValueConverter.toJavaObject(value);
         switch (key) {
             case "mode" -> mode = converted == null ? null : converted.toString();
@@ -253,12 +254,12 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 return;
             }
         }
-        commitCurrentView(!Objects.equals(snapshot(), previous));
+        commitCurrentView(!Objects.equals(transportSnapshot(), previous));
     }
 
     @Override
     public boolean removeMember(String key) {
-        PostmanRequestBodyCodec.BodySnapshot previous = snapshot();
+        PostmanRequestBodyCodec.BodyTransportSnapshot previous = transportSnapshot();
         switch (key) {
             case "mode" -> mode = null;
             case "raw" -> raw = null;
@@ -271,7 +272,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 return false;
             }
         }
-        commitCurrentView(!Objects.equals(snapshot(), previous));
+        commitCurrentView(!Objects.equals(transportSnapshot(), previous));
         return true;
     }
 
@@ -289,8 +290,8 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
             return;
         }
         applyToRequest();
-        loadFromRequest();
-        syncedSnapshot = snapshot();
+        refreshActiveCollectionView();
+        syncedTransportSnapshot = transportSnapshot();
     }
 
     /**
@@ -310,6 +311,48 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         file = null;
         options = null;
         disabled = null;
+    }
+
+    private void normalizeDefinitionCollections() {
+        if (urlencoded != null) {
+            urlencoded = new JsListWrapper<>(
+                    PostmanRequestBodyCodec.toUrlencodedList(synchronizedCollection(urlencoded)),
+                    JsListWrapper.ListType.URLENCODED,
+                    mutationTracker.bodyWriteCallback()
+            );
+        }
+        if (formdata != null) {
+            formdata = new JsListWrapper<>(
+                    PostmanRequestBodyCodec.toFormDataList(synchronizedCollection(formdata)),
+                    JsListWrapper.ListType.FORM_DATA,
+                    mutationTracker.bodyWriteCallback()
+            );
+        }
+    }
+
+    /**
+     * Rebinds only the active collection to the transport list produced by the codec. Other
+     * RequestBody fields remain owned by the SDK view and must survive scalar writes.
+     */
+    private void refreshActiveCollectionView() {
+        if (Boolean.TRUE.equals(disabled) || mode == null) {
+            return;
+        }
+        switch (PostmanRequestBodyCodec.normalizeMode(mode)) {
+            case "formdata" -> formdata = reuseOrCreate(
+                    sharedFormData,
+                    ensureFormDataList(),
+                    JsListWrapper.ListType.FORM_DATA
+            );
+            case "urlencoded" -> urlencoded = reuseOrCreate(
+                    sharedUrlencoded,
+                    ensureUrlencodedList(),
+                    JsListWrapper.ListType.URLENCODED
+            );
+            default -> {
+                // Scalar modes already retain their SDK values.
+            }
+        }
     }
 
     private void applyToRequest() {
@@ -369,14 +412,13 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         return request.urlencodedList;
     }
 
-    private PostmanRequestBodyCodec.BodySnapshot snapshot() {
-        return PostmanRequestBodyCodec.snapshot(
+    private PostmanRequestBodyCodec.BodyTransportSnapshot transportSnapshot() {
+        return PostmanRequestBodyCodec.transportSnapshot(
                 mode,
                 raw,
                 synchronizedCollection(urlencoded),
                 synchronizedCollection(formdata),
                 file,
-                options,
                 disabled
         );
     }

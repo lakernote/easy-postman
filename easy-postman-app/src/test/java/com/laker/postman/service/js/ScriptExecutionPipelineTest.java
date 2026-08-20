@@ -319,6 +319,7 @@ public class ScriptExecutionPipelineTest {
                             mode: 'urlencoded',
                             urlencoded: 'first=one&empty=&flag'
                         });
+                        pm.request.body.urlencoded.add({key: 'added', value: 'later'});
                         pm.variables.set('urlencodedText', pm.request.body.toString());
                         """)
                 .postScript("")
@@ -328,13 +329,15 @@ public class ScriptExecutionPipelineTest {
 
         assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
         assertEquals(request.bodyType, "x-www-form-urlencoded");
-        assertEquals(request.urlencodedList.size(), 3);
+        assertEquals(request.urlencodedList.size(), 4);
         assertEquals(request.urlencodedList.get(0).getKey(), "first");
         assertEquals(request.urlencodedList.get(0).getValue(), "one");
         assertEquals(request.urlencodedList.get(1).getValue(), "");
         assertNull(request.urlencodedList.get(2).getValue());
+        assertEquals(request.urlencodedList.get(3).getKey(), "added");
         pipeline.withExecutionContext(() ->
-                assertEquals(VariableResolver.resolve("{{urlencodedText}}"), "first=one&empty=&flag"));
+                assertEquals(VariableResolver.resolve("{{urlencodedText}}"),
+                        "first=one&empty=&flag&added=later"));
     }
 
     @Test
@@ -397,6 +400,79 @@ public class ScriptExecutionPipelineTest {
         assertTrue(result.isSuccess(), result.getErrorMessage());
         assertEquals(request.body, "second-third");
         assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_RAW);
+    }
+
+    @Test
+    public void shouldPreserveRequestBodyStateAcrossScalarWrites() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({body: {
+                            mode: 'raw',
+                            raw: 'before',
+                            urlencoded: [{key: 'query', value: 'kept'}],
+                            formdata: [{key: 'form', value: 'kept'}],
+                            file: {src: 'kept.bin'},
+                            options: {raw: {language: 'json'}},
+                            disabled: false
+                        }});
+                        pm.request.body.raw = 'after';
+                        pm.request.body.options = {raw: {language: 'xml'}};
+                        pm.variables.set('bodyState', JSON.stringify({
+                            mode: pm.request.body.mode,
+                            raw: pm.request.body.raw,
+                            query: pm.request.body.urlencoded.get('query'),
+                            form: pm.request.body.formdata.get('form'),
+                            file: pm.request.body.file.src,
+                            language: pm.request.body.options.raw.language,
+                            disabled: pm.request.body.disabled
+                        }));
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.body, "after");
+        pipeline.withExecutionContext(() -> assertEquals(
+                VariableResolver.resolve("{{bodyState}}"),
+                "{\"mode\":\"raw\",\"raw\":\"after\",\"query\":\"kept\","
+                        + "\"form\":\"kept\",\"file\":\"kept.bin\",\"language\":\"xml\","
+                        + "\"disabled\":false}"
+        ));
+    }
+
+    @Test
+    public void shouldRestorePreservedBodyWhenReenabled() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.body.options = {raw: {language: 'json'}};
+                        pm.request.body.disabled = true;
+                        pm.variables.set('disabledBodyState', JSON.stringify({
+                            mode: pm.request.body.mode,
+                            raw: pm.request.body.raw,
+                            language: pm.request.body.options.raw.language,
+                            disabled: pm.request.body.disabled
+                        }));
+                        pm.request.body.disabled = false;
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.body, "original");
+        assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_RAW);
+        pipeline.withExecutionContext(() -> assertEquals(
+                VariableResolver.resolve("{{disabledBodyState}}"),
+                "{\"mode\":\"raw\",\"raw\":\"original\",\"language\":\"json\","
+                        + "\"disabled\":true}"
+        ));
     }
 
     @Test
@@ -995,6 +1071,29 @@ public class ScriptExecutionPipelineTest {
 
         assertTrue(result.isRequestBodyMutated());
         assertEquals(request.body, "sdk-last");
+    }
+
+    @Test
+    public void shouldNotOverwriteLaterRawWriteAfterInactiveBodyFieldMutation() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executeWebSocketSendScript("""
+                pm.request.body.update({
+                    mode: 'raw',
+                    raw: 'sdk-first',
+                    urlencoded: [{key: 'first', value: '1'}]
+                });
+                pm.request.body.urlencoded.add({key: 'inactive', value: '2'});
+                pm.request.raw.body = 'raw-last';
+                """, 0, 1, "send");
+
+        assertTrue(result.isRequestBodyMutated());
+        assertEquals(request.body, "raw-last");
     }
 
     @Test

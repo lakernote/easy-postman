@@ -127,22 +127,25 @@ class PostmanRequestBodyCodec {
         return true;
     }
 
-    static BodySnapshot snapshot(String mode,
-                                 Object raw,
-                                 Object urlencoded,
-                                 Object formdata,
-                                 Object file,
-                                 Object options,
-                                 Boolean disabled) {
-        return new BodySnapshot(
-                mode,
-                comparable(raw),
-                comparable(urlencoded),
-                comparable(formdata),
-                comparable(file),
-                comparable(options),
-                disabled
-        );
+    static BodyTransportSnapshot transportSnapshot(String mode,
+                                                    Object raw,
+                                                    Object urlencoded,
+                                                    Object formdata,
+                                                    Object file,
+                                                    Boolean disabled) {
+        boolean bodyDisabled = Boolean.TRUE.equals(disabled);
+        if (bodyDisabled || mode == null) {
+            return new BodyTransportSnapshot(null, null, bodyDisabled);
+        }
+
+        String normalizedMode = normalizeMode(mode);
+        Object content = switch (normalizedMode) {
+            case "formdata" -> comparable(formdata);
+            case "urlencoded" -> comparable(urlencoded);
+            case "file" -> fileSource(file);
+            default -> comparable(raw);
+        };
+        return new BodyTransportSnapshot(normalizedMode, content, false);
     }
 
     static String resolveMode(PreparedRequest request) {
@@ -240,7 +243,7 @@ class PostmanRequestBodyCodec {
         return converted == null;
     }
 
-    private static List<HttpFormData> toFormDataList(Object value) {
+    static List<HttpFormData> toFormDataList(Object value) {
         Object converted = collectionSource(value);
         if (!(converted instanceof Collection<?> collection)) {
             return new ArrayList<>();
@@ -270,7 +273,7 @@ class PostmanRequestBodyCodec {
         return result;
     }
 
-    private static List<HttpFormUrlencoded> toUrlencodedList(Object value) {
+    static List<HttpFormUrlencoded> toUrlencodedList(Object value) {
         Object converted = collectionSource(value);
         if (converted instanceof CharSequence text) {
             return parseUrlencoded(text.toString());
@@ -396,12 +399,6 @@ class PostmanRequestBodyCodec {
         }
     }
 
-    record BodySnapshot(String mode,
-                        Object raw,
-                        Object urlencoded,
-                        Object formdata,
-                        Object file,
-                        Object options,
-                        Boolean disabled) {
+    record BodyTransportSnapshot(String mode, Object content, boolean disabled) {
     }
 }

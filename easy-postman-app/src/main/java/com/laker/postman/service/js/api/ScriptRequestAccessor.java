@@ -322,7 +322,7 @@ public class ScriptRequestAccessor {
         Runnable bodyMutation = mutationTracker.bodyWriteCallback();
         formData = new JsListWrapper<>(raw.formDataList, JsListWrapper.ListType.FORM_DATA, bodyMutation);
         urlencoded = new JsListWrapper<>(raw.urlencodedList, JsListWrapper.ListType.URLENCODED, bodyMutation);
-        bodyAccessor = new ScriptRequestBodyAccessor(raw, formData, urlencoded, mutationTracker);
+        bodyAccessor = replacement;
         body = bodyAccessor;
     }
 

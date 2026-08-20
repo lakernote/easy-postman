@@ -502,6 +502,97 @@ public class ScriptExecutionPipelineTest {
     }
 
     @Test
+    public void shouldKeepUrlencodedReferenceLiveAcrossBodyModeChanges() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+        request.urlencodedList.add(new HttpFormUrlencoded(true, "first", "1"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const urlencoded = pm.request.body.urlencoded;
+                        pm.request.body.mode = 'raw';
+                        pm.request.body.raw = 'temporary';
+                        pm.request.body.mode = 'urlencoded';
+                        pm.variables.set('sameUrlencoded', urlencoded === pm.request.body.urlencoded);
+                        urlencoded.add({key: 'through-reference', value: '2'});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_FORM_URLENCODED);
+        assertEquals(request.urlencodedList.size(), 2);
+        assertEquals(request.urlencodedList.get(1).getKey(), "through-reference");
+        pipeline.withExecutionContext(() ->
+                assertEquals(VariableResolver.resolve("{{sameUrlencoded}}"), "true"));
+    }
+
+    @Test
+    public void shouldKeepFormDataReferenceLiveAcrossBodyModeChanges() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = RequestBodyTypes.BODY_TYPE_FORM_DATA;
+        request.isMultipart = true;
+        request.formDataList.add(new HttpFormData(
+                true,
+                "first",
+                HttpFormData.TYPE_TEXT,
+                "1"
+        ));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const formdata = pm.request.body.formdata;
+                        pm.request.body.mode = 'raw';
+                        pm.request.body.raw = 'temporary';
+                        pm.request.body.mode = 'formdata';
+                        pm.variables.set('sameFormData', formdata === pm.request.body.formdata);
+                        formdata.add({key: 'through-reference', value: '2', type: 'text'});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_FORM_DATA);
+        assertTrue(request.isMultipart);
+        assertEquals(request.formDataList.size(), 2);
+        assertEquals(request.formDataList.get(1).getKey(), "through-reference");
+        pipeline.withExecutionContext(() ->
+                assertEquals(VariableResolver.resolve("{{sameFormData}}"), "true"));
+    }
+
+    @Test
+    public void shouldReplaceCollectionReferenceOnRequestBodyUpdate() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+        request.urlencodedList.add(new HttpFormUrlencoded(true, "original", "1"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const previous = pm.request.body.urlencoded;
+                        pm.request.body.update({
+                            mode: 'urlencoded',
+                            urlencoded: [{key: 'replacement', value: '2'}]
+                        });
+                        pm.variables.set('sameAfterUpdate', previous === pm.request.body.urlencoded);
+                        previous.add({key: 'detached', value: '3'});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.urlencodedList.size(), 1);
+        assertEquals(request.urlencodedList.get(0).getKey(), "replacement");
+        pipeline.withExecutionContext(() ->
+                assertEquals(VariableResolver.resolve("{{sameAfterUpdate}}"), "false"));
+    }
+
+    @Test
     public void shouldDetachPreviousRequestBodyAdapterAfterPostmanRequestUpdate() {
         PreparedRequest request = rawRequest("original");
         ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()

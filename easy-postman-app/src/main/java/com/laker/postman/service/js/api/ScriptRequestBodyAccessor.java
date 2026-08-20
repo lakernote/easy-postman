@@ -166,7 +166,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
 
         if (bodyChanged) {
             applyToRequest();
-            refreshActiveCollectionView();
+            ensureActiveCollectionAdapter();
         }
         syncedTransportSnapshot = transportSnapshot();
         return true;
@@ -290,7 +290,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
             return;
         }
         applyToRequest();
-        refreshActiveCollectionView();
+        ensureActiveCollectionAdapter();
         syncedTransportSnapshot = transportSnapshot();
     }
 
@@ -331,24 +331,34 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     /**
-     * Rebinds only the active collection to the transport list produced by the codec. Other
-     * RequestBody fields remain owned by the SDK view and must survive scalar writes.
+     * Gives a directly assigned active collection the Postman PropertyList API without replacing
+     * an existing adapter. Postman's RequestBody keeps collection identity when only the mode
+     * changes, so the script-side collection remains the source of truth and is projected to the
+     * transport request separately.
      */
-    private void refreshActiveCollectionView() {
+    private void ensureActiveCollectionAdapter() {
         if (Boolean.TRUE.equals(disabled) || mode == null) {
             return;
         }
         switch (PostmanRequestBodyCodec.normalizeMode(mode)) {
-            case "formdata" -> formdata = reuseOrCreate(
-                    sharedFormData,
-                    ensureFormDataList(),
-                    JsListWrapper.ListType.FORM_DATA
-            );
-            case "urlencoded" -> urlencoded = reuseOrCreate(
-                    sharedUrlencoded,
-                    ensureUrlencodedList(),
-                    JsListWrapper.ListType.URLENCODED
-            );
+            case "formdata" -> {
+                if (!(formdata instanceof JsListWrapper<?>)) {
+                    formdata = new JsListWrapper<>(
+                            PostmanRequestBodyCodec.toFormDataList(synchronizedCollection(formdata)),
+                            JsListWrapper.ListType.FORM_DATA,
+                            mutationTracker.bodyWriteCallback()
+                    );
+                }
+            }
+            case "urlencoded" -> {
+                if (!(urlencoded instanceof JsListWrapper<?>)) {
+                    urlencoded = new JsListWrapper<>(
+                            PostmanRequestBodyCodec.toUrlencodedList(synchronizedCollection(urlencoded)),
+                            JsListWrapper.ListType.URLENCODED,
+                            mutationTracker.bodyWriteCallback()
+                    );
+                }
+            }
             default -> {
                 // Scalar modes already retain their SDK values.
             }

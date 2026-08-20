@@ -1,7 +1,6 @@
 package com.laker.postman.service.js.api;
 
 import com.laker.postman.request.model.HttpParam;
-import com.laker.postman.request.util.HttpUrlUtil;
 import org.graalvm.polyglot.Value;
 
 import java.util.ArrayList;
@@ -50,7 +49,7 @@ public class UrlWrapper {
         this.baseUrl = queryIndex >= 0 ? withoutFragment.substring(0, queryIndex) : withoutFragment;
 
         List<HttpParam> target = params != null ? params : new ArrayList<>();
-        mergeUrlQueryIntoParams(safeUrl, target);
+        PostmanQueryCodec.reconcileUrlWithParams(safeUrl, target);
         this.query = new QueryWrapper(target);
     }
 
@@ -195,17 +194,13 @@ public class UrlWrapper {
     }
 
     private String buildQueryString() {
-        StringJoiner queryString = new StringJoiner("&");
+        List<HttpParam> enabled = new ArrayList<>();
         for (HttpParam param : query.params) {
-            if (param == null || !param.isEnabled()) {
-                continue;
+            if (param != null && param.isEnabled()) {
+                enabled.add(param);
             }
-            String key = ScriptRequestBodyAccessor.normalizeQueryParamComponent(param.getKey(), true);
-            String value = param.getValue();
-            queryString.add(value == null ? key : key + "="
-                    + ScriptRequestBodyAccessor.normalizeQueryParamComponent(value, false));
         }
-        return queryString.toString();
+        return PostmanQueryCodec.build(enabled);
     }
 
     private boolean hasEnabledQueryParameter() {
@@ -217,23 +212,23 @@ public class UrlWrapper {
      * A lone {@code raw} field is accepted as a permissive collection-export fallback.
      */
     static ResolvedUrl resolveDefinition(Object definition) {
-        Object converted = ScriptRequestBodyAccessor.toJavaObject(definition);
+        Object converted = ScriptValueConverter.toJavaObject(definition);
         if (converted instanceof UrlWrapper wrapper) {
             String resolved = wrapper.toString();
-            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
+            return new ResolvedUrl(resolved, PostmanQueryCodec.parseUrl(resolved));
         }
         if (converted instanceof CharSequence text) {
             String resolved = text.toString();
-            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
+            return new ResolvedUrl(resolved, PostmanQueryCodec.parseUrl(resolved));
         }
         if (!(converted instanceof Map<?, ?> map)) {
             String resolved = Objects.toString(converted, "");
-            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
+            return new ResolvedUrl(resolved, PostmanQueryCodec.parseUrl(resolved));
         }
 
         if (!hasParsedUrlFields(map)) {
             String resolved = Objects.toString(javaValue(map, "raw"), "");
-            return new ResolvedUrl(resolved, parseUrlQuery(resolved));
+            return new ResolvedUrl(resolved, PostmanQueryCodec.parseUrl(resolved));
         }
 
         List<HttpParam> queryParams = parseQueryDefinition(javaValue(map, "query"));
@@ -289,7 +284,7 @@ public class UrlWrapper {
                 .filter(HttpParam::isEnabled)
                 .toList();
         if (!enabledQueryParams.isEmpty()) {
-            result.append('?').append(buildQueryString(enabledQueryParams));
+            result.append('?').append(PostmanQueryCodec.build(enabledQueryParams));
         }
 
         Object hash = javaValue(definition, "hash");
@@ -327,7 +322,7 @@ public class UrlWrapper {
             }
             StringJoiner joiner = new StringJoiner(separator);
             collection.forEach(item -> joiner.add(Objects.toString(
-                    ScriptRequestBodyAccessor.toJavaObject(item), "")));
+                    ScriptValueConverter.toJavaObject(item), "")));
             result.append(joiner);
         } else if (value != null) {
             result.append(value);
@@ -335,9 +330,9 @@ public class UrlWrapper {
     }
 
     private static List<HttpParam> parseQueryDefinition(Object queryDefinition) {
-        Object converted = ScriptRequestBodyAccessor.toJavaObject(queryDefinition);
+        Object converted = ScriptValueConverter.toJavaObject(queryDefinition);
         if (converted instanceof CharSequence queryString) {
-            return parseQueryString(queryString.toString());
+            return PostmanQueryCodec.parse(queryString.toString());
         }
         if (converted instanceof Collection<?> collection) {
             List<HttpParam> result = new ArrayList<>();
@@ -349,7 +344,7 @@ public class UrlWrapper {
             queryMap.forEach((key, value) -> {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("key", Objects.toString(key, ""));
-                item.put("value", ScriptRequestBodyAccessor.toJavaObject(value));
+                item.put("value", ScriptValueConverter.toJavaObject(value));
                 addQueryItem(result, item);
             });
             return result;
@@ -357,49 +352,10 @@ public class UrlWrapper {
         return new ArrayList<>();
     }
 
-    private static List<HttpParam> parseQueryString(String queryString) {
-        List<HttpParam> result = new ArrayList<>();
-        if (queryString.isEmpty()) {
-            return result;
-        }
-        String[] entries = queryString.split("&", -1);
-        for (int index = 0; index < entries.length; index++) {
-            String entry = entries[index];
-            if (entry.isEmpty() && index < entries.length - 1) {
-                result.add(new HttpParam(true, null, null));
-                continue;
-            }
-            int equalsIndex = entry.indexOf('=');
-            result.add(new HttpParam(
-                    true,
-                    equalsIndex < 0 ? entry : entry.substring(0, equalsIndex),
-                    equalsIndex < 0 ? null : entry.substring(equalsIndex + 1)
-            ));
-        }
-        return result;
-    }
-
-    private static List<HttpParam> parseUrlQuery(String url) {
-        if (url == null) {
-            return new ArrayList<>();
-        }
-        int queryIndex = url.indexOf('?');
-        int fragmentIndex = url.indexOf('#');
-        if (queryIndex < 0 || (fragmentIndex >= 0 && fragmentIndex < queryIndex)) {
-            return new ArrayList<>();
-        }
-        int queryEnd = fragmentIndex >= 0 ? fragmentIndex : url.length();
-        String queryString = url.substring(queryIndex + 1, queryEnd);
-        if (queryString.isEmpty()) {
-            return new ArrayList<>(List.of(new HttpParam(true, "", null)));
-        }
-        return parseQueryString(queryString);
-    }
-
     private static void addQueryItem(List<HttpParam> target, Object definition) {
-        Object converted = ScriptRequestBodyAccessor.toJavaObject(definition);
+        Object converted = ScriptValueConverter.toJavaObject(definition);
         if (converted instanceof CharSequence text) {
-            target.addAll(parseQueryString(text.toString()));
+            target.addAll(PostmanQueryCodec.parse(text.toString()));
             return;
         }
         if (!(converted instanceof Map<?, ?> item)) {
@@ -423,101 +379,14 @@ public class UrlWrapper {
     }
 
     private static Object javaValue(Map<?, ?> map, String key) {
-        return ScriptRequestBodyAccessor.toJavaObject(map.get(key));
+        return ScriptValueConverter.toJavaObject(map.get(key));
     }
 
     private static String postmanQueryString(Object value) {
         return value instanceof CharSequence text ? text.toString() : null;
     }
 
-    private static String buildQueryString(List<HttpParam> params) {
-        StringJoiner queryString = new StringJoiner("&");
-        for (HttpParam param : params) {
-            String key = ScriptRequestBodyAccessor.normalizeQueryParamComponent(param.getKey(), true);
-            String value = ScriptRequestBodyAccessor.normalizeQueryParamComponent(param.getValue(), false);
-            queryString.add(param.getValue() == null ? key : key + "=" + value);
-        }
-        return queryString.toString();
-    }
-
-    private static void mergeUrlQueryIntoParams(String url, List<HttpParam> params) {
-        List<HttpParam> parsed = parseUrlQuery(url);
-        if (parsed.isEmpty()) {
-            return;
-        }
-
-        List<HttpParam> existing = new ArrayList<>(params);
-        boolean[] consumed = new boolean[existing.size()];
-        List<HttpParam> merged = new ArrayList<>(Math.max(parsed.size(), existing.size()));
-        List<String> rawQueryKeys = new ArrayList<>();
-        for (HttpParam parsedParam : parsed) {
-            rawQueryKeys.add(parsedParam.getKey());
-            int match = findMatchingEnabledParam(parsedParam, existing, consumed, true);
-            if (match >= 0) {
-                consumed[match] = true;
-                merged.add(existing.get(match));
-                continue;
-            }
-
-            int keyMatch = findMatchingEnabledParam(parsedParam, existing, consumed, false);
-            if (keyMatch >= 0) {
-                consumed[keyMatch] = true;
-                parsedParam.setDescription(existing.get(keyMatch).getDescription());
-            }
-            merged.add(parsedParam);
-        }
-        List<PositionedParam> disabledOrNullParams = new ArrayList<>();
-        for (int index = 0; index < existing.size(); index++) {
-            HttpParam candidate = existing.get(index);
-            if (consumed[index]) {
-                continue;
-            }
-            if (candidate == null || !candidate.isEnabled()) {
-                disabledOrNullParams.add(new PositionedParam(index, candidate));
-                continue;
-            }
-            if (containsEquivalentQueryKey(rawQueryKeys, candidate.getKey())) {
-                continue;
-            }
-            merged.add(candidate);
-        }
-        for (PositionedParam positioned : disabledOrNullParams) {
-            merged.add(Math.min(positioned.index(), merged.size()), positioned.param());
-        }
-        params.clear();
-        params.addAll(merged);
-    }
-
-    private static int findMatchingEnabledParam(HttpParam parsed,
-                                                List<HttpParam> existing,
-                                                boolean[] consumed,
-                                                boolean matchValue) {
-        for (int index = 0; index < existing.size(); index++) {
-            HttpParam candidate = existing.get(index);
-            if (!consumed[index]
-                    && candidate != null
-                    && candidate.isEnabled()
-                    && sameQueryComponent(parsed.getKey(), candidate.getKey())
-                    && (!matchValue || sameQueryComponent(parsed.getValue(), candidate.getValue()))) {
-                return index;
-            }
-        }
-        return -1;
-    }
-
-    private static boolean containsEquivalentQueryKey(List<String> rawQueryKeys, String candidateKey) {
-        return rawQueryKeys.stream().anyMatch(rawQueryKey -> sameQueryComponent(rawQueryKey, candidateKey));
-    }
-
-    private static boolean sameQueryComponent(String parsedValue, String existingValue) {
-        return Objects.equals(parsedValue, existingValue)
-                || Objects.equals(HttpUrlUtil.decodeComponent(parsedValue), HttpUrlUtil.decodeComponent(existingValue));
-    }
-
     record ResolvedUrl(String url, List<HttpParam> params) {
-    }
-
-    private record PositionedParam(int index, HttpParam param) {
     }
 
     /**

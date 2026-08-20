@@ -105,7 +105,7 @@ pm.sendRequest({
 | `pm.info` | 常用路径 | 请求、迭代和事件信息；WebSocket 字段是 EasyPostman 扩展 |
 | `pm.request.method` / `headers` | 核心兼容 | 标量修改与 HeaderList 修改会作用于当前发送 |
 | `pm.request.url` | 部分兼容 | `query` PropertyList 可读写；`request.update` 支持字符串和常用 Url definition |
-| `pm.request.body` | 部分兼容 | `raw`、`urlencoded`、`formdata` 核心 mutation 可用；`file` 见下方边界说明 |
+| `pm.request.body` | 对象结构兼容；写入为扩展 | `raw`、`urlencoded`、`formdata` 的读取、`toString/toJSON/isEmpty` 对齐 Collection SDK；body mutation 是迁移兼容扩展 |
 | `pm.response`、`pm.test`、`pm.expect` | 常用路径 | 响应读取、HeaderList 和常用 Chai BDD 链 |
 | `pm.sendRequest(options, callback)` | 已支持回调形式 | Promise 返回形式暂未实现 |
 | `pm.cookies` / `pm.cookies.jar()` | 部分支持 | 常用读写和回调形式可用；Promise 与完整 Cookie Store 选项未完全对齐 |
@@ -113,9 +113,14 @@ pm.sendRequest({
 | `pm.execution`、`pm.visualizer`、`pm.vault`、`pm.require` | 待实现 | 全局 `require()` 是 EasyPostman 已有扩展，不等同于 `pm.require()` |
 | `pm.request.auth` mutation | 待完善 | Header 方式认证可通过 `pm.request.headers` 修改 |
 
-兼容依据以 EasyPostman 自动化测试和 Postman Runtime / Collection SDK 实现为基线；
-自动补全条目和 EasyPostman 历史别名不作为“已兼容”的证据。
-本轮实现对照的当前官方源码版本为 Postman Collection SDK `5.3.1`、Runtime `7.56.1`。
+兼容判定按以下优先级执行：
+
+1. 当前 Postman 官方 Sandbox 文档决定公开脚本 API 的标准行为；
+2. Collection SDK / Runtime 源码决定对象结构、序列化和历史运行语义；
+3. 超出当前官方 Sandbox 的能力必须明确标为“EasyPostman 扩展”或“迁移兼容”，不能混入核心兼容结论。
+
+自动补全条目和 EasyPostman 历史别名不作为“已兼容”的证据。本轮实现对照的官方源码版本为
+Postman Collection SDK `5.3.1`、Runtime `7.56.1`，并同时核对当前 Postman v12 Sandbox 文档。
 
 ---
 
@@ -219,11 +224,17 @@ console.log('API Key:', apiKey);
 | `toJSON()`          | Postman Collection body definition      |
 | `isEmpty()`         | 当前 body 是否为空                            |
 
-Postman Runtime `7.27.0`（2021-03）开始把 pre-request 中的 body 变更应用到实际请求；
-`7.26.x` 及更早版本不会发送修改后的 body。官方回归测试直接覆盖
-`pm.request.body.update(text)` 和 `pm.request.body.raw = text`。当前 Runtime 在回写后重建
-Collection SDK Request 时，也会把 `pm.request.body = 'text'` 转成 raw body，EasyPostman 支持这种迁移脚本。
-如果要选择 Postman 官方测试明确覆盖的写法，使用 `update(text)` 或修改 `.raw`。
+需要区分“当前 Postman 产品契约”和“历史 Runtime / Collection SDK 能力”：
+
+- 当前 Postman v12 Sandbox 文档把 `pm.request.body` 标为不可修改，并明确说明 `pm` 不支持请求 mutation；
+- Collection SDK `RequestBody` 仍提供 `update()`，Postman Runtime `7.27.0`（2021-03）起也曾把
+  pre-request 中的 body 变更应用到实际请求；`7.26.x` 及更早版本不会发送修改后的 body；
+- EasyPostman 为迁移旧集合和已有脚本继续支持 `body.update(text)`、修改 `.raw`，以及
+  `pm.request.body = 'text'`。这些写入能力是明确的兼容扩展，不宣称为当前 Postman v12 Sandbox 标准。
+
+因此，要实现可在当前 Postman 与 EasyPostman 间直接替换的新脚本，不应依赖 body mutation；
+如果是迁移历史脚本，优先使用 SDK 形态的 `update(text)` 或修改 `.raw`，直接赋字符串仅作为
+EasyPostman 的宽松迁移能力保留。
 
 当前边界：
 

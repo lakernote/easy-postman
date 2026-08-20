@@ -255,33 +255,12 @@ public class PostmanApiContext {
      * @param httpResponse HTTP 响应对象
      */
     private void populateResponseCookies(HttpResponse httpResponse) {
-        if (httpResponse == null || httpResponse.headers == null || cookies == null) {
+        if (cookies == null) {
             return;
         }
-
-        // 清空旧的响应 Cookie（保留用户手动设置的）
-        // 注意：这里不清空，而是覆盖同名的 Cookie
-
-        // 从响应头中查找 Set-Cookie
-        List<String> setCookieHeaders = null;
-        for (Map.Entry<String, List<String>> entry : httpResponse.headers.entrySet()) {
-            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase("Set-Cookie")) {
-                setCookieHeaders = entry.getValue();
-                break;
-            }
-        }
-
-        if (setCookieHeaders == null || setCookieHeaders.isEmpty()) {
-            return;
-        }
-
-        // 解析所有 Set-Cookie 头并添加到 cookies
-        for (String setCookieValue : setCookieHeaders) {
-            Cookie cookie = parseCookie(setCookieValue);
-            if (cookie != null && cookie.name != null) {
-                cookies.set(cookie);
-                log.debug("Populated response cookie to pm.cookies: {} = {}", cookie.name, cookie.value);
-            }
+        for (Cookie cookie : PostmanResponseCookieSupport.extract(httpResponse)) {
+            cookies.set(cookie);
+            log.debug("Populated response cookie to pm.cookies: {} = {}", cookie.name, cookie.value);
         }
     }
 
@@ -380,111 +359,7 @@ public class PostmanApiContext {
         if (name == null || response == null) {
             return null;
         }
-
-        HttpResponse httpResponse = response.getHttpResponse();
-        if (httpResponse == null) {
-            return null;
-        }
-        if (httpResponse.headers == null) {
-            return null;
-        }
-
-        // 从响应头中查找 Set-Cookie
-        List<String> setCookieHeaders = null;
-        for (Map.Entry<String, List<String>> entry : httpResponse.headers.entrySet()) {
-            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase("Set-Cookie")) {
-                setCookieHeaders = entry.getValue();
-                break;
-            }
-        }
-
-        if (setCookieHeaders == null || setCookieHeaders.isEmpty()) {
-            return null;
-        }
-
-        // 解析 Set-Cookie 头，查找指定名称的 Cookie
-        for (String setCookieValue : setCookieHeaders) {
-            Cookie cookie = parseCookie(setCookieValue);
-            if (cookie != null && name.equals(cookie.name)) {
-                return cookie;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * 解析 Set-Cookie 头字符串为 Cookie 对象
-     *
-     * @param setCookieValue Set-Cookie 头的值
-     * @return Cookie 对象
-     */
-    private Cookie parseCookie(String setCookieValue) {
-        if (setCookieValue == null || setCookieValue.trim().isEmpty()) {
-            return null;
-        }
-
-        Cookie cookie = new Cookie();
-        String[] parts = setCookieValue.split(";");
-
-        // 解析第一部分：name=value
-        if (parts.length > 0) {
-            String[] nameValue = parts[0].trim().split("=", 2);
-            if (nameValue.length == 2) {
-                cookie.name = nameValue[0].trim();
-                cookie.value = nameValue[1].trim();
-            } else if (nameValue.length == 1) {
-                cookie.name = nameValue[0].trim();
-                cookie.value = "";
-            }
-        }
-
-        // 解析其他属性
-        for (int i = 1; i < parts.length; i++) {
-            String part = parts[i].trim();
-            String[] attrValue = part.split("=", 2);
-            String attrName = attrValue[0].trim().toLowerCase();
-
-            switch (attrName) {
-                case "domain":
-                    if (attrValue.length == 2) {
-                        cookie.domain = attrValue[1].trim();
-                    }
-                    break;
-                case "path":
-                    if (attrValue.length == 2) {
-                        cookie.path = attrValue[1].trim();
-                    }
-                    break;
-                case "expires":
-                    if (attrValue.length == 2) {
-                        cookie.expires = attrValue[1].trim();
-                    }
-                    break;
-                case "max-age":
-                    if (attrValue.length == 2) {
-                        try {
-                            cookie.maxAge = Integer.parseInt(attrValue[1].trim());
-                        } catch (NumberFormatException e) {
-                            log.debug("Failed to parse Max-Age: {}", attrValue[1]);
-                        }
-                    }
-                    break;
-                case "secure":
-                    cookie.secure = true;
-                    break;
-                case "httponly":
-                    cookie.httpOnly = true;
-                    break;
-                case "samesite":
-                    if (attrValue.length == 2) {
-                        cookie.sameSite = attrValue[1].trim();
-                    }
-                    break;
-            }
-        }
-
-        return cookie;
+        return PostmanResponseCookieSupport.find(response.getHttpResponse(), name);
     }
 
     /**

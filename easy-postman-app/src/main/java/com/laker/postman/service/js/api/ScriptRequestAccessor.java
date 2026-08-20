@@ -40,7 +40,7 @@ import java.util.Objects;
  *     value: "Bearer " + pm.environment.get("token")
  * });
  *
- * // 修改 raw 请求体（Postman 标准 API）
+ * // 修改 raw 请求体（Collection SDK 形态的 EasyPostman 迁移扩展）
  * pm.request.body.update(JSON.stringify({userId: 123}));
  *
  * // 添加表单数据
@@ -103,8 +103,8 @@ public class ScriptRequestAccessor {
     public String method;
 
     /**
-     * Postman RequestBody 对象。声明为 Object 是为了同时兼容 Postman 的整个 body
-     * definition 赋值，以及历史脚本直接赋字符串的用法。
+     * Postman RequestBody 对象。声明为 Object 是为了保留 Collection SDK body definition
+     * 形态，并支持 EasyPostman 的迁移扩展：整个 body definition 或字符串赋值。
      */
     public Object body;
 

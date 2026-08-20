@@ -1,10 +1,5 @@
 package com.laker.postman.service.js.api;
 
-import com.laker.postman.request.model.HttpFormData;
-import com.laker.postman.request.model.HttpFormUrlencoded;
-import com.laker.postman.request.model.HttpHeader;
-import com.laker.postman.request.model.HttpParam;
-
 import lombok.Getter;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
@@ -13,11 +8,8 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-
-import static com.laker.postman.request.model.HttpFormData.TYPE_TEXT;
 
 /**
  * JS 专用 List 包装类，支持 add 方法
@@ -33,7 +25,7 @@ public class JsListWrapper<T> {
      */
     @Getter
     private final List<T> list;
-    private final ListType type;
+    private final PostmanPropertyListAdapter adapter;
     private final Runnable mutationCallback;
     private List<ItemProxy> cachedProxies;
 
@@ -47,7 +39,7 @@ public class JsListWrapper<T> {
 
     JsListWrapper(List<T> list, ListType type, Runnable mutationCallback) {
         this.list = list;
-        this.type = type;
+        this.adapter = PostmanPropertyListAdapters.forType(type);
         this.mutationCallback = mutationCallback != null ? mutationCallback : NOOP_MUTATION_CALLBACK;
     }
 
@@ -97,64 +89,20 @@ public class JsListWrapper<T> {
         if (k == null) return;
 
         String key = String.valueOf(k);
-        String value = scalarOrFirst(v != null ? v : src);
+        String value = adapter.valueFromDefinition(v, src);
         boolean enabled = isEnabled(obj);
         Object descriptionValue = ScriptValueConverter.toJavaObject(obj.get("description"));
         String description = descriptionValue == null ? "" : String.valueOf(descriptionValue);
-        switch (type) {
-            case HEADER:
-                HttpHeader header = new HttpHeader();
-                header.setEnabled(enabled);
-                header.setKey(key);
-                header.setValue(value);
-                header.setDescription(description);
-                @SuppressWarnings("unchecked")
-                List<HttpHeader> headerList = (List<HttpHeader>) list;
-                headerList.add(header);
-                break;
-
-            case FORM_DATA:
-                HttpFormData formData = new HttpFormData();
-                formData.setEnabled(enabled);
-                formData.setKey(key);
-                formData.setValue(value);
-                formData.setType("file".equalsIgnoreCase(String.valueOf(obj.get("type")))
-                        ? HttpFormData.TYPE_FILE
-                        : TYPE_TEXT);
-                formData.setDescription(description);
-                @SuppressWarnings("unchecked")
-                List<HttpFormData> formDataList = (List<HttpFormData>) list;
-                formDataList.add(formData);
-                break;
-
-            case URLENCODED:
-                HttpFormUrlencoded urlencoded = new HttpFormUrlencoded();
-                urlencoded.setEnabled(enabled);
-                urlencoded.setKey(key);
-                urlencoded.setValue(value);
-                if (v == null) {
-                    urlencoded.setValue(null);
-                }
-                urlencoded.setDescription(description);
-                @SuppressWarnings("unchecked")
-                List<HttpFormUrlencoded> urlencodedList = (List<HttpFormUrlencoded>) list;
-                urlencodedList.add(urlencoded);
-                break;
-
-            case PARAM:
-                HttpParam param = new HttpParam();
-                param.setEnabled(enabled);
-                param.setKey(key);
-                param.setValue(value);
-                param.setDescription(description);
-                @SuppressWarnings("unchecked")
-                List<HttpParam> paramList = (List<HttpParam>) list;
-                if (v == null) {
-                    param.setValue(null);
-                }
-                paramList.add(param);
-                break;
-        }
+        Object typeValue = ScriptValueConverter.toJavaObject(obj.get("type"));
+        PostmanPropertyListItemState state = new PostmanPropertyListItemState(
+                key,
+                value,
+                description,
+                typeValue == null ? null : String.valueOf(typeValue),
+                src,
+                enabled
+        );
+        addAdapted(state);
         mutationCallback.run();
         reconcileProxies(true);
     }
@@ -166,18 +114,6 @@ public class JsListWrapper<T> {
         }
         Object enabled = ScriptValueConverter.toJavaObject(obj.get("enabled"));
         return !(enabled instanceof Boolean enabledFlag) || enabledFlag;
-    }
-
-    private static String scalarOrFirst(Object value) {
-        if (value instanceof List<?> values) {
-            return values.isEmpty() ? "" : String.valueOf(values.get(0));
-        }
-        if (value instanceof Value jsValue && jsValue.hasArrayElements()) {
-            return jsValue.getArraySize() == 0 ? "" : String.valueOf(
-                    ScriptValueConverter.toJavaObject(jsValue.getArrayElement(0))
-            );
-        }
-        return value == null ? "" : String.valueOf(value);
     }
 
     /**
@@ -199,50 +135,14 @@ public class JsListWrapper<T> {
     public void add(String key, String value) {
         if (key == null || value == null) return;
         sync();
-        switch (type) {
-            case HEADER:
-                HttpHeader header = new HttpHeader();
-                header.setEnabled(true);
-                header.setKey(key);
-                header.setValue(value);
-                @SuppressWarnings("unchecked")
-                List<HttpHeader> headerList = (List<HttpHeader>) list;
-                headerList.add(header);
-                break;
-
-            case FORM_DATA:
-                HttpFormData formData = new HttpFormData();
-                formData.setEnabled(true);
-                formData.setKey(key);
-                formData.setValue(value);
-                formData.setType(TYPE_TEXT);
-                @SuppressWarnings("unchecked")
-                List<HttpFormData> formDataList = (List<HttpFormData>) list;
-                formDataList.add(formData);
-                break;
-
-            case URLENCODED:
-                HttpFormUrlencoded urlencoded = new HttpFormUrlencoded();
-                urlencoded.setEnabled(true);
-                urlencoded.setKey(key);
-                urlencoded.setValue(value);
-                @SuppressWarnings("unchecked")
-                List<HttpFormUrlencoded> urlencodedList = (List<HttpFormUrlencoded>) list;
-                urlencodedList.add(urlencoded);
-                break;
-
-            case PARAM:
-                HttpParam param = new HttpParam();
-                param.setEnabled(true);
-                param.setKey(key);
-                param.setValue(value);
-                @SuppressWarnings("unchecked")
-                List<HttpParam> paramList = (List<HttpParam>) list;
-                paramList.add(param);
-                break;
-        }
+        addAdapted(new PostmanPropertyListItemState(key, value, null, null, null, true));
         mutationCallback.run();
         reconcileProxies(true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void addAdapted(PostmanPropertyListItemState state) {
+        list.add((T) adapter.create(state));
     }
 
     /**
@@ -287,31 +187,7 @@ public class JsListWrapper<T> {
         if (key == null) return;
         sync();
         int previousSize = list.size();
-        switch (type) {
-            case HEADER:
-                @SuppressWarnings("unchecked")
-                List<HttpHeader> headerList = (List<HttpHeader>) list;
-                headerList.removeIf(header -> key.equalsIgnoreCase(header.getKey()));
-                break;
-
-            case FORM_DATA:
-                @SuppressWarnings("unchecked")
-                List<HttpFormData> formDataList = (List<HttpFormData>) list;
-                formDataList.removeIf(formData -> key.equals(formData.getKey()));
-                break;
-
-            case URLENCODED:
-                @SuppressWarnings("unchecked")
-                List<HttpFormUrlencoded> urlencodedList = (List<HttpFormUrlencoded>) list;
-                urlencodedList.removeIf(urlencoded -> key.equals(urlencoded.getKey()));
-                break;
-
-            case PARAM:
-                @SuppressWarnings("unchecked")
-                List<HttpParam> paramList = (List<HttpParam>) list;
-                paramList.removeIf(param -> key.equals(param.getKey()));
-                break;
-        }
+        list.removeIf(item -> adapter.sameKey(adapter.read(item).key(), key));
         if (list.size() != previousSize) {
             mutationCallback.run();
         }
@@ -396,12 +272,8 @@ public class JsListWrapper<T> {
         sync();
         Map<String, Object> result = new LinkedHashMap<>();
         for (ItemProxy item : all()) {
-            String key = type == ListType.HEADER && item.key != null
-                    ? item.key.toLowerCase(Locale.ROOT)
-                    : item.key;
-            Object value = (type == ListType.PARAM || type == ListType.URLENCODED) && item.value == null
-                    ? ""
-                    : item.value;
+            String key = adapter.toObjectKey(item.key);
+            Object value = adapter.toObjectValue(item.value);
             Object existing = result.get(key);
             if (!result.containsKey(key)) {
                 result.put(key, value);
@@ -420,16 +292,14 @@ public class JsListWrapper<T> {
     }
 
     private boolean sameKey(String left, String right) {
-        return type == ListType.HEADER
-                ? left != null && right != null && left.equalsIgnoreCase(right)
-                : Objects.equals(left, right);
+        return adapter.sameKey(left, right);
     }
 
     private void reconcileProxies(boolean refreshRetained) {
         if (cachedProxies == null) {
             cachedProxies = new ArrayList<>(list.size());
             for (T item : list) {
-                cachedProxies.add(new ItemProxy(item, type, mutationCallback));
+                cachedProxies.add(new ItemProxy(item, adapter, mutationCallback));
             }
             return;
         }
@@ -441,7 +311,7 @@ public class JsListWrapper<T> {
                     .findFirst()
                     .orElse(null);
             if (retained == null) {
-                reconciled.add(new ItemProxy(item, type, mutationCallback));
+                reconciled.add(new ItemProxy(item, adapter, mutationCallback));
             } else {
                 if (refreshRetained) {
                     retained.refresh();
@@ -470,7 +340,7 @@ public class JsListWrapper<T> {
         public boolean enabled;
 
         private final Object item;
-        private final ListType listType;
+        private final PostmanPropertyListAdapter adapter;
         private final Runnable mutationCallback;
         private String syncedKey;
         private String syncedValue;
@@ -479,9 +349,9 @@ public class JsListWrapper<T> {
         private Object syncedSrc;
         private boolean syncedEnabled;
 
-        ItemProxy(Object item, ListType listType, Runnable mutationCallback) {
+        ItemProxy(Object item, PostmanPropertyListAdapter adapter, Runnable mutationCallback) {
             this.item = item;
-            this.listType = listType;
+            this.adapter = adapter;
             this.mutationCallback = mutationCallback;
             load();
             snapshot();
@@ -497,12 +367,7 @@ public class JsListWrapper<T> {
             } else if (enabled != syncedEnabled) {
                 requestedEnabled = enabled;
             }
-            switch (listType) {
-                case HEADER -> syncHeader((HttpHeader) item, requestedEnabled);
-                case FORM_DATA -> syncFormData((HttpFormData) item, requestedEnabled);
-                case URLENCODED -> syncUrlencoded((HttpFormUrlencoded) item, requestedEnabled);
-                case PARAM -> syncParam((HttpParam) item, requestedEnabled);
-            }
+            adapter.write(item, state(), syncedState(), requestedEnabled);
             load();
             snapshot();
         }
@@ -662,98 +527,29 @@ public class JsListWrapper<T> {
         }
 
         private void load() {
-            switch (listType) {
-                case HEADER -> loadHeader((HttpHeader) item);
-                case FORM_DATA -> loadFormData((HttpFormData) item);
-                case URLENCODED -> loadUrlencoded((HttpFormUrlencoded) item);
-                case PARAM -> loadParam((HttpParam) item);
-            }
+            PostmanPropertyListItemState state = adapter.read(item);
+            key = state.key();
+            value = state.value();
+            description = state.description();
+            type = state.type();
+            src = state.src();
+            enabled = state.enabled();
             disabled = !enabled;
         }
 
-        private void loadHeader(HttpHeader header) {
-            key = header.getKey();
-            value = header.getValue();
-            description = header.getDescription();
-            enabled = header.isEnabled();
-            type = null;
-            src = null;
+        private PostmanPropertyListItemState state() {
+            return new PostmanPropertyListItemState(key, value, description, type, src, enabled);
         }
 
-        private void loadFormData(HttpFormData formData) {
-            key = formData.getKey();
-            description = formData.getDescription();
-            enabled = formData.isEnabled();
-            type = formData.isFile() ? "file" : "text";
-            value = formData.isFile() ? null : formData.getValue();
-            if (formData.isFile()) {
-                List<String> sources = new ArrayList<>(1);
-                sources.add(formData.getValue());
-                src = sources;
-            } else {
-                src = null;
-            }
-        }
-
-        private void loadUrlencoded(HttpFormUrlencoded urlencoded) {
-            key = urlencoded.getKey();
-            value = urlencoded.getValue();
-            description = urlencoded.getDescription();
-            enabled = urlencoded.isEnabled();
-            type = null;
-            src = null;
-        }
-
-        private void loadParam(HttpParam param) {
-            key = param.getKey();
-            value = param.getValue();
-            description = param.getDescription();
-            enabled = param.isEnabled();
-            type = null;
-            src = null;
-        }
-
-        private void syncHeader(HttpHeader header, Boolean requestedEnabled) {
-            changed(key, syncedKey, header::setKey);
-            changed(value, syncedValue, header::setValue);
-            changed(description, syncedDescription, header::setDescription);
-            if (requestedEnabled != null) {
-                header.setEnabled(requestedEnabled);
-            }
-        }
-
-        private void syncFormData(HttpFormData formData, Boolean requestedEnabled) {
-            changed(key, syncedKey, formData::setKey);
-            changed(description, syncedDescription, formData::setDescription);
-            changed(type, syncedType, formData::setType);
-            if (formData.isFile()) {
-                if (!Objects.equals(src, syncedSrc)) {
-                    formData.setValue(scalarOrFirst(src));
-                }
-            } else {
-                changed(value, syncedValue, formData::setValue);
-            }
-            if (requestedEnabled != null) {
-                formData.setEnabled(requestedEnabled);
-            }
-        }
-
-        private void syncUrlencoded(HttpFormUrlencoded urlencoded, Boolean requestedEnabled) {
-            changed(key, syncedKey, urlencoded::setKey);
-            changed(value, syncedValue, urlencoded::setValue);
-            changed(description, syncedDescription, urlencoded::setDescription);
-            if (requestedEnabled != null) {
-                urlencoded.setEnabled(requestedEnabled);
-            }
-        }
-
-        private void syncParam(HttpParam param, Boolean requestedEnabled) {
-            changed(key, syncedKey, param::setKey);
-            changed(value, syncedValue, param::setValue);
-            changed(description, syncedDescription, param::setDescription);
-            if (requestedEnabled != null) {
-                param.setEnabled(requestedEnabled);
-            }
+        private PostmanPropertyListItemState syncedState() {
+            return new PostmanPropertyListItemState(
+                    syncedKey,
+                    syncedValue,
+                    syncedDescription,
+                    syncedType,
+                    syncedSrc,
+                    syncedEnabled
+            );
         }
 
         private void snapshot() {
@@ -775,13 +571,6 @@ public class JsListWrapper<T> {
                     || enabled != syncedEnabled;
         }
 
-        private static void changed(String current,
-                                    String previous,
-                                    java.util.function.Consumer<String> setter) {
-            if (!Objects.equals(current, previous)) {
-                setter.accept(current);
-            }
-        }
     }
 
 }

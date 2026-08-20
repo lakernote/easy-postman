@@ -196,7 +196,7 @@ public class ScriptRequestAccessor {
             replaceHeaders(definition.get("header"));
         }
         if (definition.containsKey("body")) {
-            this.body = definition.get("body");
+            replaceBody(definition.get("body"));
         }
     }
 
@@ -276,17 +276,54 @@ public class ScriptRequestAccessor {
             return;
         }
         if (converted instanceof Map<?, ?> map) {
-            if (map.containsKey("key")) {
-                Map<String, Object> header = new java.util.LinkedHashMap<>();
-                map.forEach((key, value) -> header.put(String.valueOf(key), value));
-                headers.add(header);
-            } else {
-                map.forEach((key, value) -> headers.add(
-                        String.valueOf(key),
-                        value == null ? "" : String.valueOf(value)
-                ));
-            }
+            // Postman's PropertyList.populate treats every top-level plain object as a key/value
+            // map, even when the object itself contains properties named "key" and "value".
+            map.forEach((key, value) -> addHeaderMapEntry(key, value));
         }
+    }
+
+    private void addHeaderMapEntry(Object key, Object value) {
+        Object convertedValue = ScriptValueConverter.toJavaObject(value);
+        if (convertedValue == null
+                || (convertedValue instanceof Double number && number.isNaN())
+                || (convertedValue instanceof Float number && number.isNaN())) {
+            return;
+        }
+        if (convertedValue instanceof CharSequence text) {
+            headers.add(String.valueOf(key), text.toString());
+            return;
+        }
+        if (convertedValue instanceof Map<?, ?> definition) {
+            Map<String, Object> header = new java.util.LinkedHashMap<>();
+            definition.forEach((itemKey, itemValue) -> header.put(String.valueOf(itemKey), itemValue));
+            headers.add(header);
+            return;
+        }
+
+        // Header.create(value, key) only uses the map key when value is a string. Other scalar
+        // values construct an empty Header definition in postman-collection.
+        headers.add("", "");
+    }
+
+    private void replaceBody(Object definition) {
+        ScriptRequestBodyAccessor replacement = new ScriptRequestBodyAccessor(
+                raw,
+                null,
+                null,
+                mutationTracker
+        );
+        if (!replacement.replaceDefinition(definition)) {
+            return;
+        }
+
+        if (bodyAccessor != null) {
+            bodyAccessor.detach();
+        }
+        Runnable bodyMutation = mutationTracker.bodyWriteCallback();
+        formData = new JsListWrapper<>(raw.formDataList, JsListWrapper.ListType.FORM_DATA, bodyMutation);
+        urlencoded = new JsListWrapper<>(raw.urlencodedList, JsListWrapper.ListType.URLENCODED, bodyMutation);
+        bodyAccessor = new ScriptRequestBodyAccessor(raw, formData, urlencoded, mutationTracker);
+        body = bodyAccessor;
     }
 
     private static boolean isPostmanTruthy(Object value) {

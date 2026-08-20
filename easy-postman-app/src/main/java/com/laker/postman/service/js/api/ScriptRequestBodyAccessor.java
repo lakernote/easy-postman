@@ -38,6 +38,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     private final JsListWrapper<HttpFormUrlencoded> sharedUrlencoded;
     private final ScriptRequestMutationTracker mutationTracker;
     private PostmanRequestBodyCodec.BodySnapshot syncedSnapshot;
+    private boolean attached = true;
 
     public ScriptRequestBodyAccessor(PreparedRequest request) {
         this(request, null, null, new ScriptRequestMutationTracker());
@@ -76,9 +77,35 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     private void recordAppliedDefinition(Map<?, ?> definition) {
+        PostmanRequestBodyCodec.BodySnapshot previous = snapshot();
         if (applyDefinition(definition)) {
-            mutationTracker.recordBodyWrite();
+            commitCurrentView(!Objects.equals(snapshot(), previous));
         }
+    }
+
+    /**
+     * Replaces the current body with a new SDK-shaped RequestBody definition. Unlike
+     * {@link #update(Object)}, a definition without a mode creates an empty RequestBody because
+     * Postman's {@code Request.update({body: ...})} constructs a new RequestBody instance.
+     *
+     * @return {@code false} when the requested mode is not supported by EasyPostman
+     */
+    boolean replaceDefinition(Object definition) {
+        Object converted = ScriptValueConverter.toJavaObject(definition);
+        if (converted instanceof Map<?, ?> map
+                && "graphql".equalsIgnoreCase(PostmanRequestBodyCodec.stringify(
+                PostmanRequestBodyCodec.mapValue(map, "mode")))) {
+            return false;
+        }
+
+        clearView();
+        if (converted instanceof CharSequence text) {
+            applyDefinition(Map.of("mode", "raw", "raw", text.toString()));
+        } else if (converted instanceof Map<?, ?> map) {
+            applyDefinition(map);
+        }
+        commitCurrentView(true);
+        return true;
     }
 
     public boolean isEmpty() {
@@ -127,6 +154,9 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
      * overwriting deliberate mutations made through the legacy {@code pm.request.raw} escape hatch.
      */
     public boolean syncToRaw() {
+        if (!attached) {
+            return false;
+        }
         PostmanRequestBodyCodec.BodySnapshot current = snapshot();
         boolean bodyChanged = !Objects.equals(current, syncedSnapshot);
         boolean mutationRequested = mutationTracker.consumeBodyWrite();
@@ -209,6 +239,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
 
     @Override
     public void putMember(String key, Value value) {
+        PostmanRequestBodyCodec.BodySnapshot previous = snapshot();
         Object converted = ScriptValueConverter.toJavaObject(value);
         switch (key) {
             case "mode" -> mode = converted == null ? null : converted.toString();
@@ -222,11 +253,12 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 return;
             }
         }
-        mutationTracker.recordBodyWrite();
+        commitCurrentView(!Objects.equals(snapshot(), previous));
     }
 
     @Override
     public boolean removeMember(String key) {
+        PostmanRequestBodyCodec.BodySnapshot previous = snapshot();
         switch (key) {
             case "mode" -> mode = null;
             case "raw" -> raw = null;
@@ -239,12 +271,49 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 return false;
             }
         }
-        mutationTracker.recordBodyWrite();
+        commitCurrentView(!Objects.equals(snapshot(), previous));
         return true;
     }
 
+    /**
+     * Body scalar mutations are applied immediately so writes through the SDK-shaped adapter and
+     * the legacy {@code pm.request.raw} escape hatch obey normal JavaScript last-write-wins order.
+     * Collection item proxies still flush through {@link #syncToRaw()}.
+     */
+    private void commitCurrentView(boolean bodyChanged) {
+        if (!attached) {
+            return;
+        }
+        mutationTracker.recordBodyWrite();
+        if (!bodyChanged) {
+            return;
+        }
+        applyToRequest();
+        loadFromRequest();
+        syncedSnapshot = snapshot();
+    }
+
+    /**
+     * Detaches this SDK view when {@code Request.update()} installs a new RequestBody. Existing
+     * JavaScript references may still mutate this object, but—as in Postman—they no longer mutate
+     * the request's replacement body.
+     */
+    void detach() {
+        attached = false;
+    }
+
+    private void clearView() {
+        mode = null;
+        raw = null;
+        urlencoded = null;
+        formdata = null;
+        file = null;
+        options = null;
+        disabled = null;
+    }
+
     private void applyToRequest() {
-        boolean applied = PostmanRequestBodyCodec.applyToRequest(
+        PostmanRequestBodyCodec.applyToRequest(
                 request,
                 mode,
                 raw,
@@ -253,9 +322,6 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 file,
                 disabled
         );
-        if (!applied) {
-            loadFromRequest();
-        }
     }
 
     private void loadFromRequest() {

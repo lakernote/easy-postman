@@ -380,6 +380,96 @@ public class ScriptExecutionPipelineTest {
     }
 
     @Test
+    public void shouldKeepRequestBodyAdapterAfterPostmanRequestUpdate() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({body: {mode: 'raw', raw: 'first'}});
+                        pm.request.body.update('second');
+                        pm.request.body.raw = pm.request.body.raw + '-third';
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.body, "second-third");
+        assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_RAW);
+    }
+
+    @Test
+    public void shouldKeepUrlencodedAdapterAfterPostmanRequestUpdate() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({
+                            body: {
+                                mode: 'urlencoded',
+                                urlencoded: [{key: 'first', value: '1'}]
+                            }
+                        });
+                        pm.request.body.urlencoded.add({key: 'second', value: '2'});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_FORM_URLENCODED);
+        assertEquals(request.urlencodedList.size(), 2);
+        assertEquals(request.urlencodedList.get(0).getKey(), "first");
+        assertEquals(request.urlencodedList.get(1).getKey(), "second");
+    }
+
+    @Test
+    public void shouldDetachPreviousRequestBodyAdapterAfterPostmanRequestUpdate() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const previousBody = pm.request.body;
+                        pm.request.update({body: {mode: 'raw', raw: 'replacement'}});
+                        previousBody.update('detached');
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.body, "replacement");
+        assertEquals(request.bodyType, RequestBodyTypes.BODY_TYPE_RAW);
+    }
+
+    @Test
+    public void shouldTreatTopLevelRequestHeaderObjectAsPostmanHeaderMap() {
+        PreparedRequest request = rawRequest("original");
+        request.headersList.add(new HttpHeader(true, "X-Old", "old"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({
+                            header: {key: 'X-Literal-Key', value: 'literal-value', skipped: null}
+                        });
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.headersList.size(), 2);
+        assertEquals(request.headersList.get(0).getKey(), "key");
+        assertEquals(request.headersList.get(0).getValue(), "X-Literal-Key");
+        assertEquals(request.headersList.get(1).getKey(), "value");
+        assertEquals(request.headersList.get(1).getValue(), "literal-value");
+    }
+
+    @Test
     public void shouldSupportPostmanParsedUrlDefinitionInRequestUpdate() {
         PreparedRequest request = rawRequest("original");
 
@@ -869,6 +959,42 @@ public class ScriptExecutionPipelineTest {
 
         assertTrue(result.isRequestBodyMutated());
         assertEquals(request.body, "changed-through-raw");
+    }
+
+    @Test
+    public void shouldPreserveLaterLegacyRawBodyWrite() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executeWebSocketSendScript("""
+                pm.request.body.raw = 'sdk-first';
+                pm.request.raw.body = 'raw-last';
+                """, 0, 1, "send");
+
+        assertTrue(result.isRequestBodyMutated());
+        assertEquals(request.body, "raw-last");
+    }
+
+    @Test
+    public void shouldApplyLaterSdkBodyWriteAfterLegacyRawWrite() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executeWebSocketSendScript("""
+                pm.request.raw.body = 'raw-first';
+                pm.request.body.update('sdk-last');
+                """, 0, 1, "send");
+
+        assertTrue(result.isRequestBodyMutated());
+        assertEquals(request.body, "sdk-last");
     }
 
     @Test

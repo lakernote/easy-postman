@@ -1,5 +1,6 @@
 package com.laker.postman.service.js.api;
 
+import com.laker.postman.request.model.HttpParam;
 import org.testng.annotations.Test;
 
 import java.util.ArrayList;
@@ -106,6 +107,27 @@ public class UrlWrapperTest {
         assertEquals(encodedParam.toString(), "https://api.example.com/users?%61=%26");
         assertEquals(encodedParam.query.all().get(0).key, "%61");
         assertEquals(encodedParam.query.all().get(0).value, "%26");
+    }
+
+    @Test
+    public void testToString_deduplicatesPercentEncodedQueryKeysAgainstDecodedParams() {
+        ArrayList<HttpParam> params = new ArrayList<>();
+        params.add(new HttpParam(true, "a", "1", "metadata"));
+        ArrayList<HttpParam> staleParams = new ArrayList<>();
+        staleParams.add(new HttpParam(true, "a", "stale", "metadata"));
+
+        UrlWrapper url = new UrlWrapper("https://api.example.com/users?%61=1", params);
+        UrlWrapper urlWithStaleParam = new UrlWrapper("https://api.example.com/users?%61=raw", staleParams);
+
+        assertEquals(url.toString(), "https://api.example.com/users?a=1");
+        assertEquals(params.size(), 1);
+        assertEquals(params.get(0).getKey(), "a");
+        assertEquals(params.get(0).getDescription(), "metadata");
+        assertEquals(urlWithStaleParam.toString(), "https://api.example.com/users?%61=raw");
+        assertEquals(staleParams.size(), 1);
+        assertEquals(staleParams.get(0).getKey(), "%61");
+        assertEquals(staleParams.get(0).getValue(), "raw");
+        assertEquals(staleParams.get(0).getDescription(), "metadata");
     }
 
     @Test

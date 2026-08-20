@@ -1,16 +1,15 @@
 package com.laker.postman.service.js.api;
 
 import com.laker.postman.request.model.HttpParam;
+import com.laker.postman.request.util.HttpUrlUtil;
 import org.graalvm.polyglot.Value;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.StringJoiner;
 
 /**
@@ -450,16 +449,22 @@ public class UrlWrapper {
         List<HttpParam> existing = new ArrayList<>(params);
         boolean[] consumed = new boolean[existing.size()];
         List<HttpParam> merged = new ArrayList<>(Math.max(parsed.size(), existing.size()));
-        Set<String> rawQueryKeys = new LinkedHashSet<>();
+        List<String> rawQueryKeys = new ArrayList<>();
         for (HttpParam parsedParam : parsed) {
             rawQueryKeys.add(parsedParam.getKey());
-            int match = findMatchingEnabledParam(parsedParam, existing, consumed);
+            int match = findMatchingEnabledParam(parsedParam, existing, consumed, true);
             if (match >= 0) {
                 consumed[match] = true;
                 merged.add(existing.get(match));
-            } else {
-                merged.add(parsedParam);
+                continue;
             }
+
+            int keyMatch = findMatchingEnabledParam(parsedParam, existing, consumed, false);
+            if (keyMatch >= 0) {
+                consumed[keyMatch] = true;
+                parsedParam.setDescription(existing.get(keyMatch).getDescription());
+            }
+            merged.add(parsedParam);
         }
         List<PositionedParam> disabledOrNullParams = new ArrayList<>();
         for (int index = 0; index < existing.size(); index++) {
@@ -471,7 +476,7 @@ public class UrlWrapper {
                 disabledOrNullParams.add(new PositionedParam(index, candidate));
                 continue;
             }
-            if (rawQueryKeys.contains(candidate.getKey())) {
+            if (containsEquivalentQueryKey(rawQueryKeys, candidate.getKey())) {
                 continue;
             }
             merged.add(candidate);
@@ -485,26 +490,28 @@ public class UrlWrapper {
 
     private static int findMatchingEnabledParam(HttpParam parsed,
                                                 List<HttpParam> existing,
-                                                boolean[] consumed) {
+                                                boolean[] consumed,
+                                                boolean matchValue) {
         for (int index = 0; index < existing.size(); index++) {
             HttpParam candidate = existing.get(index);
             if (!consumed[index]
                     && candidate != null
                     && candidate.isEnabled()
-                    && sameQueryComponent(parsed.getKey(), candidate.getKey(), true)
-                    && sameQueryComponent(parsed.getValue(), candidate.getValue(), false)) {
+                    && sameQueryComponent(parsed.getKey(), candidate.getKey())
+                    && (!matchValue || sameQueryComponent(parsed.getValue(), candidate.getValue()))) {
                 return index;
             }
         }
         return -1;
     }
 
-    private static boolean sameQueryComponent(String parsedValue,
-                                              String existingValue,
-                                              boolean encodeEquals) {
+    private static boolean containsEquivalentQueryKey(List<String> rawQueryKeys, String candidateKey) {
+        return rawQueryKeys.stream().anyMatch(rawQueryKey -> sameQueryComponent(rawQueryKey, candidateKey));
+    }
+
+    private static boolean sameQueryComponent(String parsedValue, String existingValue) {
         return Objects.equals(parsedValue, existingValue)
-                || Objects.equals(parsedValue,
-                        ScriptRequestBodyAccessor.normalizeQueryParamComponent(existingValue, encodeEquals));
+                || Objects.equals(HttpUrlUtil.decodeComponent(parsedValue), HttpUrlUtil.decodeComponent(existingValue));
     }
 
     record ResolvedUrl(String url, List<HttpParam> params) {

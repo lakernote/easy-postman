@@ -810,6 +810,28 @@ public class ScriptExecutionPipelineTest {
     }
 
     @Test
+    public void shouldTrackSameValueRequestBodyWritesForWebSocketSendScripts() {
+        PreparedRequest request = rawRequest("same");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult updateResult = pipeline.executeWebSocketSendScript(
+                "pm.request.body.update('same');", 0, 1, "send");
+        ScriptExecutionResult rawFieldResult = pipeline.executeWebSocketSendScript(
+                "pm.request.body.raw = 'same';", 0, 1, "send");
+        ScriptExecutionResult noOpResult = pipeline.executeWebSocketSendScript(
+                "pm.variables.set('unrelated', 'value');", 0, 1, "send");
+
+        assertTrue(updateResult.isRequestBodyMutated());
+        assertTrue(rawFieldResult.isRequestBodyMutated());
+        assertFalse(noOpResult.isRequestBodyMutated());
+        assertEquals(request.body, "same");
+    }
+
+    @Test
     public void shouldPreserveDirectRawRequestMutations() {
         PreparedRequest request = new PreparedRequest();
         request.method = "POST";

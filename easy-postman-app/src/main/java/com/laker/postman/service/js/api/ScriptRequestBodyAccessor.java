@@ -6,6 +6,7 @@ import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.RequestBodyTypes;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
+import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -24,7 +25,11 @@ import java.util.StringJoiner;
  * adapter keeps that object shape in scripts and translates mutations back to the request that
  * EasyPostman sends.</p>
  */
-public class ScriptRequestBodyAccessor {
+public class ScriptRequestBodyAccessor implements ProxyObject {
+    private static final String[] BODY_MEMBER_KEYS = {
+            "mode", "raw", "urlencoded", "formdata", "file", "options", "disabled"
+    };
+
     public String mode;
     public Object raw;
     public Object urlencoded;
@@ -37,6 +42,7 @@ public class ScriptRequestBodyAccessor {
     private final JsListWrapper<HttpFormData> sharedFormData;
     private final JsListWrapper<HttpFormUrlencoded> sharedUrlencoded;
     private BodySnapshot syncedSnapshot;
+    private boolean bodyMutationRequested;
 
     public ScriptRequestBodyAccessor(PreparedRequest request) {
         this(request, null, null);
@@ -58,11 +64,11 @@ public class ScriptRequestBodyAccessor {
     public void update(Object options) {
         Object definition = toJavaObject(options);
         if (definition instanceof CharSequence text) {
-            applyDefinition(Map.of("mode", "raw", "raw", text.toString()));
+            bodyMutationRequested |= applyDefinition(Map.of("mode", "raw", "raw", text.toString()));
             return;
         }
         if (definition instanceof Map<?, ?> map) {
-            applyDefinition(map);
+            bodyMutationRequested |= applyDefinition(map);
         }
     }
 
@@ -130,23 +136,27 @@ public class ScriptRequestBodyAccessor {
      */
     public boolean syncToRaw() {
         BodySnapshot current = snapshot();
-        if (Objects.equals(current, syncedSnapshot)) {
+        boolean bodyChanged = !Objects.equals(current, syncedSnapshot);
+        if (!bodyChanged && !bodyMutationRequested) {
             return false;
         }
 
-        applyToRequest();
+        if (bodyChanged) {
+            applyToRequest();
+        }
         loadFromRequest();
         syncedSnapshot = snapshot();
+        bodyMutationRequested = false;
         return true;
     }
 
-    private void applyDefinition(Map<?, ?> definition) {
+    private boolean applyDefinition(Map<?, ?> definition) {
         Object requestedMode = mapValue(definition, "mode");
         if (requestedMode == null) {
-            return;
+            return false;
         }
         if ("graphql".equalsIgnoreCase(stringify(requestedMode))) {
-            return;
+            return false;
         }
 
         this.mode = normalizeMode(stringify(requestedMode));
@@ -167,6 +177,78 @@ public class ScriptRequestBodyAccessor {
         } else if ("file".equals(mode) && file instanceof CharSequence source) {
             file = new LinkedHashMap<>(Map.of("src", source.toString()));
         }
+        return true;
+    }
+
+    @Override
+    public Object getMember(String key) {
+        return switch (key) {
+            case "mode" -> mode;
+            case "raw" -> raw;
+            case "urlencoded" -> urlencoded;
+            case "formdata" -> formdata;
+            case "file" -> file;
+            case "options" -> options;
+            case "disabled" -> disabled;
+            case "update" -> (ProxyExecutable) arguments -> {
+                update(arguments.length > 0 ? arguments[0] : null);
+                return null;
+            };
+            case "isEmpty" -> (ProxyExecutable) arguments -> isEmpty();
+            case "toJSON" -> (ProxyExecutable) arguments -> toJSON();
+            case "toString" -> (ProxyExecutable) arguments -> toString();
+            default -> null;
+        };
+    }
+
+    @Override
+    public Object getMemberKeys() {
+        return BODY_MEMBER_KEYS;
+    }
+
+    @Override
+    public boolean hasMember(String key) {
+        return switch (key) {
+            case "mode", "raw", "urlencoded", "formdata", "file", "options", "disabled",
+                 "update", "isEmpty", "toJSON", "toString" -> true;
+            default -> false;
+        };
+    }
+
+    @Override
+    public void putMember(String key, Value value) {
+        Object converted = toJavaObject(value);
+        switch (key) {
+            case "mode" -> mode = converted == null ? null : converted.toString();
+            case "raw" -> raw = converted;
+            case "urlencoded" -> urlencoded = converted;
+            case "formdata" -> formdata = converted;
+            case "file" -> file = converted;
+            case "options" -> options = converted;
+            case "disabled" -> disabled = converted instanceof Boolean flag ? flag : null;
+            default -> {
+                return;
+            }
+        }
+        bodyMutationRequested = true;
+    }
+
+    @Override
+    public boolean removeMember(String key) {
+        switch (key) {
+            case "mode" -> mode = null;
+            case "raw" -> raw = null;
+            case "urlencoded" -> urlencoded = null;
+            case "formdata" -> formdata = null;
+            case "file" -> file = null;
+            case "options" -> options = null;
+            case "disabled" -> disabled = null;
+            default -> {
+                return false;
+            }
+        }
+        bodyMutationRequested = true;
+        return true;
     }
 
     private void applyToRequest() {

@@ -94,6 +94,35 @@ public class FunctionalRequestExecutorTest {
         assertTrue(result.getTestResults().isEmpty());
     }
 
+    @Test
+    public void shouldSendRequestBodyUpdatedByPreScript() {
+        CapturingTransport transport = new CapturingTransport();
+        HttpRequestItem item = new HttpRequestItem();
+        item.setName("Functional request mutation");
+        item.setMethod("POST");
+        item.setUrl("https://example.test/legacy?source=old");
+        item.setBody("{\"orderId\":123}");
+        item.setPrescript("""
+                pm.request.body = '<data>' + pm.request.body + '</data>';
+                pm.request.method = 'PUT';
+                pm.request.headers.upsert({key: 'Content-Type', value: 'application/xml'});
+                pm.request.url.query.one('source').value = 'script';
+                pm.request.url.query.add({key: 'flag'});
+                """);
+
+        FunctionalRequestExecutionResult result = new FunctionalRequestExecutor(null, transport).execute(
+                new RunnerRowData(item),
+                new ExecutionVariableContext(),
+                () -> true
+        );
+
+        assertEquals(result.getStatus(), "204");
+        assertEquals(transport.request.body, "<data>{\"orderId\":123}</data>");
+        assertEquals(transport.request.method, "PUT");
+        assertEquals(transport.request.headersList.get(0).getValue(), "application/xml");
+        assertEquals(transport.request.url, "https://example.test/legacy?source=script&flag");
+    }
+
     private static final class CapturingTransport implements HttpTransport {
         private PreparedRequest request;
 

@@ -584,29 +584,54 @@ public class ScriptSnippetManager {
                 I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_HEADERS)));
         provider.addCompletion(new BasicCompletion(provider, "pm.request.body",
                 I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.update",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_UPDATE)));
 
         // URL 相关
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.protocol", "URL protocol"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.host", "URL host"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.port", "URL port"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.path", "URL path"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query", "URL query parameters"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.hash", "URL hash"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query.add",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY_ADD)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query.upsert",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY_UPSERT)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query.remove",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY_REMOVE)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query.get",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY_GET)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query.has",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY_HAS)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.url.query.all",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_URL_QUERY_ALL)));
 
         // Headers 方法
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.get", "Get header value"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.has", "Check if header exists"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.add", "Add header"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.remove", "Remove header"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.upsert", "Add or update header"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.get",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_HEADERS_GET)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.has",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_HEADERS_HAS)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.add",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_HEADERS_ADD)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.remove",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_HEADERS_REMOVE)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.headers.upsert",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_HEADERS_UPSERT)));
 
-        // Body 类型
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.mode", "Body mode (raw/urlencoded/formdata)"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.raw", "Raw body content"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.formdata", "Form data body"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.urlencoded", "URL encoded body"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.file", "File body"));
-        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.graphql", "GraphQL body"));
+        // Postman RequestBody
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.mode",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_MODE)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.raw",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_RAW)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.formdata",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_FORMDATA)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.urlencoded",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_URLENCODED)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.update",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_UPDATE)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.toString",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_TO_STRING)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.toJSON",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_TO_JSON)));
+        provider.addCompletion(new BasicCompletion(provider, "pm.request.body.isEmpty",
+                I18nUtil.getMessage(MessageKeys.AUTOCOMPLETE_PM_REQUEST_BODY_IS_EMPTY)));
     }
 
     /**

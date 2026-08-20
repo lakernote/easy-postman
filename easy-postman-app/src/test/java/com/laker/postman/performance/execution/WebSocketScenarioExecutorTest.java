@@ -634,7 +634,7 @@ public class WebSocketScenarioExecutorTest {
     }
 
     @Test
-    public void shouldResolveOriginalRequestBodyTemplateForEveryRepeatedWebSocketSend() throws Exception {
+    public void shouldResolveRequestBodyTemplateAndHonorPerSendBodyMutation() throws Exception {
         VariablesService.getInstance().detachContext();
         IterationDataVariableService.getInstance().detachContext();
 
@@ -668,7 +668,10 @@ public class WebSocketScenarioExecutorTest {
             item.setMethod("GET");
             item.setUrl(server.url("/socket").toString().replaceFirst("^http", "ws"));
             item.setBody("{{a}}");
-            item.setPrescript("pm.variables.set('a', 'connect-value');");
+            item.setPrescript("""
+                    pm.request.body = 'wrapped-{{a}}';
+                    pm.variables.set('a', 'connect-value');
+                    """);
 
             WebSocketPerformanceData requestCfg = new WebSocketPerformanceData();
             requestCfg.connectTimeoutMs = 2000;
@@ -686,6 +689,9 @@ public class WebSocketScenarioExecutorTest {
             sendStep.webSocketPerformanceData.sendIntervalMs = 0;
             sendStep.webSocketPerformanceData.sendPreScript = """
                     pm.variables.set('a', 'body-' + pm.info.wsSendIndex);
+                    if (pm.info.wsSendIndex === 1) {
+                        pm.request.body = 'direct-' + pm.info.wsSendIndex;
+                    }
                     """;
             requestNode.add(new PerformanceTestPlanNode(sendStep));
 
@@ -702,7 +708,7 @@ public class WebSocketScenarioExecutorTest {
             );
 
             assertTrue(serverReceivedMessages.await(1, TimeUnit.SECONDS), "WebSocket server should receive repeated body messages");
-            assertEquals(receivedPayloads, List.of("body-0", "body-1"));
+            assertEquals(receivedPayloads, List.of("wrapped-body-0", "direct-1"));
         } finally {
             VariablesService.getInstance().detachContext();
             IterationDataVariableService.getInstance().detachContext();

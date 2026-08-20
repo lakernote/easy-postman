@@ -31,6 +31,7 @@ import okio.ByteString;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -445,6 +446,7 @@ public class WebSocketScenarioExecutor {
                                     ));
                                     break;
                                 }
+                                String bodyBeforeSendScript = req.body;
                                 var sendScriptResult = WebSocketScenarioStepSupport.executeSendPreScript(
                                         scriptRuntime,
                                         stepCfg,
@@ -457,7 +459,14 @@ public class WebSocketScenarioExecutor {
                                     errorRef.set("WebSocket send pre-script failed: " + sendScriptResult.getErrorMessage());
                                     break;
                                 }
-                                String payload = WebSocketScenarioStepSupport.resolveSendPayload(req, requestBodyTemplate, stepCfg);
+                                String effectiveBodyTemplate = Objects.equals(req.body, bodyBeforeSendScript)
+                                        ? requestBodyTemplate
+                                        : req.body;
+                                String payload = WebSocketScenarioStepSupport.resolveSendPayload(
+                                        req,
+                                        effectiveBodyTemplate,
+                                        stepCfg
+                                );
                                 boolean sent = webSocket.send(payload == null ? "" : payload);
                                 if (sent) {
                                     sentMessageCount.incrementAndGet();

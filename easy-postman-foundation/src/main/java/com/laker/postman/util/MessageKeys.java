@@ -1795,6 +1795,27 @@ public final class MessageKeys {
     public static final String AUTOCOMPLETE_PM_REQUEST_METHOD = "autocomplete.pm.request.method";
     public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS = "autocomplete.pm.request.headers";
     public static final String AUTOCOMPLETE_PM_REQUEST_BODY = "autocomplete.pm.request.body";
+    public static final String AUTOCOMPLETE_PM_REQUEST_UPDATE = "autocomplete.pm.request.update";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY = "autocomplete.pm.request.url.query";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY_ADD = "autocomplete.pm.request.url.query.add";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY_UPSERT = "autocomplete.pm.request.url.query.upsert";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY_REMOVE = "autocomplete.pm.request.url.query.remove";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY_GET = "autocomplete.pm.request.url.query.get";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY_HAS = "autocomplete.pm.request.url.query.has";
+    public static final String AUTOCOMPLETE_PM_REQUEST_URL_QUERY_ALL = "autocomplete.pm.request.url.query.all";
+    public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS_GET = "autocomplete.pm.request.headers.get";
+    public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS_HAS = "autocomplete.pm.request.headers.has";
+    public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS_ADD = "autocomplete.pm.request.headers.add";
+    public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS_REMOVE = "autocomplete.pm.request.headers.remove";
+    public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS_UPSERT = "autocomplete.pm.request.headers.upsert";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_MODE = "autocomplete.pm.request.body.mode";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_RAW = "autocomplete.pm.request.body.raw";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_FORMDATA = "autocomplete.pm.request.body.formdata";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_URLENCODED = "autocomplete.pm.request.body.urlencoded";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_UPDATE = "autocomplete.pm.request.body.update";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_TO_STRING = "autocomplete.pm.request.body.toString";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_TO_JSON = "autocomplete.pm.request.body.toJSON";
+    public static final String AUTOCOMPLETE_PM_REQUEST_BODY_IS_EMPTY = "autocomplete.pm.request.body.isEmpty";
 
     // ========== pm.response 方法 ==========
     public static final String AUTOCOMPLETE_PM_RESPONSE_CODE = "autocomplete.pm.response.code";

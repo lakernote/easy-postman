@@ -4,6 +4,8 @@ import com.laker.postman.model.Environment;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.AuthType;
+import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpParam;
 import com.laker.postman.request.model.HttpRequestItem;
@@ -228,6 +230,615 @@ public class ScriptExecutionPipelineTest {
         assertTrue(request.url.contains("mode=temporary-mode"));
         assertEquals(request.headersList.get(0).getValue(), "trace-123");
         assertEquals(request.body, "{\"session\":\"session-456\"}");
+    }
+
+    @Test
+    public void shouldSyncPmRequestMutationsToPreparedRequest() {
+        PreparedRequest request = new PreparedRequest();
+        request.id = "script-pipeline-request-mutation";
+        request.method = "POST";
+        request.url = "https://example.com/legacy";
+        request.body = "{\"orderId\":123}";
+        request.followRedirects = true;
+        request.headersList = new ArrayList<>();
+        request.paramsList = new ArrayList<>(List.of(
+                new HttpParam(true, "source", "json")
+        ));
+        request.formDataList = new ArrayList<>();
+        request.urlencodedList = new ArrayList<>();
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.variables.set('originalOrderId', JSON.parse(pm.request.body).orderId);
+                        const xmlBody = '<data>' + pm.request.body + '</data>';
+                        pm.request.body = xmlBody;
+                        pm.request.method = 'PUT';
+                        pm.request.followRedirects = false;
+                        pm.request.url.query.all()[0].value = 'xml';
+                        pm.variables.set('queryJson', JSON.stringify(pm.request.url.query.all()));
+                        pm.request.headers.upsert({
+                            key: 'Content-Type',
+                            value: 'application/xml; charset=utf-8'
+                        });
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.body, "<data>{\"orderId\":123}</data>");
+        assertEquals(request.method, "PUT");
+        assertFalse(request.followRedirects);
+        assertEquals(request.paramsList.get(0).getValue(), "xml");
+        assertEquals(request.headersList.get(0).getValue(), "application/xml; charset=utf-8");
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{originalOrderId}}"), "123");
+            assertEquals(VariableResolver.resolve("{{queryJson}}"),
+                    "[{\"key\":\"source\",\"value\":\"xml\"}]");
+        });
+
+        pipeline.finalizeRequest();
+
+        assertEquals(request.url, "https://example.com/legacy?source=xml");
+    }
+
+    @Test
+    public void shouldSupportPostmanRequestBodyUpdateAndRawMutation() {
+        PreparedRequest request = rawRequest("original");
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.variables.set('bodyJson', JSON.stringify(pm.request.body));
+                        pm.request.body.update('updated');
+                        pm.request.body.raw = pm.request.body.raw + '-again';
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.body, "updated-again");
+        assertEquals(request.bodyType, "raw");
+        pipeline.withExecutionContext(() ->
+                assertEquals(VariableResolver.resolve("{{bodyJson}}"), "{\"mode\":\"raw\",\"raw\":\"original\"}"));
+    }
+
+    @Test
+    public void shouldParsePostmanUrlencodedStringBodyDefinition() {
+        PreparedRequest request = rawRequest("original");
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.body.update({
+                            mode: 'urlencoded',
+                            urlencoded: 'first=one&empty=&flag'
+                        });
+                        pm.variables.set('urlencodedText', pm.request.body.toString());
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.bodyType, "x-www-form-urlencoded");
+        assertEquals(request.urlencodedList.size(), 3);
+        assertEquals(request.urlencodedList.get(0).getKey(), "first");
+        assertEquals(request.urlencodedList.get(0).getValue(), "one");
+        assertEquals(request.urlencodedList.get(1).getValue(), "");
+        assertNull(request.urlencodedList.get(2).getValue());
+        pipeline.withExecutionContext(() ->
+                assertEquals(VariableResolver.resolve("{{urlencodedText}}"), "first=one&empty=&flag"));
+    }
+
+    @Test
+    public void shouldSupportPostmanRequestUpdate() {
+        PreparedRequest request = rawRequest("original");
+        request.url = "https://example.com/old?stale=1";
+        request.paramsList.add(new HttpParam(true, "stale", "1"));
+        request.headersList.add(new HttpHeader(true, "X-Old", "old"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({
+                            url: 'https://example.com/new?active=1',
+                            method: 'patch',
+                            header: {'X-New': 'new'},
+                            body: {mode: 'raw', raw: 'request-update-body'}
+                        });
+                        pm.request.url.query.add({key: 'added', value: '2'});
+                        pm.request.url.query.add({key: 'ignored', value: '3'});
+                        pm.request.url.query.all()[1].disabled = true;
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.url, "https://example.com/new?active=1&ignored=3");
+        assertEquals(request.method, "PATCH");
+        assertEquals(request.headersList.size(), 1);
+        assertEquals(request.headersList.get(0).getKey(), "X-New");
+        assertEquals(request.body, "request-update-body");
+        assertEquals(request.paramsList.size(), 3);
+        assertEquals(request.paramsList.get(0).getKey(), "active");
+        assertEquals(request.paramsList.get(0).getValue(), "1");
+        assertEquals(request.paramsList.get(1).getKey(), "added");
+        assertFalse(request.paramsList.get(1).isEnabled());
+        assertEquals(request.paramsList.get(2).getKey(), "ignored");
+
+        pipeline.finalizeRequest();
+        assertEquals(request.url, "https://example.com/new?active=1&ignored=3");
+    }
+
+    @Test
+    public void shouldSupportPostmanParsedUrlDefinitionInRequestUpdate() {
+        PreparedRequest request = rawRequest("original");
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({
+                            url: {
+                                raw: 'https://ignored.example.com/export-only',
+                                protocol: 'https',
+                                auth: {user: 'api-user', password: 'secret'},
+                                host: ['api', 'example', 'com'],
+                                port: '8443',
+                                path: ['v1', 'users'],
+                                query: [
+                                    {key: 'active', value: 'a&b'},
+                                    {key: 'disabled', value: '2', disabled: true}
+                                ],
+                                hash: 'section'
+                            }
+                        });
+                        pm.variables.set('updatedHost', pm.request.url.getHost());
+                        pm.variables.set('updatedPathWithQuery', pm.request.url.getPathWithQuery());
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.url,
+                "https://api-user:secret@api.example.com:8443/v1/users?active=a%26b#section");
+        assertEquals(request.paramsList.size(), 2);
+        assertEquals(request.paramsList.get(0).getKey(), "active");
+        assertEquals(request.paramsList.get(0).getValue(), "a&b");
+        assertFalse(request.paramsList.get(1).isEnabled());
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{updatedHost}}"), "api.example.com");
+            assertEquals(VariableResolver.resolve("{{updatedPathWithQuery}}"),
+                    "/v1/users?active=a%26b");
+        });
+
+        pipeline.finalizeRequest();
+        assertEquals(request.url,
+                "https://api-user:secret@api.example.com:8443/v1/users?active=a%26b#section");
+    }
+
+    @Test
+    public void shouldMatchPostmanRequestUpdateHeaderTruthiness() {
+        PreparedRequest request = rawRequest(null);
+        request.headersList.add(new HttpHeader(true, "X-Existing", "old"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.update({header: null});
+                        pm.variables.set('afterNull', String(pm.request.headers.count()));
+                        pm.request.update({header: []});
+                        pm.variables.set('afterEmptyList', String(pm.request.headers.count()));
+                        pm.request.headers.add('X-Empty:');
+                        pm.request.headers.add('X-Flag');
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{afterNull}}"), "1");
+            assertEquals(VariableResolver.resolve("{{afterEmptyList}}"), "0");
+        });
+        assertEquals(request.headersList.size(), 2);
+        assertEquals(request.headersList.get(0).getKey(), "X-Empty");
+        assertEquals(request.headersList.get(0).getValue(), "");
+        assertEquals(request.headersList.get(1).getKey(), "X-Flag");
+        assertEquals(request.headersList.get(1).getValue(), "");
+    }
+
+    @Test
+    public void shouldPreferRawUrlQueryOverConflictingParameterListEntry() {
+        PreparedRequest request = rawRequest(null);
+        request.url = "https://example.com/search?p=raw";
+        request.paramsList.add(new HttpParam(true, "p", "table"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("pm.request.url.query.add({key: 'x', value: '1'});")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.url, "https://example.com/search?p=raw&x=1");
+        assertEquals(request.paramsList.size(), 2);
+        assertEquals(request.paramsList.get(0).getKey(), "p");
+        assertEquals(request.paramsList.get(0).getValue(), "raw");
+        assertEquals(request.paramsList.get(1).getKey(), "x");
+    }
+
+    @Test
+    public void shouldMatchPostmanPropertyListContracts() {
+        PreparedRequest request = rawRequest(null);
+        request.headersList.add(new HttpHeader(true, "X-Trace", "one"));
+        request.headersList.add(new HttpHeader(true, "X-Trace", "two"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.variables.set('hasOne', String(pm.request.headers.has('X-Trace', 'one')));
+                        pm.variables.set('strictHas', String(pm.request.headers.has('X-Trace', 1)));
+                        pm.variables.set('added', String(pm.request.headers.upsert({key: 'X-New', value: 'new'})));
+                        pm.variables.set('updated', String(pm.request.headers.upsert({key: 'X-Trace', value: 'updated'})));
+                        pm.variables.set('invalid', String(pm.request.headers.upsert(null)));
+                        var callbackArgs = [];
+                        pm.request.headers.each(function (item, index, collection) {
+                            callbackArgs.push(index + ':' + collection.length + ':' + item.key);
+                        });
+                        pm.variables.set('callbackArgs', callbackArgs.join('|'));
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{hasOne}}"), "true");
+            assertEquals(VariableResolver.resolve("{{strictHas}}"), "false");
+            assertEquals(VariableResolver.resolve("{{added}}"), "true");
+            assertEquals(VariableResolver.resolve("{{updated}}"), "false");
+            assertEquals(VariableResolver.resolve("{{invalid}}"), "null");
+            assertEquals(VariableResolver.resolve("{{callbackArgs}}"),
+                    "0:3:X-Trace|1:3:X-Trace|2:3:X-New");
+        });
+        assertEquals(request.headersList.get(1).getValue(), "updated");
+    }
+
+    @Test
+    public void shouldAbortScriptWhenPostmanPropertyListEachCallbackFails() {
+        PreparedRequest request = rawRequest(null);
+        request.headersList.add(new HttpHeader(true, "X-Trace", "one"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.headers.each(function () {
+                            throw new Error('callback-boom');
+                        });
+                        pm.request.method = 'PATCH';
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertFalse(preResult.isSuccess());
+        assertTrue(preResult.getErrorMessage().contains("callback-boom"), preResult.getErrorMessage());
+        assertEquals(request.method, "POST");
+    }
+
+    @Test
+    public void shouldKeepPostmanPropertyReferencesLiveAfterListMutations() {
+        PreparedRequest request = rawRequest(null);
+        request.headersList.add(new HttpHeader(true, "X-Trace", "old"));
+        request.paramsList.add(new HttpParam(true, "source", "old"));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const header = pm.request.headers.all()[0];
+                        const query = pm.request.url.query.all()[0];
+                        pm.request.headers.add({key: 'X-Added', value: 'added'});
+                        pm.request.url.query.add({key: 'added', value: '1'});
+                        pm.request.headers.upsert({key: 'X-Trace', value: 'upserted'});
+                        pm.request.url.query.upsert({key: 'source', value: 'upserted'});
+                        header.value = 'after-upsert';
+                        query.value = 'after-upsert';
+                        pm.request.headers.remove('X-Added');
+                        pm.request.url.query.remove('added');
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.headersList.size(), 1);
+        assertEquals(request.headersList.get(0).getValue(), "after-upsert");
+        assertEquals(request.paramsList.size(), 1);
+        assertEquals(request.paramsList.get(0).getValue(), "after-upsert");
+    }
+
+    @Test
+    public void shouldPreserveQueryParameterWithoutEqualsSign() {
+        PreparedRequest request = rawRequest(null);
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("pm.request.url.query.add({key: 'flag'});")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.paramsList.size(), 1);
+        assertNull(request.paramsList.get(0).getValue());
+        pipeline.finalizeRequest();
+        assertEquals(request.url, "https://example.com/body?flag");
+    }
+
+    @Test
+    public void shouldSupportReplacingPostmanRequestBodyDefinition() {
+        PreparedRequest request = rawRequest("original");
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("pm.request.body = {mode: 'raw', raw: 'definition-updated'};")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.body, "definition-updated");
+        assertEquals(request.bodyType, "raw");
+    }
+
+    @Test
+    public void shouldSupportDirectStringAssignmentWhenRequestInitiallyHasNoBody() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = "none";
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("pm.request.body = 'created-by-pre-request';")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.body, "created-by-pre-request");
+        assertEquals(request.bodyType, "raw");
+    }
+
+    @Test
+    public void shouldSupportSwitchingToPostmanFormDataBody() {
+        PreparedRequest request = rawRequest("original");
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.body.mode = 'formdata';
+                        pm.request.body.formdata = [
+                            {key: 'name', value: 'easy-postman', type: 'text'},
+                            {key: 'upload', src: ['/tmp/demo.txt'], type: 'file', disabled: true}
+                        ];
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.bodyType, "form-data");
+        assertTrue(request.isMultipart);
+        assertEquals(request.formDataList.size(), 2);
+        assertEquals(request.formDataList.get(0).getValue(), "easy-postman");
+        assertFalse(request.formDataList.get(1).isEnabled());
+        assertEquals(request.formDataList.get(1).getValue(), "/tmp/demo.txt");
+    }
+
+    @Test
+    public void shouldSyncPostmanPropertyListItemMutations() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = "form-data";
+        request.isMultipart = true;
+        request.headersList.add(new HttpHeader(true, "X-Trace", "old"));
+        request.formDataList.add(new HttpFormData(
+                true,
+                "name",
+                HttpFormData.TYPE_TEXT,
+                "old"
+        ));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.headers.all()[0].value = 'new-header';
+                        pm.request.headers.all()[0].disabled = true;
+                        pm.request.body.formdata.all()[0].value = 'new-form-value';
+                        pm.variables.set('headersJson', JSON.stringify(pm.request.headers.all()));
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.headersList.get(0).getValue(), "new-header");
+        assertFalse(request.headersList.get(0).isEnabled());
+        assertEquals(request.formDataList.get(0).getValue(), "new-form-value");
+        pipeline.withExecutionContext(() ->
+                assertEquals(VariableResolver.resolve("{{headersJson}}"),
+                        "[{\"key\":\"X-Trace\",\"value\":\"new-header\",\"disabled\":true}]"));
+    }
+
+    @Test
+    public void shouldSharePostmanAndLegacyFormDataViews() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = "form-data";
+        request.isMultipart = true;
+        request.formDataList.add(new HttpFormData(
+                true,
+                "name",
+                HttpFormData.TYPE_TEXT,
+                "old"
+        ));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.body.formdata.all()[0].value = 'postman-first';
+                        pm.request.formData.all()[0].value = 'legacy-last';
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.formDataList.get(0).getValue(), "legacy-last");
+    }
+
+    @Test
+    public void shouldSharePostmanAndLegacyUrlencodedViews() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = "x-www-form-urlencoded";
+        request.urlencodedList.add(new HttpFormUrlencoded(
+                true,
+                "name",
+                "old"
+        ));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.body.urlencoded.all()[0].value = 'postman-first';
+                        pm.request.urlencoded.all()[0].value = 'legacy-last';
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.urlencodedList.get(0).getValue(), "legacy-last");
+    }
+
+    @Test
+    public void shouldUsePostmanUrlencodedBodyStringNormalization() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = "x-www-form-urlencoded";
+        request.urlencodedList.add(new HttpFormUrlencoded(
+                true,
+                "a&b",
+                "c#d=e"
+        ));
+        request.urlencodedList.add(new HttpFormUrlencoded(
+                true,
+                "{{query&key}}",
+                "{{value#part}}&tail"
+        ));
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("pm.variables.set('bodyText', pm.request.body.toString());")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        pipeline.withExecutionContext(() -> assertEquals(
+                VariableResolver.resolve("{{bodyText}}"),
+                "a%26b=c%23d=e&{{query&key}}={{value#part}}%26tail"
+        ));
+    }
+
+    @Test
+    public void shouldUpdateMultipartModeWhenPreScriptAddsFormData() {
+        PreparedRequest request = new PreparedRequest();
+        request.method = "POST";
+        request.url = "https://example.com/upload";
+        request.bodyType = "form-data";
+        request.headersList = new ArrayList<>();
+        request.paramsList = new ArrayList<>();
+        request.formDataList = new ArrayList<>();
+        request.urlencodedList = new ArrayList<>();
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("pm.request.body.formdata.add({key: 'name', value: 'easy-postman', type: 'text'});")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertTrue(request.isMultipart);
+        assertEquals(request.formDataList.size(), 1);
+        assertEquals(request.formDataList.get(0).getValue(), "easy-postman");
+    }
+
+    private static PreparedRequest rawRequest(String body) {
+        PreparedRequest request = new PreparedRequest();
+        request.method = "POST";
+        request.url = "https://example.com/body";
+        request.body = body;
+        request.bodyType = "raw";
+        request.headersList = new ArrayList<>();
+        request.paramsList = new ArrayList<>();
+        request.formDataList = new ArrayList<>();
+        request.urlencodedList = new ArrayList<>();
+        return request;
+    }
+
+    @Test
+    public void shouldPreserveDirectRawRequestMutations() {
+        PreparedRequest request = new PreparedRequest();
+        request.method = "POST";
+        request.url = "https://example.com/raw";
+        request.body = "original";
+        request.followRedirects = true;
+        request.headersList = new ArrayList<>();
+        request.paramsList = new ArrayList<>();
+        request.formDataList = new ArrayList<>();
+        request.urlencodedList = new ArrayList<>();
+
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.raw.body = 'updated-through-raw';
+                        pm.request.raw.method = 'PATCH';
+                        pm.request.raw.followRedirects = false;
+                        pm.request.raw.isMultipart = true;
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult preResult = pipeline.executePreScript();
+
+        assertTrue(preResult.isSuccess(), preResult.getErrorMessage());
+        assertEquals(request.body, "updated-through-raw");
+        assertEquals(request.method, "PATCH");
+        assertFalse(request.followRedirects);
+        assertTrue(request.isMultipart);
     }
 
     @Test

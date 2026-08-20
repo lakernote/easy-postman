@@ -237,6 +237,7 @@ public class ScriptExecutionPipeline {
                         .build();
 
                 executeScript(context);
+                syncPreRequestChanges(pm);
                 return captureTestResults && pm != null && pm.testResults != null
                         ? ScriptExecutionResult.success(pm.testResults)
                         : ScriptExecutionResult.success();
@@ -322,6 +323,7 @@ public class ScriptExecutionPipeline {
                         .build();
 
                 executeScript(context);
+                syncPreRequestChanges(pm);
                 return ScriptExecutionResult.success();
             } catch (ScriptExecutionException ex) {
                 log.error("WebSocket send script execution failed: {}", ex.getMessage(), ex);
@@ -358,6 +360,12 @@ public class ScriptExecutionPipeline {
             if (pm != null && pm.testResults != null) {
                 pm.testResults.clear();
             }
+        }
+    }
+
+    private void syncPreRequestChanges(PostmanApiContext pm) {
+        if (pm != null && pm.request != null) {
+            pm.request.syncToRaw();
         }
     }
 

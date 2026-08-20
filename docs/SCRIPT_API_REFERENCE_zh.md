@@ -6,6 +6,7 @@
 
 - [全局对象](#全局对象)
 - [pm 对象](#pm-对象)
+- [Postman 兼容性基线](#postman-兼容性基线)
 - [pm.environment - 环境变量](#pmenvironment---环境变量)
 - [全局变量（Global Variables）](#全局变量global-variables)
 - [pm.variables - 临时变量](#pmvariables---临时变量)
@@ -93,6 +94,31 @@ pm.sendRequest({
 
 ---
 
+## Postman 兼容性基线
+
+实现顺序遵循“Postman 同名 API 语义优先，EasyPostman 扩展不冲突”的原则。
+下表中的“核心兼容”只指已列出并有自动化测试的路径，不表示整个 Postman 对象已逐项实现。
+
+| 范围 | 状态 | 说明 |
+|---|---|---|
+| `pm.environment`、`pm.globals`、`pm.variables`、`pm.iterationData` | 常用路径 | 支持各作用域中适用的 `get/set/has/unset/clear/toObject/replaceIn` |
+| `pm.info` | 常用路径 | 请求、迭代和事件信息；WebSocket 字段是 EasyPostman 扩展 |
+| `pm.request.method` / `headers` | 核心兼容 | 标量修改与 HeaderList 修改会作用于当前发送 |
+| `pm.request.url` | 部分兼容 | `query` PropertyList 可读写；`request.update` 支持字符串和常用 Url definition |
+| `pm.request.body` | 部分兼容 | `raw`、`urlencoded`、`formdata` 核心 mutation 可用；`file` 见下方边界说明 |
+| `pm.response`、`pm.test`、`pm.expect` | 常用路径 | 响应读取、HeaderList 和常用 Chai BDD 链 |
+| `pm.sendRequest(options, callback)` | 已支持回调形式 | Promise 返回形式暂未实现 |
+| `pm.cookies` / `pm.cookies.jar()` | 部分支持 | 常用读写和回调形式可用；Promise 与完整 Cookie Store 选项未完全对齐 |
+| `pm.collectionVariables` | 待实现 | 当前集合/分组变量可参与 `pm.variables` 和 `{{...}}` 解析，但尚无独立 API 对象 |
+| `pm.execution`、`pm.visualizer`、`pm.vault`、`pm.require` | 待实现 | 全局 `require()` 是 EasyPostman 已有扩展，不等同于 `pm.require()` |
+| `pm.request.auth` mutation | 待完善 | Header 方式认证可通过 `pm.request.headers` 修改 |
+
+兼容依据以 EasyPostman 自动化测试和 Postman Runtime / Collection SDK 实现为基线；
+自动补全条目和 EasyPostman 历史别名不作为“已兼容”的证据。
+本轮实现对照的当前官方源码版本为 Postman Collection SDK `5.3.1`、Runtime `7.56.1`。
+
+---
+
 ## pm.environment - 环境变量
 
 环境变量的读写操作。
@@ -166,16 +192,65 @@ console.log('API Key:', apiKey);
 | 属性                | 类型            | 说明                | 示例                           |
 |-------------------|---------------|-------------------|------------------------------|
 | `id`              | String        | 请求唯一标识            | `pm.request.id`              |
-| `url`             | UrlWrapper    | 请求 URL 对象         | `pm.request.url`             |
-| `method`          | String        | HTTP 方法           | `pm.request.method`          |
-| `headers`         | JsListWrapper | 请求头列表             | `pm.request.headers`         |
-| `body`            | String        | 请求体内容             | `pm.request.body`            |
-| `formData`        | JsListWrapper | 表单数据列表（multipart） | `pm.request.formData`        |
-| `urlencoded`      | JsListWrapper | URL 编码表单数据列表      | `pm.request.urlencoded`      |
-| `params`          | JsListWrapper | URL 查询参数列表        | `pm.request.params`          |
-| `isMultipart`     | Boolean       | 是否为 multipart 请求  | `pm.request.isMultipart`     |
-| `followRedirects` | Boolean       | 是否跟随重定向           | `pm.request.followRedirects` |
-| `logEvent`        | Boolean       | 是否记录事件日志          | `pm.request.logEvent`        |
+| `url`             | Url           | 当前请求 URL 对象              | `pm.request.url`             |
+| `method`          | String        | 当前执行的 HTTP 方法（可修改）      | `pm.request.method`          |
+| `headers`         | HeaderList    | 当前请求头列表                  | `pm.request.headers`         |
+| `body`            | RequestBody   | 当前请求体对象；无请求体时为空          | `pm.request.body`            |
+| `formData`        | JsListWrapper | EasyPostman 旧脚本兼容别名       | `pm.request.formData`        |
+| `urlencoded`      | JsListWrapper | EasyPostman 旧脚本兼容别名       | `pm.request.urlencoded`      |
+| `params`          | JsListWrapper | EasyPostman 旧脚本兼容别名       | `pm.request.params`          |
+| `isMultipart`     | Boolean       | EasyPostman 执行期扩展          | `pm.request.isMultipart`     |
+| `followRedirects` | Boolean       | EasyPostman 执行期扩展          | `pm.request.followRedirects` |
+
+`pm.request.update(options)`、`pm.request.body`、`pm.request.url.query` 和
+`pm.request.headers` 优先遵循 Postman Collection SDK 的对象结构。EasyPostman 扩展只作为补充，
+不改变同名 Postman API 的含义。脚本修改只影响当前执行，不会改写编辑器中保存的请求定义。
+
+### RequestBody
+
+| 属性/方法               | 说明                                      |
+|---------------------|-----------------------------------------|
+| `mode`              | 已验证的核心模式：`raw`、`urlencoded`、`formdata` |
+| `raw`               | raw 模式正文                                |
+| `urlencoded`        | URL 编码参数列表                              |
+| `formdata`          | multipart 参数列表                           |
+| `update(definition)` | 按 Postman RequestBody 规则更新；字符串会切换到 raw 模式 |
+| `toString()`        | raw/urlencoded 正文的字符串表示；urlencoded 按 Postman QueryParam 规则规范化分隔符 |
+| `toJSON()`          | Postman Collection body definition      |
+| `isEmpty()`         | 当前 body 是否为空                            |
+
+Postman Runtime `7.27.0`（2021-03）开始把 pre-request 中的 body 变更应用到实际请求；
+`7.26.x` 及更早版本不会发送修改后的 body。官方回归测试直接覆盖
+`pm.request.body.update(text)` 和 `pm.request.body.raw = text`。当前 Runtime 在回写后重建
+Collection SDK Request 时，也会把 `pm.request.body = 'text'` 转成 raw body，EasyPostman 支持这种迁移脚本。
+如果要选择 Postman 官方测试明确覆盖的写法，使用 `update(text)` 或修改 `.raw`。
+
+当前边界：
+
+- `file` 模式仅保留 EasyPostman 本地路径 `src` 能力，尚未对齐 Postman Runtime 文件解析后的 `content`。
+- GraphQL 导入仍沿用现有 raw JSON 转换，未声明脚本 mutation 兼容。
+- `pm.request.update(options)` 已验证字符串 URL、常用 Url definition（`protocol/auth/host/port/path/query/hash`）、method、header 和 body，不代表已实现 Request SDK 的所有字段。
+
+### 修改当前请求
+
+```javascript
+const xmlBody = `<data>${pm.request.body.toString()}</data>`;
+pm.request.body.update(xmlBody);
+pm.request.update({method: 'PUT'});
+pm.request.update({
+    url: {
+        protocol: 'https',
+        host: ['api', 'example', 'com'],
+        path: ['v1', 'users'],
+        query: [{key: 'page', value: '1'}]
+    }
+});
+pm.request.followRedirects = false;
+pm.request.headers.upsert({
+    key: 'Content-Type',
+    value: 'application/xml; charset=utf-8'
+});
+```
 
 ### URL 对象方法
 
@@ -191,9 +266,17 @@ console.log('API Key:', apiKey);
 
 访问查询参数：`pm.request.url.query`
 
-| 方法      | 返回值   | 说明       | 示例                           |
-|---------|-------|----------|------------------------------|
-| `all()` | Array | 获取所有查询参数 | `pm.request.url.query.all()` |
+| 方法             | 返回值          | 说明       | 示例                                                        |
+|----------------|--------------|----------|-----------------------------------------------------------|
+| `add(item)`    | void         | 添加查询参数   | `pm.request.url.query.add({key: 'page', value: '1'})`      |
+| `upsert(item)` | Boolean/null | 更新或添加参数；新增返回 `true`，更新返回 `false` | `pm.request.url.query.upsert({key: 'page', value: '2'})`   |
+| `remove(key)`  | void         | 删除参数     | `pm.request.url.query.remove('page')`                      |
+| `get(key)`     | String       | 获取参数值    | `pm.request.url.query.get('page')`                         |
+| `has(key)`     | Boolean      | 判断参数是否存在 | `pm.request.url.query.has('page')`                         |
+| `has(key, value)` | Boolean   | 严格匹配参数名和值 | `pm.request.url.query.has('page', '1')`                    |
+| `all()`        | Array        | 获取所有查询参数 | `pm.request.url.query.all()`                               |
+| `one(key)`     | QueryParam   | 获取指定参数对象 | `pm.request.url.query.one('page')`                         |
+| `idx(index)`   | QueryParam   | 按下标获取参数  | `pm.request.url.query.idx(0)`                              |
 
 ### Headers/FormData/Urlencoded/Params 集合方法
 
@@ -202,14 +285,18 @@ console.log('API Key:', apiKey);
 | 方法                       | 参数                   | 返回值     | 说明        | 示例                                                           |
 |--------------------------|----------------------|---------|-----------|--------------------------------------------------------------|
 | `add(item)`              | item: Object         | void    | 添加一项      | `pm.request.headers.add({key: 'X-Custom', value: 'test'})`   |
-| `remove(keyOrPredicate)` | key: String/Function | void    | 删除一项      | `pm.request.headers.remove('X-Custom')`                      |
-| `upsert(item)`           | item: Object         | void    | 更新或插入一项   | `pm.request.headers.upsert({key: 'X-Custom', value: 'new'})` |
+| `remove(key)`            | key: String          | void    | 删除同名项    | `pm.request.headers.remove('X-Custom')`                      |
+| `upsert(item)`           | item: Object         | Boolean/null | 更新或插入一项；新增 `true`、更新 `false`、无效输入 `null` | `pm.request.headers.upsert({key: 'X-Custom', value: 'new'})` |
 | `get(key)`               | key: String          | String  | 获取指定键的值   | `pm.request.headers.get('Content-Type')`                     |
 | `has(key)`               | key: String          | Boolean | 检查是否存在指定键 | `pm.request.headers.has('Authorization')`                    |
+| `has(key, value)`        | key/value            | Boolean | 严格匹配键和值   | `pm.request.headers.has('Content-Type', 'application/json')` |
 | `all()`                  | 无                    | Array   | 获取所有项     | `pm.request.headers.all()`                                   |
+| `one(key)`               | key: String          | Object  | 获取最后一个同名项 | `pm.request.headers.one('X-Custom')`                         |
+| `idx(index)`             | index: Number        | Object  | 按下标获取项   | `pm.request.headers.idx(0)`                                  |
 | `count()`                | 无                    | Number  | 获取项数      | `pm.request.headers.count()`                                 |
 | `clear()`                | 无                    | void    | 清空所有项     | `pm.request.headers.clear()`                                 |
-| `each(callback)`         | callback: Function   | void    | 遍历每一项     | `pm.request.headers.each(h => console.log(h))`               |
+| `each(callback)`         | callback: Function   | void    | 以 `(item, index, collection)` 遍历；回调异常会中断脚本 | `pm.request.headers.each((h, i) => console.log(i, h))`        |
+| `toObject()`             | 无                    | Object  | 转为键值对象    | `pm.request.headers.toObject()`                              |
 
 ### 使用示例
 
@@ -220,16 +307,17 @@ pm.request.headers.add({
     value: "Bearer " + pm.environment.get("token")
 });
 
-// 添加查询参数
-pm.request.params.add({
+// 添加查询参数（Postman 标准路径）
+pm.request.url.query.add({
     key: "timestamp",
     value: Date.now().toString()
 });
 
-// 添加表单数据
-pm.request.formData.add({
+// 当前 body 为 formdata 时添加字段
+pm.request.body.formdata.add({
     key: "username",
-    value: "john"
+    value: "john",
+    type: "text"
 });
 
 // 获取 URL 信息
@@ -2920,19 +3008,18 @@ pm.environment.set('performanceStats', JSON.stringify(stats));
 ## 注意事项
 
 1. **作用域限制**
-    - Pre-request 脚本中无法访问 `pm.response`
-    - `pm.response` 仅在 Post-request 脚本中可用
+    - Postman 中 `pm.response` 主要用于 Post-response 脚本
+    - EasyPostman 在 Pre-request 中提供空响应对象作为向后兼容扩展，不应依赖其中的数据
 
 2. **变量类型**
     - `pm.environment` 用于持久化变量存储
-    - `pm.variables` 是临时变量，仅在当前请求生命周期内有效
+    - `pm.variables` 是当前执行/运行作用域的临时变量，不会持久化
     - `pm.globals` 用于应用级全局变量
     - 环境变量会被持久化保存到文件，临时变量不会
 
-3. **断言限制**
-    - 当前仅支持有限的断言方法：`equal`、`eql`、`include`、`property`、`match`、`below`
-    - 不支持完整的 Chai.js 断言库（如 `above`、`length`、`keys`、`true`、`false` 等）
-    - 建议使用简单的 if 判断配合 `throw new Error()` 来实现复杂断言
+3. **断言范围**
+    - 已支持常用 Chai BDD 链，包括相等、包含、属性、类型、正则、长度、数值范围、键和成员等
+    - 尚未承诺与完整 Chai 插件生态逐项一致；迁移复杂断言时应运行兼容测试
 
 4. **Cookie 管理**
     - `pm.cookies` 提供当前请求域的 Cookie 访问
@@ -2945,7 +3032,7 @@ pm.environment.set('performanceStats', JSON.stringify(stats));
     - 使用 `.toString()` 确保数值类型正确转换
 
 6. **集合操作**
-    - `pm.request.headers`、`formData`、`urlencoded`、`params` 都是 `JsListWrapper` 类型
+    - 标准路径是 `pm.request.headers`、`pm.request.url.query`、`pm.request.body.formdata` 和 `pm.request.body.urlencoded`
     - 对这些集合的修改会直接影响实际发送的请求（仅在 Pre-request 中有效）
     - 使用 `add()`、`remove()`、`upsert()` 进行集合操作
 
@@ -2955,10 +3042,10 @@ pm.environment.set('performanceStats', JSON.stringify(stats));
     - ✅ **也支持**：使用 `require('library-name')` 加载
     - 库代码会被缓存，重复加载不会影响性能
 
-8. **不支持的功能**
-    - ❌ `pm.iterationData` - 不支持迭代数据（但支持 CSV 数据驱动）
-    - ❌ `pm.info` - 不支持请求元信息访问
-    - ❌ 完整的 Chai.js 断言库
+8. **尚未完全兼容的功能**
+    - `pm.collectionVariables`
+    - `pm.execution`、`pm.visualizer`、`pm.vault`、`pm.require`
+    - `pm.sendRequest()` 和 Cookie Jar 的 Promise 形式
 
 ---
 
@@ -2986,8 +3073,9 @@ pm.variables.unset('key')                 // 删除
 
 // ===== 请求操作 (Pre-request) =====
 pm.request.headers.add({key, value})      // 添加请求头
-pm.request.params.add({key, value})       // 添加查询参数
-pm.request.formData.add({key, value})     // 添加表单数据
+pm.request.url.query.add({key, value})    // 添加查询参数
+pm.request.body.formdata.add({key, value, type: 'text'}) // 添加表单数据
+pm.request.body.update('new raw body')    // 更新 raw body
 pm.request.url.toString()                 // 获取 URL
 
 // ===== 响应访问 (Post-request) =====
@@ -3036,4 +3124,7 @@ var moment = require('moment')
 ## 参考资源
 
 - [Postman 官方文档](https://learning.postman.com/docs/writing-scripts/intro-to-scripts/)
+- [Postman Runtime 请求 mutation 集成测试](https://github.com/postmanlabs/postman-runtime/blob/develop/test/integration/mutations/request.test.js)
+- [Postman Runtime 7.27.0 body mutation 变更](https://github.com/postmanlabs/postman-runtime/commit/3b998e4471919df458e09651de00d4a45e6f3bb2)
+- [Postman Collection SDK RequestBody 实现](https://github.com/postmanlabs/postman-collection/blob/develop/lib/collection/request-body.js)
 - [ChaiJS 断言库](https://www.chaijs.com/api/bdd/)

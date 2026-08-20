@@ -177,6 +177,9 @@ public class PerformanceRequestExecutor {
             return null;
         }
         if (preOk) {
+            // Pre-script may replace pm.request.body. Keep the resulting template for WebSocket send steps,
+            // while finalizeRequest resolves the concrete body used by ordinary HTTP requests.
+            requestBodyTemplate = req.body;
             scriptRuntime.finalizeRequest();
         }
 
@@ -217,9 +220,10 @@ public class PerformanceRequestExecutor {
                     );
                 }
                 PerformanceResponseCapturePlan transportCapturePlan = capturePlan;
+                String transportRequestBodyTemplate = requestBodyTemplate;
                 ProtocolExecutionResult protocolResult = scriptRuntime.withExecutionContextThrowing(() ->
                         transportExecutor.execute(req, requestSampler, requestSnapshot, transportSseRequest, transportWebSocketRequest,
-                                requestBodyTemplate, scriptRuntime, transportCapturePlan)
+                                transportRequestBodyTemplate, scriptRuntime, transportCapturePlan)
                 );
                 resp = protocolResult.response();
                 errorMsg = CharSequenceUtil.blankToDefault(protocolResult.errorMsg(), errorMsg);

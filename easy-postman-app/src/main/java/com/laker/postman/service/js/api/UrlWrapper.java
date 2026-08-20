@@ -1,11 +1,18 @@
 package com.laker.postman.service.js.api;
 
 import com.laker.postman.request.model.HttpParam;
-
-
+import com.laker.postman.request.util.HttpUrlUtil;
+import org.graalvm.polyglot.Value;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * URL 包装器 - 用于在 JavaScript 中访问 pm.request.url
@@ -27,6 +34,9 @@ public class UrlWrapper {
      */
     public final String url;
 
+    private final String baseUrl;
+    private final String fragment;
+
     /**
      * 查询参数包装器
      */
@@ -34,7 +44,16 @@ public class UrlWrapper {
 
     public UrlWrapper(String url, List<HttpParam> params) {
         this.url = url;
-        this.query = new QueryWrapper(params);
+        String safeUrl = url == null ? "" : url;
+        int fragmentIndex = safeUrl.indexOf('#');
+        this.fragment = fragmentIndex >= 0 ? safeUrl.substring(fragmentIndex) : "";
+        String withoutFragment = fragmentIndex >= 0 ? safeUrl.substring(0, fragmentIndex) : safeUrl;
+        int queryIndex = withoutFragment.indexOf('?');
+        this.baseUrl = queryIndex >= 0 ? withoutFragment.substring(0, queryIndex) : withoutFragment;
+
+        List<HttpParam> target = params != null ? params : new ArrayList<>();
+        mergeUrlQueryIntoParams(safeUrl, target);
+        this.query = new QueryWrapper(target);
     }
 
     /**
@@ -51,31 +70,23 @@ public class UrlWrapper {
         }
 
         try {
-            // 移除协议部分（http:// 或 https://）
-            String urlWithoutProtocol = url;
-            int protocolEnd = url.indexOf("://");
+            String currentUrl = toString();
+            String urlWithoutProtocol = currentUrl;
+            int protocolEnd = currentUrl.indexOf("://");
             if (protocolEnd > 0) {
-                urlWithoutProtocol = url.substring(protocolEnd + 3);
+                urlWithoutProtocol = currentUrl.substring(protocolEnd + 3);
             }
 
-            // 找到第一个 '/' 的位置（路径开始）
             int pathStart = urlWithoutProtocol.indexOf('/');
             if (pathStart == -1) {
-                // 没有路径部分，返回 "/"
                 return "/";
             }
 
-            // 找到查询参数的位置（如果有）
             int queryStart = urlWithoutProtocol.indexOf('?', pathStart);
-            if (queryStart > 0) {
-                // 返回从路径开始到查询参数之前的部分
-                return urlWithoutProtocol.substring(pathStart, queryStart);
-            } else {
-                // 没有查询参数，返回从路径开始到结尾
-                return urlWithoutProtocol.substring(pathStart);
-            }
+            int fragmentStart = urlWithoutProtocol.indexOf('#', pathStart);
+            int pathEnd = firstNonNegative(queryStart, fragmentStart, urlWithoutProtocol.length());
+            return urlWithoutProtocol.substring(pathStart, pathEnd);
         } catch (Exception e) {
-            // 解析失败，返回空字符串
             return "";
         }
     }
@@ -94,24 +105,31 @@ public class UrlWrapper {
         }
 
         try {
-            // 移除协议部分
-            String urlWithoutProtocol = url;
-            int protocolEnd = url.indexOf("://");
+            String currentUrl = toString();
+            String urlWithoutProtocol = currentUrl;
+            int protocolEnd = currentUrl.indexOf("://");
             if (protocolEnd > 0) {
-                urlWithoutProtocol = url.substring(protocolEnd + 3);
+                urlWithoutProtocol = currentUrl.substring(protocolEnd + 3);
             }
 
-            // 找到路径开始的位置
-            int pathStart = urlWithoutProtocol.indexOf('/');
-            String hostPart = pathStart > 0 ? urlWithoutProtocol.substring(0, pathStart) : urlWithoutProtocol;
-
-            // 移除端口部分（如果有）
-            int portStart = hostPart.indexOf(':');
-            if (portStart > 0) {
-                return hostPart.substring(0, portStart);
+            int authorityEnd = firstNonNegative(
+                    urlWithoutProtocol.indexOf('/'),
+                    urlWithoutProtocol.indexOf('?'),
+                    urlWithoutProtocol.indexOf('#'),
+                    urlWithoutProtocol.length()
+            );
+            String hostPart = urlWithoutProtocol.substring(0, authorityEnd);
+            int credentialsEnd = hostPart.lastIndexOf('@');
+            if (credentialsEnd >= 0) {
+                hostPart = hostPart.substring(credentialsEnd + 1);
             }
 
-            return hostPart;
+            if (hostPart.startsWith("[")) {
+                int ipv6End = hostPart.indexOf(']');
+                return ipv6End >= 0 ? hostPart.substring(0, ipv6End + 1) : hostPart;
+            }
+            int portStart = hostPart.lastIndexOf(':');
+            return portStart > 0 ? hostPart.substring(0, portStart) : hostPart;
         } catch (Exception e) {
             return "";
         }
@@ -131,11 +149,7 @@ public class UrlWrapper {
         }
 
         try {
-            int queryStart = url.indexOf('?');
-            if (queryStart > 0 && queryStart < url.length() - 1) {
-                return url.substring(queryStart + 1);
-            }
-            return "";
+            return buildQueryString();
         } catch (Exception e) {
             return "";
         }
@@ -155,23 +169,21 @@ public class UrlWrapper {
         }
 
         try {
-            // 移除协议部分
-            String urlWithoutProtocol = url;
-            int protocolEnd = url.indexOf("://");
-            if (protocolEnd > 0) {
-                urlWithoutProtocol = url.substring(protocolEnd + 3);
-            }
-
-            // 找到第一个 '/' 的位置
-            int pathStart = urlWithoutProtocol.indexOf('/');
-            if (pathStart == -1) {
-                return "/";
-            }
-
-            return urlWithoutProtocol.substring(pathStart);
+            String queryString = getQueryString();
+            return getPath() + (hasEnabledQueryParameter() ? "?" + queryString : "");
         } catch (Exception e) {
             return "/";
         }
+    }
+
+    private static int firstNonNegative(int... candidates) {
+        int result = Integer.MAX_VALUE;
+        for (int candidate : candidates) {
+            if (candidate >= 0 && candidate < result) {
+                result = candidate;
+            }
+        }
+        return result == Integer.MAX_VALUE ? -1 : result;
     }
 
     /**
@@ -180,7 +192,301 @@ public class UrlWrapper {
      * @return URL 字符串
      */
     public String toString() {
-        return url != null ? url : "";
+        String queryString = buildQueryString();
+        return baseUrl + (hasEnabledQueryParameter() ? "?" + queryString : "") + fragment;
+    }
+
+    private String buildQueryString() {
+        StringJoiner queryString = new StringJoiner("&");
+        for (HttpParam param : query.params) {
+            if (param == null || !param.isEnabled()) {
+                continue;
+            }
+            String key = ScriptRequestBodyAccessor.normalizeQueryParamComponent(param.getKey(), true);
+            String value = param.getValue();
+            queryString.add(value == null ? key : key + "="
+                    + ScriptRequestBodyAccessor.normalizeQueryParamComponent(value, false));
+        }
+        return queryString.toString();
+    }
+
+    private boolean hasEnabledQueryParameter() {
+        return query.params.stream().anyMatch(param -> param != null && param.isEnabled());
+    }
+
+    /**
+     * Resolves the String-or-definition contract accepted by Postman's {@code Url.update}.
+     * A lone {@code raw} field is accepted as a permissive collection-export fallback.
+     */
+    static ResolvedUrl resolveDefinition(Object definition) {
+        Object converted = ScriptRequestBodyAccessor.toJavaObject(definition);
+        if (converted instanceof UrlWrapper wrapper) {
+            String resolved = wrapper.toString();
+            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+        }
+        if (converted instanceof CharSequence text) {
+            String resolved = text.toString();
+            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+        }
+        if (!(converted instanceof Map<?, ?> map)) {
+            String resolved = Objects.toString(converted, "");
+            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+        }
+
+        if (!hasParsedUrlFields(map)) {
+            String resolved = Objects.toString(javaValue(map, "raw"), "");
+            return new ResolvedUrl(resolved, HttpUrlUtil.parseQueryParams(resolved));
+        }
+
+        List<HttpParam> queryParams = parseQueryDefinition(javaValue(map, "query"));
+        String resolved = buildUrlFromDefinition(map, queryParams);
+        return new ResolvedUrl(resolved, queryParams);
+    }
+
+    private static boolean hasParsedUrlFields(Map<?, ?> definition) {
+        return definition.containsKey("protocol")
+                || definition.containsKey("auth")
+                || definition.containsKey("host")
+                || definition.containsKey("port")
+                || definition.containsKey("path")
+                || definition.containsKey("query")
+                || definition.containsKey("hash")
+                || definition.containsKey("variable");
+    }
+
+    private static String buildUrlFromDefinition(Map<?, ?> definition, List<HttpParam> queryParams) {
+        StringBuilder result = new StringBuilder();
+        Object protocol = javaValue(definition, "protocol");
+        if (protocol != null && !protocol.toString().isEmpty()) {
+            String protocolText = protocol.toString();
+            result.append(protocolText);
+            if (!protocolText.endsWith("://")) {
+                result.append("://");
+            }
+        }
+
+        appendAuth(result, javaValue(definition, "auth"));
+        appendJoined(result, javaValue(definition, "host"), ".", false);
+
+        Object port = javaValue(definition, "port");
+        if (port != null) {
+            result.append(':').append(port);
+        }
+
+        Object path = javaValue(definition, "path");
+        if (path instanceof CharSequence text) {
+            String pathText = text.toString();
+            if ("/".equals(pathText)) {
+                result.append('/');
+            } else if (!pathText.isEmpty()) {
+                result.append('/').append(pathText.startsWith("/") ? pathText.substring(1) : pathText);
+            }
+        } else if (path instanceof Collection<?> pathSegments) {
+            result.append('/');
+            appendJoined(result, pathSegments, "/", true);
+        }
+
+        List<HttpParam> enabledQueryParams = queryParams.stream()
+                .filter(Objects::nonNull)
+                .filter(HttpParam::isEnabled)
+                .toList();
+        if (!enabledQueryParams.isEmpty()) {
+            result.append('?').append(buildQueryString(enabledQueryParams));
+        }
+
+        Object hash = javaValue(definition, "hash");
+        if (hash instanceof CharSequence) {
+            result.append('#').append(hash);
+        }
+        return result.toString();
+    }
+
+    private static void appendAuth(StringBuilder result, Object authDefinition) {
+        if (!(authDefinition instanceof Map<?, ?> auth)) {
+            return;
+        }
+        Object user = javaValue(auth, "user");
+        Object password = javaValue(auth, "password");
+        if (!(user instanceof CharSequence) && !(password instanceof CharSequence)) {
+            return;
+        }
+        if (user instanceof CharSequence) {
+            result.append(user);
+        }
+        if (password instanceof CharSequence) {
+            result.append(':').append(password);
+        }
+        result.append('@');
+    }
+
+    private static void appendJoined(StringBuilder result,
+                                     Object value,
+                                     String separator,
+                                     boolean emptyCollectionAllowed) {
+        if (value instanceof Collection<?> collection) {
+            if (collection.isEmpty() && !emptyCollectionAllowed) {
+                return;
+            }
+            StringJoiner joiner = new StringJoiner(separator);
+            collection.forEach(item -> joiner.add(Objects.toString(
+                    ScriptRequestBodyAccessor.toJavaObject(item), "")));
+            result.append(joiner);
+        } else if (value != null) {
+            result.append(value);
+        }
+    }
+
+    private static List<HttpParam> parseQueryDefinition(Object queryDefinition) {
+        Object converted = ScriptRequestBodyAccessor.toJavaObject(queryDefinition);
+        if (converted instanceof CharSequence queryString) {
+            return parseQueryString(queryString.toString());
+        }
+        if (converted instanceof Collection<?> collection) {
+            List<HttpParam> result = new ArrayList<>();
+            collection.forEach(item -> addQueryItem(result, item));
+            return result;
+        }
+        if (converted instanceof Map<?, ?> queryMap) {
+            List<HttpParam> result = new ArrayList<>();
+            queryMap.forEach((key, value) -> {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("key", Objects.toString(key, ""));
+                item.put("value", ScriptRequestBodyAccessor.toJavaObject(value));
+                addQueryItem(result, item);
+            });
+            return result;
+        }
+        return new ArrayList<>();
+    }
+
+    private static List<HttpParam> parseQueryString(String queryString) {
+        List<HttpParam> result = new ArrayList<>();
+        if (queryString.isEmpty()) {
+            return result;
+        }
+        String[] entries = queryString.split("&", -1);
+        for (int index = 0; index < entries.length; index++) {
+            String entry = entries[index];
+            if (entry.isEmpty() && index < entries.length - 1) {
+                result.add(new HttpParam(true, null, null));
+                continue;
+            }
+            int equalsIndex = entry.indexOf('=');
+            result.add(new HttpParam(
+                    true,
+                    equalsIndex < 0 ? entry : entry.substring(0, equalsIndex),
+                    equalsIndex < 0 ? null : entry.substring(equalsIndex + 1)
+            ));
+        }
+        return result;
+    }
+
+    private static void addQueryItem(List<HttpParam> target, Object definition) {
+        Object converted = ScriptRequestBodyAccessor.toJavaObject(definition);
+        if (converted instanceof CharSequence text) {
+            target.addAll(parseQueryString(text.toString()));
+            return;
+        }
+        if (!(converted instanceof Map<?, ?> item)) {
+            return;
+        }
+        Object disabled = javaValue(item, "disabled");
+        Object enabled = javaValue(item, "enabled");
+        boolean itemEnabled;
+        if (disabled instanceof Boolean disabledFlag) {
+            itemEnabled = !disabledFlag;
+        } else {
+            itemEnabled = !(enabled instanceof Boolean enabledFlag) || enabledFlag;
+        }
+        Object value = javaValue(item, "value");
+        target.add(new HttpParam(
+                itemEnabled,
+                postmanQueryString(javaValue(item, "key")),
+                postmanQueryString(value),
+                Objects.toString(javaValue(item, "description"), "")
+        ));
+    }
+
+    private static Object javaValue(Map<?, ?> map, String key) {
+        return ScriptRequestBodyAccessor.toJavaObject(map.get(key));
+    }
+
+    private static String postmanQueryString(Object value) {
+        return value instanceof CharSequence text ? text.toString() : null;
+    }
+
+    private static String buildQueryString(List<HttpParam> params) {
+        StringJoiner queryString = new StringJoiner("&");
+        for (HttpParam param : params) {
+            String key = ScriptRequestBodyAccessor.normalizeQueryParamComponent(param.getKey(), true);
+            String value = ScriptRequestBodyAccessor.normalizeQueryParamComponent(param.getValue(), false);
+            queryString.add(param.getValue() == null ? key : key + "=" + value);
+        }
+        return queryString.toString();
+    }
+
+    private static void mergeUrlQueryIntoParams(String url, List<HttpParam> params) {
+        List<HttpParam> parsed = HttpUrlUtil.parseQueryParams(url);
+        if (parsed.isEmpty()) {
+            return;
+        }
+
+        List<HttpParam> existing = new ArrayList<>(params);
+        boolean[] consumed = new boolean[existing.size()];
+        List<HttpParam> merged = new ArrayList<>(Math.max(parsed.size(), existing.size()));
+        Set<String> rawQueryKeys = new LinkedHashSet<>();
+        for (HttpParam parsedParam : parsed) {
+            rawQueryKeys.add(parsedParam.getKey());
+            int match = findMatchingEnabledParam(parsedParam, existing, consumed);
+            if (match >= 0) {
+                consumed[match] = true;
+                merged.add(existing.get(match));
+            } else {
+                merged.add(parsedParam);
+            }
+        }
+        List<PositionedParam> disabledOrNullParams = new ArrayList<>();
+        for (int index = 0; index < existing.size(); index++) {
+            HttpParam candidate = existing.get(index);
+            if (consumed[index]) {
+                continue;
+            }
+            if (candidate == null || !candidate.isEnabled()) {
+                disabledOrNullParams.add(new PositionedParam(index, candidate));
+                continue;
+            }
+            if (rawQueryKeys.contains(candidate.getKey())) {
+                continue;
+            }
+            merged.add(candidate);
+        }
+        for (PositionedParam positioned : disabledOrNullParams) {
+            merged.add(Math.min(positioned.index(), merged.size()), positioned.param());
+        }
+        params.clear();
+        params.addAll(merged);
+    }
+
+    private static int findMatchingEnabledParam(HttpParam parsed,
+                                                List<HttpParam> existing,
+                                                boolean[] consumed) {
+        for (int index = 0; index < existing.size(); index++) {
+            HttpParam candidate = existing.get(index);
+            if (!consumed[index]
+                    && candidate != null
+                    && candidate.isEnabled()
+                    && Objects.equals(parsed.getKey(), candidate.getKey())
+                    && Objects.equals(parsed.getValue(), candidate.getValue())) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    record ResolvedUrl(String url, List<HttpParam> params) {
+    }
+
+    private record PositionedParam(int index, HttpParam param) {
     }
 
     /**
@@ -188,135 +494,85 @@ public class UrlWrapper {
      */
     public static class QueryWrapper {
         private final List<HttpParam> params;
-        private List<ParamProxy> cachedProxies;
+        private final JsListWrapper<HttpParam> delegate;
 
         public QueryWrapper(List<HttpParam> params) {
             this.params = params != null ? params : new ArrayList<>();
+            this.delegate = new JsListWrapper<>(this.params, JsListWrapper.ListType.PARAM);
         }
 
         /**
          * 返回所有查询参数的 JavaScript 友好包装列表
          * 注意：返回的是缓存的代理列表，对代理字段的修改会保留
          */
-        public List<ParamProxy> all() {
-            if (cachedProxies == null) {
-                cachedProxies = new ArrayList<>();
-                for (HttpParam param : params) {
-                    cachedProxies.add(new ParamProxy(param));
-                }
+        public List<JsListWrapper.ItemProxy> all() {
+            return delegate.all();
+        }
+
+        public void add(Map<String, Object> item) {
+            delegate.add(item);
+        }
+
+        public Boolean upsert(Map<String, Object> item) {
+            return delegate.upsert(item);
+        }
+
+        public void remove(String key) {
+            delegate.remove(key);
+        }
+
+        public String get(String key) {
+            sync();
+            return delegate.get(key);
+        }
+
+        public boolean has(String key) {
+            sync();
+            return delegate.has(key);
+        }
+
+        public boolean has(String key, Object value) {
+            sync();
+            return delegate.has(key, value);
+        }
+
+        public int count() {
+            return params.size();
+        }
+
+        public void clear() {
+            delegate.clear();
+        }
+
+        public JsListWrapper.ItemProxy one(String key) {
+            return delegate.one(key);
+        }
+
+        public JsListWrapper.ItemProxy idx(int index) {
+            return delegate.idx(index);
+        }
+
+        public void each(Value callback) {
+            if (callback == null || !callback.canExecute()) {
+                return;
             }
-            return cachedProxies;
+            delegate.each(callback);
+        }
+
+        public Map<String, Object> toObject() {
+            sync();
+            return delegate.toObject();
         }
 
         /**
          * 同步所有代理的修改回底层 HttpParam 对象
          */
         public void sync() {
-            if (cachedProxies != null) {
-                for (ParamProxy proxy : cachedProxies) {
-                    proxy.sync();
-                }
-            }
-        }
-    }
-
-    /**
-     * 参数代理类 - 提供公共字段以便 JavaScript 访问
-     * <p>
-     * 这个类作为 HttpParam 的代理，暴露公共字段 key 和 value，
-     * 使得 JavaScript 可以直接使用 param.value 而不是 param.getValue()
-     * </p>
-     *
-     * <p>重要：为了让 GraalVM JavaScript 能够访问和修改字段，
-     * 我们在构造时直接从底层 HttpParam 同步值到公共字段，
-     * 然后通过拦截器或手动同步来确保修改被反映回去。</p>
-     */
-    public static class ParamProxy {
-        private final HttpParam param;
-
-        /**
-         * 参数键（公共字段，可直接从 JavaScript 访问和修改）
-         */
-        @SuppressWarnings("checkstyle:VisibilityModifier")
-        public String key;
-
-        /**
-         * 参数值（公共字段，可直接从 JavaScript 访问和修改）
-         */
-        @SuppressWarnings("checkstyle:VisibilityModifier")
-        public String value;
-
-        /**
-         * 参数是否启用
-         */
-        @SuppressWarnings("checkstyle:VisibilityModifier")
-        public boolean enabled;
-
-        public ParamProxy(HttpParam param) {
-            this.param = param;
-            // 初始化时同步值
-            this.key = param.getKey();
-            this.value = param.getValue();
-            this.enabled = param.isEnabled();
+            delegate.sync();
         }
 
-        /**
-         * 获取当前值（从底层 HttpParam 读取并同步到公共字段）
-         */
-        public String getValue() {
-            this.value = param.getValue();
-            return this.value;
-        }
-
-        /**
-         * 设置值（同步到底层 HttpParam 和公共字段）
-         */
-        public void setValue(String value) {
-            this.value = value;
-            this.param.setValue(value);
-        }
-
-        /**
-         * 获取键（从底层 HttpParam 读取并同步到公共字段）
-         */
-        public String getKey() {
-            this.key = param.getKey();
-            return this.key;
-        }
-
-        /**
-         * 设置键（同步到底层 HttpParam 和公共字段）
-         */
-        public void setKey(String key) {
-            this.key = key;
-            this.param.setKey(key);
-        }
-
-        /**
-         * 获取启用状态
-         */
-        public boolean isEnabled() {
-            this.enabled = param.isEnabled();
-            return this.enabled;
-        }
-
-        /**
-         * 设置启用状态
-         */
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-            this.param.setEnabled(enabled);
-        }
-
-        /**
-         * 同步公共字段的修改回底层 HttpParam
-         * 这个方法应该在 JavaScript 修改字段后被调用
-         */
-        public void sync() {
-            this.param.setKey(this.key);
-            this.param.setValue(this.value);
-            this.param.setEnabled(this.enabled);
+        JsListWrapper<HttpParam> asListWrapper() {
+            return delegate;
         }
     }
 }
-

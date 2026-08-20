@@ -27,10 +27,13 @@ public class HttpUrlUtil {
             return encodedUrl;
         }
 
-        boolean hasQuery = encodedUrl.contains("?");
-        Set<String> existingKeys = extractQueryParamKeys(encodedUrl, hasQuery);
+        int fragmentIndex = encodedUrl.indexOf('#');
+        String fragment = fragmentIndex >= 0 ? encodedUrl.substring(fragmentIndex) : "";
+        String requestUrl = fragmentIndex >= 0 ? encodedUrl.substring(0, fragmentIndex) : encodedUrl;
+        boolean hasQuery = requestUrl.contains("?");
+        Set<String> existingKeys = extractQueryParamKeys(requestUrl, hasQuery);
 
-        StringBuilder sb = new StringBuilder(encodedUrl);
+        StringBuilder sb = new StringBuilder(requestUrl);
         for (HttpParam param : paramsList) {
             if (!param.isEnabled()) {
                 continue;
@@ -45,11 +48,12 @@ public class HttpUrlUtil {
 
             sb.append(hasQuery ? "&" : "?");
             hasQuery = true;
-            sb.append(encodeComponent(key))
-                    .append("=")
-                    .append(encodeComponent(param.getValue() != null ? param.getValue() : ""));
+            sb.append(encodeComponent(key));
+            if (param.getValue() != null) {
+                sb.append("=").append(encodeComponent(param.getValue()));
+            }
         }
-        return sb.toString();
+        return sb.append(fragment).toString();
     }
 
     public static String extractBaseUri(String urlString) {
@@ -227,7 +231,10 @@ public class HttpUrlUtil {
         if (idx < 0 || idx == url.length() - 1) {
             return Collections.emptyList();
         }
-        String paramStr = url.substring(idx + 1);
+        int fragmentIndex = url.indexOf('#', idx + 1);
+        String paramStr = fragmentIndex >= 0
+                ? url.substring(idx + 1, fragmentIndex)
+                : url.substring(idx + 1);
 
         List<HttpParam> urlParams = new ArrayList<>();
         int last = 0;
@@ -242,7 +249,7 @@ public class HttpUrlUtil {
                 value = pair.substring(eqIdx + 1);
             } else {
                 key = pair;
-                value = "";
+                value = null;
             }
 
             if (isNotBlank(key)) {
@@ -457,9 +464,15 @@ public class HttpUrlUtil {
         if (url == null || !url.contains("?")) {
             return url;
         }
-        int idx = url.indexOf('?');
-        String baseUrl = url.substring(0, idx);
-        String paramStr = url.substring(idx + 1);
+        int fragmentIndex = url.indexOf('#');
+        String fragment = fragmentIndex >= 0 ? url.substring(fragmentIndex) : "";
+        String requestUrl = fragmentIndex >= 0 ? url.substring(0, fragmentIndex) : url;
+        int idx = requestUrl.indexOf('?');
+        if (idx < 0) {
+            return url;
+        }
+        String baseUrl = requestUrl.substring(0, idx);
+        String paramStr = requestUrl.substring(idx + 1);
         StringBuilder sb = new StringBuilder(baseUrl).append("?");
         String[] pairs = paramStr.split("&", -1);
         for (int i = 0; i < pairs.length; i++) {
@@ -476,7 +489,7 @@ public class HttpUrlUtil {
                 sb.append("&");
             }
         }
-        return sb.toString();
+        return sb.append(fragment).toString();
     }
 
     public static Set<String> extractQueryParamKeys(String url, boolean hasQuestionMark) {
@@ -484,7 +497,11 @@ public class HttpUrlUtil {
         if (!hasQuestionMark) {
             return keys;
         }
-        String paramStr = url.substring(url.indexOf('?') + 1);
+        int queryIndex = url.indexOf('?');
+        int fragmentIndex = url.indexOf('#', queryIndex + 1);
+        String paramStr = fragmentIndex >= 0
+                ? url.substring(queryIndex + 1, fragmentIndex)
+                : url.substring(queryIndex + 1);
         for (String pair : paramStr.split("&", -1)) {
             int eqIdx = pair.indexOf('=');
             String key = eqIdx > 0 ? pair.substring(0, eqIdx) : pair;

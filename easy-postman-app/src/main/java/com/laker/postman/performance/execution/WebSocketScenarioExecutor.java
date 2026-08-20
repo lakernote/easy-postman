@@ -31,7 +31,6 @@ import okio.ByteString;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -393,7 +392,7 @@ public class WebSocketScenarioExecutor {
             if (!failed.get() && !interrupted.get()) {
                 WebSocketScenarioPlanStepCursor scenarioSteps = new WebSocketScenarioPlanStepCursor(requestSampler, runningSupplier);
                 boolean implicitConnectAllowed = true;
-                String effectiveRequestBodyTemplate = requestBodyTemplate;
+                WebSocketSendPayloadState sendPayloadState = new WebSocketSendPayloadState(req, requestBodyTemplate);
                 while (runningSupplier.getAsBoolean() && !failed.get() && !interrupted.get()) {
                     PerformancePlanElement stepElement = scenarioSteps.next();
                     if (stepElement == null) {
@@ -417,7 +416,7 @@ public class WebSocketScenarioExecutor {
                                 break;
                             }
                             if (CharSequenceUtil.isBlank(stepCfg.sendPreScript)
-                                    && !WebSocketScenarioStepSupport.hasSendPayload(req, effectiveRequestBodyTemplate, stepCfg)) {
+                                    && !sendPayloadState.hasPayload(stepCfg)) {
                                 break;
                             }
                             WebSocketScenarioSession session = sessionManager.currentOpenSession();
@@ -450,7 +449,7 @@ public class WebSocketScenarioExecutor {
                                     ));
                                     break;
                                 }
-                                String bodyBeforeSendScript = req.body;
+                                String bodyBeforeSendScript = sendPayloadState.bodyBeforeScript();
                                 var sendScriptResult = WebSocketScenarioStepSupport.executeSendPreScript(
                                         scriptRuntime,
                                         stepCfg,
@@ -463,22 +462,14 @@ public class WebSocketScenarioExecutor {
                                     errorRef.set("WebSocket send pre-script failed: " + sendScriptResult.getErrorMessage());
                                     break;
                                 }
-                                if (sendScriptResult.isRequestBodyMutated()
-                                        || !Objects.equals(req.body, bodyBeforeSendScript)) {
-                                    effectiveRequestBodyTemplate = req.body;
-                                }
-                                if (!WebSocketScenarioStepSupport.hasSendPayload(
-                                        req,
-                                        effectiveRequestBodyTemplate,
-                                        stepCfg
-                                )) {
+                                sendPayloadState.captureScriptBodyWrite(
+                                        bodyBeforeSendScript,
+                                        sendScriptResult.isRequestBodyMutated()
+                                );
+                                if (!sendPayloadState.hasPayload(stepCfg)) {
                                     break;
                                 }
-                                String payload = WebSocketScenarioStepSupport.resolveSendPayload(
-                                        req,
-                                        effectiveRequestBodyTemplate,
-                                        stepCfg
-                                );
+                                String payload = sendPayloadState.resolvePayload(stepCfg);
                                 boolean sent = webSocket.send(payload == null ? "" : payload);
                                 if (sent) {
                                     sentMessageCount.incrementAndGet();

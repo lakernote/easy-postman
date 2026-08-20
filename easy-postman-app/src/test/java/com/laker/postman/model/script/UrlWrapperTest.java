@@ -131,6 +131,20 @@ public class UrlWrapperTest {
     }
 
     @Test
+    public void testToString_keepsEncodedQueryReconciliationIdempotent() {
+        ArrayList<HttpParam> params = new ArrayList<>();
+        params.add(new HttpParam(true, "a", "stale", "metadata"));
+
+        UrlWrapper first = new UrlWrapper("https://api.example.com/users?%61=raw", params);
+        UrlWrapper second = new UrlWrapper(first.toString(), params);
+        UrlWrapper third = new UrlWrapper(second.toString(), params);
+
+        assertEquals(third.toString(), "https://api.example.com/users?%61=raw");
+        assertEquals(params.size(), 1);
+        assertEquals(params.get(0).getDescription(), "metadata");
+    }
+
+    @Test
     public void testGetPathWithQuery_withParams() {
         UrlWrapper url = new UrlWrapper("https://api.example.com/users?id=1&name=test", new ArrayList<>());
         assertEquals(url.getPathWithQuery(), "/users?id=1&name=test");

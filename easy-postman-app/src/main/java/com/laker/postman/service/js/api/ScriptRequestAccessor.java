@@ -118,11 +118,8 @@ public class ScriptRequestAccessor {
      */
     public boolean followRedirects;
 
-    private String syncedMethod;
-    private boolean syncedIsMultipart;
-    private boolean syncedFollowRedirects;
-    private String syncedUrl;
-    private String syncedRawUrl;
+    private final ScriptRequestMutationTracker mutationTracker = new ScriptRequestMutationTracker();
+    private RequestSnapshot syncedSnapshot;
     private ScriptRequestBodyAccessor bodyAccessor;
 
     /**
@@ -136,41 +133,41 @@ public class ScriptRequestAccessor {
      */
     public ScriptRequestAccessor(PreparedRequest req) {
         this.raw = req;
+        ensureRequestCollections();
+        reloadViewFromRaw();
+    }
 
-        // 确保 List 不为 null，并关联到 PreparedRequest
-        if (req.headersList == null) {
-            req.headersList = new ArrayList<>();
+    private void ensureRequestCollections() {
+        if (raw.headersList == null) {
+            raw.headersList = new ArrayList<>();
         }
-        if (req.formDataList == null) {
-            req.formDataList = new ArrayList<>();
+        if (raw.formDataList == null) {
+            raw.formDataList = new ArrayList<>();
         }
-        if (req.urlencodedList == null) {
-            req.urlencodedList = new ArrayList<>();
+        if (raw.urlencodedList == null) {
+            raw.urlencodedList = new ArrayList<>();
         }
-        if (req.paramsList == null) {
-            req.paramsList = new ArrayList<>();
+        if (raw.paramsList == null) {
+            raw.paramsList = new ArrayList<>();
         }
+    }
 
-        // 直接包装 PreparedRequest 中的 List，确保前置脚本修改能生效
-        this.headers = new JsListWrapper<>(req.headersList, JsListWrapper.ListType.HEADER);
-        this.formData = new JsListWrapper<>(req.formDataList, JsListWrapper.ListType.FORM_DATA);
-        this.urlencoded = new JsListWrapper<>(req.urlencodedList, JsListWrapper.ListType.URLENCODED);
-        this.id = req.id;
-        this.url = new UrlWrapper(req.url, req.paramsList);
+    private void reloadViewFromRaw() {
+        Runnable bodyMutation = mutationTracker.bodyWriteCallback();
+        this.headers = new JsListWrapper<>(raw.headersList, JsListWrapper.ListType.HEADER);
+        this.formData = new JsListWrapper<>(raw.formDataList, JsListWrapper.ListType.FORM_DATA, bodyMutation);
+        this.urlencoded = new JsListWrapper<>(raw.urlencodedList, JsListWrapper.ListType.URLENCODED, bodyMutation);
+        this.id = raw.id;
+        this.url = new UrlWrapper(raw.url, raw.paramsList);
         this.params = this.url.query.asListWrapper();
-        this.method = req.method;
-        this.bodyAccessor = ScriptRequestBodyAccessor.hasBody(req)
-                ? new ScriptRequestBodyAccessor(req, formData, urlencoded)
+        this.method = raw.method;
+        this.bodyAccessor = ScriptRequestBodyAccessor.hasBody(raw)
+                ? new ScriptRequestBodyAccessor(raw, formData, urlencoded, mutationTracker)
                 : null;
         this.body = bodyAccessor;
-        this.isMultipart = req.isMultipart;
-        this.followRedirects = req.followRedirects;
-
-        this.syncedMethod = this.method;
-        this.syncedIsMultipart = this.isMultipart;
-        this.syncedFollowRedirects = this.followRedirects;
-        this.syncedUrl = this.url.toString();
-        this.syncedRawUrl = req.url;
+        this.isMultipart = raw.isMultipart;
+        this.followRedirects = raw.followRedirects;
+        this.syncedSnapshot = snapshot();
     }
 
     /**
@@ -178,7 +175,7 @@ public class ScriptRequestAccessor {
      * properties that EasyPostman's HTTP runtime can send.
      */
     public void update(Object options) {
-        Object converted = ScriptRequestBodyAccessor.toJavaObject(options);
+        Object converted = ScriptValueConverter.toJavaObject(options);
         if (!(converted instanceof Map<?, ?> definition)) {
             return;
         }
@@ -215,25 +212,25 @@ public class ScriptRequestAccessor {
         headers.sync();
         formData.sync();
         urlencoded.sync();
-        params.sync();
-        if (!Objects.equals(method, syncedMethod)) {
+        if (!Objects.equals(method, syncedSnapshot.method())) {
             raw.method = method == null ? "GET" : method.toUpperCase(Locale.ROOT);
         }
         boolean bodyMutated = syncBody();
-        if (followRedirects != syncedFollowRedirects) {
+        bodyMutated |= mutationTracker.consumeBodyWrite();
+        if (followRedirects != syncedSnapshot.followRedirects()) {
             raw.followRedirects = followRedirects;
         }
 
         syncUrl();
 
-        boolean rawMultipartChangedDirectly = raw.isMultipart != syncedIsMultipart;
-        if (isMultipart != syncedIsMultipart) {
+        boolean rawMultipartChangedDirectly = raw.isMultipart != syncedSnapshot.isMultipart();
+        if (isMultipart != syncedSnapshot.isMultipart()) {
             raw.isMultipart = isMultipart;
         } else if (!rawMultipartChangedDirectly) {
             raw.isMultipart = hasEnabledFormData();
         }
 
-        refreshScalarSnapshot();
+        reloadViewFromRaw();
         return bodyMutated;
     }
 
@@ -248,9 +245,9 @@ public class ScriptRequestAccessor {
         }
         url.query.sync();
         String currentUrl = url.toString();
-        if (!Objects.equals(currentUrl, syncedUrl)) {
+        if (!Objects.equals(currentUrl, syncedSnapshot.url())) {
             raw.url = currentUrl;
-        } else if (!Objects.equals(raw.url, syncedRawUrl)) {
+        } else if (!Objects.equals(raw.url, syncedSnapshot.rawUrl())) {
             url = new UrlWrapper(raw.url, raw.paramsList);
             params = url.query.asListWrapper();
         }
@@ -258,7 +255,7 @@ public class ScriptRequestAccessor {
 
     private void replaceHeaders(Object headerDefinition) {
         raw.headersList.clear();
-        Object converted = ScriptRequestBodyAccessor.toJavaObject(headerDefinition);
+        Object converted = ScriptValueConverter.toJavaObject(headerDefinition);
         if (converted instanceof CharSequence headerLines) {
             for (String line : headerLines.toString().split("\\R")) {
                 if (!line.isBlank()) {
@@ -269,7 +266,7 @@ public class ScriptRequestAccessor {
         }
         if (converted instanceof Collection<?> collection) {
             for (Object item : collection) {
-                Object convertedItem = ScriptRequestBodyAccessor.toJavaObject(item);
+                Object convertedItem = ScriptValueConverter.toJavaObject(item);
                 if (convertedItem instanceof Map<?, ?> map) {
                     Map<String, Object> header = new java.util.LinkedHashMap<>();
                     map.forEach((key, value) -> header.put(String.valueOf(key), value));
@@ -293,7 +290,7 @@ public class ScriptRequestAccessor {
     }
 
     private static boolean isPostmanTruthy(Object value) {
-        Object converted = ScriptRequestBodyAccessor.toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         if (converted == null || Boolean.FALSE.equals(converted)) {
             return false;
         }
@@ -309,6 +306,7 @@ public class ScriptRequestAccessor {
             return bodyAccessor != null && bodyAccessor.syncToRaw();
         }
 
+        mutationTracker.recordBodyWrite();
         if (body == null) {
             raw.body = null;
             raw.bodyType = RequestBodyTypes.BODY_TYPE_NONE;
@@ -318,31 +316,25 @@ public class ScriptRequestAccessor {
             return true;
         }
 
-        ScriptRequestBodyAccessor replacement = new ScriptRequestBodyAccessor(raw);
+        ScriptRequestBodyAccessor replacement = new ScriptRequestBodyAccessor(
+                raw,
+                null,
+                null,
+                mutationTracker
+        );
         replacement.update(body);
         replacement.syncToRaw();
         return true;
     }
 
-    private void refreshScalarSnapshot() {
-        this.method = raw.method;
-        this.isMultipart = raw.isMultipart;
-        this.followRedirects = raw.followRedirects;
+    private RequestSnapshot snapshot() {
+        return new RequestSnapshot(method, isMultipart, followRedirects, url.toString(), raw.url);
+    }
 
-        this.headers = new JsListWrapper<>(raw.headersList, JsListWrapper.ListType.HEADER);
-        this.formData = new JsListWrapper<>(raw.formDataList, JsListWrapper.ListType.FORM_DATA);
-        this.urlencoded = new JsListWrapper<>(raw.urlencodedList, JsListWrapper.ListType.URLENCODED);
-        this.url = new UrlWrapper(raw.url, raw.paramsList);
-        this.params = this.url.query.asListWrapper();
-        this.bodyAccessor = ScriptRequestBodyAccessor.hasBody(raw)
-                ? new ScriptRequestBodyAccessor(raw, formData, urlencoded)
-                : null;
-        this.body = bodyAccessor;
-
-        this.syncedMethod = this.method;
-        this.syncedIsMultipart = this.isMultipart;
-        this.syncedFollowRedirects = this.followRedirects;
-        this.syncedUrl = this.url.toString();
-        this.syncedRawUrl = raw.url;
+    private record RequestSnapshot(String method,
+                                   boolean isMultipart,
+                                   boolean followRedirects,
+                                   String url,
+                                   String rawUrl) {
     }
 }

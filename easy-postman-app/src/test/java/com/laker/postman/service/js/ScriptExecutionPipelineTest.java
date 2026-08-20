@@ -9,6 +9,7 @@ import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpParam;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.RequestBodyTypes;
 
 
 import cn.hutool.json.JSONUtil;
@@ -829,6 +830,45 @@ public class ScriptExecutionPipelineTest {
         assertTrue(rawFieldResult.isRequestBodyMutated());
         assertFalse(noOpResult.isRequestBodyMutated());
         assertEquals(request.body, "same");
+    }
+
+    @Test
+    public void shouldTrackSameValueBodyCollectionWritesAcrossSendScripts() {
+        PreparedRequest request = rawRequest(null);
+        request.bodyType = RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+        request.urlencodedList.add(new HttpFormUrlencoded(true, "name", "easy-postman"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult sameValueResult = pipeline.executeWebSocketSendScript(
+                "pm.request.body.urlencoded.all()[0].value = 'easy-postman';", 0, 1, "send");
+        ScriptExecutionResult noOpResult = pipeline.executeWebSocketSendScript(
+                "pm.request.body.urlencoded.all()[0].value;", 0, 1, "send");
+
+        assertTrue(sameValueResult.isRequestBodyMutated());
+        assertFalse(noOpResult.isRequestBodyMutated());
+        assertEquals(request.urlencodedList.get(0).getValue(), "easy-postman");
+    }
+
+    @Test
+    public void shouldKeepLegacyRawBodyChangeWhenSdkWriteKeepsTheSameValue() {
+        PreparedRequest request = rawRequest("same");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("")
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executeWebSocketSendScript("""
+                pm.request.raw.body = 'changed-through-raw';
+                pm.request.body.raw = 'same';
+                """, 0, 1, "send");
+
+        assertTrue(result.isRequestBodyMutated());
+        assertEquals(request.body, "changed-through-raw");
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.laker.postman.request.model.HttpParam;
 
 import lombok.Getter;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -23,6 +24,9 @@ import static com.laker.postman.request.model.HttpFormData.TYPE_TEXT;
  * 用于包装 List<HttpHeader>、List<HttpFormData>、List<HttpFormUrlencoded>
  */
 public class JsListWrapper<T> {
+    private static final Runnable NOOP_MUTATION_CALLBACK = () -> {
+    };
+
     /**
      * -- GETTER --
      * 获取底层 List
@@ -30,6 +34,7 @@ public class JsListWrapper<T> {
     @Getter
     private final List<T> list;
     private final ListType type;
+    private final Runnable mutationCallback;
     private List<ItemProxy> cachedProxies;
 
     public enum ListType {
@@ -37,8 +42,13 @@ public class JsListWrapper<T> {
     }
 
     public JsListWrapper(List<T> list, ListType type) {
+        this(list, type, NOOP_MUTATION_CALLBACK);
+    }
+
+    JsListWrapper(List<T> list, ListType type, Runnable mutationCallback) {
         this.list = list;
         this.type = type;
+        this.mutationCallback = mutationCallback != null ? mutationCallback : NOOP_MUTATION_CALLBACK;
     }
 
     /**
@@ -81,15 +91,15 @@ public class JsListWrapper<T> {
         if (obj == null) return;
         sync();
 
-        Object k = ScriptRequestBodyAccessor.toJavaObject(obj.get("key"));
-        Object v = ScriptRequestBodyAccessor.toJavaObject(obj.get("value"));
-        Object src = ScriptRequestBodyAccessor.toJavaObject(obj.get("src"));
+        Object k = ScriptValueConverter.toJavaObject(obj.get("key"));
+        Object v = ScriptValueConverter.toJavaObject(obj.get("value"));
+        Object src = ScriptValueConverter.toJavaObject(obj.get("src"));
         if (k == null) return;
 
         String key = String.valueOf(k);
         String value = scalarOrFirst(v != null ? v : src);
         boolean enabled = isEnabled(obj);
-        Object descriptionValue = ScriptRequestBodyAccessor.toJavaObject(obj.get("description"));
+        Object descriptionValue = ScriptValueConverter.toJavaObject(obj.get("description"));
         String description = descriptionValue == null ? "" : String.valueOf(descriptionValue);
         switch (type) {
             case HEADER:
@@ -145,15 +155,16 @@ public class JsListWrapper<T> {
                 paramList.add(param);
                 break;
         }
+        mutationCallback.run();
         reconcileProxies(true);
     }
 
     private static boolean isEnabled(Map<String, Object> obj) {
-        Object disabled = ScriptRequestBodyAccessor.toJavaObject(obj.get("disabled"));
+        Object disabled = ScriptValueConverter.toJavaObject(obj.get("disabled"));
         if (disabled instanceof Boolean disabledFlag) {
             return !disabledFlag;
         }
-        Object enabled = ScriptRequestBodyAccessor.toJavaObject(obj.get("enabled"));
+        Object enabled = ScriptValueConverter.toJavaObject(obj.get("enabled"));
         return !(enabled instanceof Boolean enabledFlag) || enabledFlag;
     }
 
@@ -163,7 +174,7 @@ public class JsListWrapper<T> {
         }
         if (value instanceof Value jsValue && jsValue.hasArrayElements()) {
             return jsValue.getArraySize() == 0 ? "" : String.valueOf(
-                    ScriptRequestBodyAccessor.toJavaObject(jsValue.getArrayElement(0))
+                    ScriptValueConverter.toJavaObject(jsValue.getArrayElement(0))
             );
         }
         return value == null ? "" : String.valueOf(value);
@@ -230,6 +241,7 @@ public class JsListWrapper<T> {
                 paramList.add(param);
                 break;
         }
+        mutationCallback.run();
         reconcileProxies(true);
     }
 
@@ -241,7 +253,7 @@ public class JsListWrapper<T> {
         if (obj == null) return null;
         sync();
 
-        Object k = ScriptRequestBodyAccessor.toJavaObject(obj.get("key"));
+        Object k = ScriptValueConverter.toJavaObject(obj.get("key"));
         if (k == null) return null;
 
         ItemProxy existing = one(String.valueOf(k));
@@ -274,6 +286,7 @@ public class JsListWrapper<T> {
     public void remove(String key) {
         if (key == null) return;
         sync();
+        int previousSize = list.size();
         switch (type) {
             case HEADER:
                 @SuppressWarnings("unchecked")
@@ -299,6 +312,9 @@ public class JsListWrapper<T> {
                 paramList.removeIf(param -> key.equals(param.getKey()));
                 break;
         }
+        if (list.size() != previousSize) {
+            mutationCallback.run();
+        }
         reconcileProxies(false);
     }
 
@@ -319,7 +335,7 @@ public class JsListWrapper<T> {
     public boolean has(String key, Object value) {
         if (key == null) return false;
         sync();
-        Object expected = ScriptRequestBodyAccessor.toJavaObject(value);
+        Object expected = ScriptValueConverter.toJavaObject(value);
         return all().stream().anyMatch(item -> sameKey(item.key, key)
                 && Objects.equals(item.value, expected));
     }
@@ -349,7 +365,11 @@ public class JsListWrapper<T> {
      */
     public void clear() {
         sync();
+        boolean hadItems = !list.isEmpty();
         list.clear();
+        if (hadItems) {
+            mutationCallback.run();
+        }
         reconcileProxies(false);
     }
 
@@ -409,7 +429,7 @@ public class JsListWrapper<T> {
         if (cachedProxies == null) {
             cachedProxies = new ArrayList<>(list.size());
             for (T item : list) {
-                cachedProxies.add(new ItemProxy(item, type));
+                cachedProxies.add(new ItemProxy(item, type, mutationCallback));
             }
             return;
         }
@@ -421,7 +441,7 @@ public class JsListWrapper<T> {
                     .findFirst()
                     .orElse(null);
             if (retained == null) {
-                reconciled.add(new ItemProxy(item, type));
+                reconciled.add(new ItemProxy(item, type, mutationCallback));
             } else {
                 if (refreshRetained) {
                     retained.refresh();
@@ -436,7 +456,11 @@ public class JsListWrapper<T> {
      * JavaScript-facing Postman property object. Postman uses {@code disabled}; {@code enabled}
      * remains available as an EasyPostman compatibility alias.
      */
-    public static class ItemProxy {
+    public static class ItemProxy implements ProxyObject {
+        private static final String[] MEMBER_KEYS = {
+                "key", "value", "description", "type", "src", "disabled", "enabled"
+        };
+
         public String key;
         public String value;
         public String description;
@@ -447,6 +471,7 @@ public class JsListWrapper<T> {
 
         private final Object item;
         private final ListType listType;
+        private final Runnable mutationCallback;
         private String syncedKey;
         private String syncedValue;
         private String syncedDescription;
@@ -454,14 +479,18 @@ public class JsListWrapper<T> {
         private Object syncedSrc;
         private boolean syncedEnabled;
 
-        ItemProxy(Object item, ListType listType) {
+        ItemProxy(Object item, ListType listType, Runnable mutationCallback) {
             this.item = item;
             this.listType = listType;
+            this.mutationCallback = mutationCallback;
             load();
             snapshot();
         }
 
         void sync() {
+            if (hasUnsyncedChanges()) {
+                mutationCallback.run();
+            }
             Boolean requestedEnabled = null;
             if (disabled != !syncedEnabled) {
                 requestedEnabled = !disabled;
@@ -488,33 +517,120 @@ public class JsListWrapper<T> {
         }
 
         void update(Map<String, Object> definition) {
+            boolean recognized = false;
             if (definition.containsKey("key")) {
-                Object requestedKey = ScriptRequestBodyAccessor.toJavaObject(definition.get("key"));
+                Object requestedKey = ScriptValueConverter.toJavaObject(definition.get("key"));
                 key = requestedKey == null ? null : String.valueOf(requestedKey);
+                recognized = true;
             }
             if (definition.containsKey("value")) {
-                Object requestedValue = ScriptRequestBodyAccessor.toJavaObject(definition.get("value"));
+                Object requestedValue = ScriptValueConverter.toJavaObject(definition.get("value"));
                 value = requestedValue == null ? null : String.valueOf(requestedValue);
+                recognized = true;
             }
             if (definition.containsKey("description")) {
-                Object requestedDescription = ScriptRequestBodyAccessor.toJavaObject(definition.get("description"));
+                Object requestedDescription = ScriptValueConverter.toJavaObject(definition.get("description"));
                 description = requestedDescription == null ? null : String.valueOf(requestedDescription);
+                recognized = true;
             }
             if (definition.containsKey("type")) {
-                Object requestedType = ScriptRequestBodyAccessor.toJavaObject(definition.get("type"));
+                Object requestedType = ScriptValueConverter.toJavaObject(definition.get("type"));
                 type = requestedType == null ? null : String.valueOf(requestedType);
+                recognized = true;
             }
             if (definition.containsKey("src")) {
-                src = ScriptRequestBodyAccessor.toJavaObject(definition.get("src"));
+                src = ScriptValueConverter.toJavaObject(definition.get("src"));
+                recognized = true;
             }
-            Object requestedDisabled = ScriptRequestBodyAccessor.toJavaObject(definition.get("disabled"));
+            Object requestedDisabled = ScriptValueConverter.toJavaObject(definition.get("disabled"));
             if (requestedDisabled instanceof Boolean disabledFlag) {
                 disabled = disabledFlag;
+                recognized = true;
             }
-            Object requestedEnabled = ScriptRequestBodyAccessor.toJavaObject(definition.get("enabled"));
+            Object requestedEnabled = ScriptValueConverter.toJavaObject(definition.get("enabled"));
             if (requestedEnabled instanceof Boolean enabledFlag) {
                 enabled = enabledFlag;
+                recognized = true;
             }
+            if (recognized) {
+                mutationCallback.run();
+            }
+        }
+
+        @Override
+        public Object getMember(String member) {
+            return switch (member) {
+                case "key" -> key;
+                case "value" -> value;
+                case "description" -> description;
+                case "type" -> type;
+                case "src" -> src;
+                case "disabled" -> disabled;
+                case "enabled" -> enabled;
+                case "update" -> (ProxyExecutable) arguments -> {
+                    Object definition = arguments.length > 0
+                            ? ScriptValueConverter.toJavaObject(arguments[0])
+                            : null;
+                    if (definition instanceof Map<?, ?> map) {
+                        Map<String, Object> normalized = new LinkedHashMap<>();
+                        map.forEach((mapKey, mapValue) -> normalized.put(String.valueOf(mapKey), mapValue));
+                        update(normalized);
+                    }
+                    return null;
+                };
+                case "toJSON" -> (ProxyExecutable) arguments -> toJSON();
+                default -> null;
+            };
+        }
+
+        @Override
+        public Object getMemberKeys() {
+            return MEMBER_KEYS;
+        }
+
+        @Override
+        public boolean hasMember(String member) {
+            return switch (member) {
+                case "key", "value", "description", "type", "src", "disabled", "enabled",
+                     "update", "toJSON" -> true;
+                default -> false;
+            };
+        }
+
+        @Override
+        public void putMember(String member, Value value) {
+            Object converted = ScriptValueConverter.toJavaObject(value);
+            switch (member) {
+                case "key" -> key = converted == null ? null : String.valueOf(converted);
+                case "value" -> this.value = converted == null ? null : String.valueOf(converted);
+                case "description" -> description = converted == null ? null : String.valueOf(converted);
+                case "type" -> type = converted == null ? null : String.valueOf(converted);
+                case "src" -> src = converted;
+                case "disabled" -> disabled = Boolean.TRUE.equals(converted);
+                case "enabled" -> enabled = Boolean.TRUE.equals(converted);
+                default -> {
+                    return;
+                }
+            }
+            mutationCallback.run();
+        }
+
+        @Override
+        public boolean removeMember(String member) {
+            switch (member) {
+                case "key" -> key = null;
+                case "value" -> value = null;
+                case "description" -> description = null;
+                case "type" -> type = null;
+                case "src" -> src = null;
+                case "disabled" -> disabled = false;
+                case "enabled" -> enabled = true;
+                default -> {
+                    return false;
+                }
+            }
+            mutationCallback.run();
+            return true;
         }
 
         /**
@@ -647,6 +763,16 @@ public class JsListWrapper<T> {
             syncedType = type;
             syncedSrc = src instanceof List<?> values ? new ArrayList<>(values) : src;
             syncedEnabled = enabled;
+        }
+
+        private boolean hasUnsyncedChanges() {
+            return !Objects.equals(key, syncedKey)
+                    || !Objects.equals(value, syncedValue)
+                    || !Objects.equals(description, syncedDescription)
+                    || !Objects.equals(type, syncedType)
+                    || !Objects.equals(src, syncedSrc)
+                    || disabled != !syncedEnabled
+                    || enabled != syncedEnabled;
         }
 
         private static void changed(String current,

@@ -5,7 +5,6 @@ import com.laker.postman.request.model.HttpFormData;
 import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.RequestBodyTypes;
 import org.graalvm.polyglot.Value;
-import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
@@ -41,19 +40,27 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     private final PreparedRequest request;
     private final JsListWrapper<HttpFormData> sharedFormData;
     private final JsListWrapper<HttpFormUrlencoded> sharedUrlencoded;
+    private final ScriptRequestMutationTracker mutationTracker;
     private BodySnapshot syncedSnapshot;
-    private boolean bodyMutationRequested;
 
     public ScriptRequestBodyAccessor(PreparedRequest request) {
-        this(request, null, null);
+        this(request, null, null, new ScriptRequestMutationTracker());
     }
 
     ScriptRequestBodyAccessor(PreparedRequest request,
                               JsListWrapper<HttpFormData> sharedFormData,
                               JsListWrapper<HttpFormUrlencoded> sharedUrlencoded) {
+        this(request, sharedFormData, sharedUrlencoded, new ScriptRequestMutationTracker());
+    }
+
+    ScriptRequestBodyAccessor(PreparedRequest request,
+                              JsListWrapper<HttpFormData> sharedFormData,
+                              JsListWrapper<HttpFormUrlencoded> sharedUrlencoded,
+                              ScriptRequestMutationTracker mutationTracker) {
         this.request = request;
         this.sharedFormData = sharedFormData;
         this.sharedUrlencoded = sharedUrlencoded;
+        this.mutationTracker = mutationTracker;
         loadFromRequest();
         this.syncedSnapshot = snapshot();
     }
@@ -62,13 +69,19 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
      * Mirrors Postman's {@code RequestBody.update(options)}. A string selects raw mode.
      */
     public void update(Object options) {
-        Object definition = toJavaObject(options);
+        Object definition = ScriptValueConverter.toJavaObject(options);
         if (definition instanceof CharSequence text) {
-            bodyMutationRequested |= applyDefinition(Map.of("mode", "raw", "raw", text.toString()));
+            recordAppliedDefinition(Map.of("mode", "raw", "raw", text.toString()));
             return;
         }
         if (definition instanceof Map<?, ?> map) {
-            bodyMutationRequested |= applyDefinition(map);
+            recordAppliedDefinition(map);
+        }
+    }
+
+    private void recordAppliedDefinition(Map<?, ?> definition) {
+        if (applyDefinition(definition)) {
+            mutationTracker.recordBodyWrite();
         }
     }
 
@@ -98,8 +111,8 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
             StringJoiner joiner = new StringJoiner("&");
             for (HttpFormUrlencoded item : toUrlencodedList(urlencoded)) {
                 if (item.isEnabled()) {
-                    String key = normalizeQueryParamComponent(item.getKey(), true);
-                    String value = normalizeQueryParamComponent(item.getValue(), false);
+                    String key = PostmanQueryCodec.normalizeComponent(item.getKey(), true);
+                    String value = PostmanQueryCodec.normalizeComponent(item.getValue(), false);
                     joiner.add(item.getValue() == null ? key : key + "=" + value);
                 }
             }
@@ -114,13 +127,13 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     public Object toJSON() {
         Map<String, Object> result = new LinkedHashMap<>();
         putIfNotNull(result, "mode", mode);
-        putIfNotNull(result, "raw", toJavaObject(raw));
+        putIfNotNull(result, "raw", ScriptValueConverter.toJavaObject(raw));
         putIfNotNull(result, "urlencoded", urlencodedToJson(urlencoded));
         putIfNotNull(result, "formdata", formdataToJson(formdata));
-        putIfNotNull(result, "file", toJavaObject(file));
-        putIfNotNull(result, "options", toJavaObject(options));
+        putIfNotNull(result, "file", ScriptValueConverter.toJavaObject(file));
+        putIfNotNull(result, "options", ScriptValueConverter.toJavaObject(options));
         putIfNotNull(result, "disabled", disabled);
-        return toProxyValue(result);
+        return ScriptValueConverter.toProxyValue(result);
     }
 
     /**
@@ -137,7 +150,8 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     public boolean syncToRaw() {
         BodySnapshot current = snapshot();
         boolean bodyChanged = !Objects.equals(current, syncedSnapshot);
-        if (!bodyChanged && !bodyMutationRequested) {
+        boolean mutationRequested = mutationTracker.consumeBodyWrite();
+        if (!bodyChanged && !mutationRequested) {
             return false;
         }
 
@@ -146,7 +160,6 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         }
         loadFromRequest();
         syncedSnapshot = snapshot();
-        bodyMutationRequested = false;
         return true;
     }
 
@@ -217,7 +230,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
 
     @Override
     public void putMember(String key, Value value) {
-        Object converted = toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         switch (key) {
             case "mode" -> mode = converted == null ? null : converted.toString();
             case "raw" -> raw = converted;
@@ -230,7 +243,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 return;
             }
         }
-        bodyMutationRequested = true;
+        mutationTracker.recordBodyWrite();
     }
 
     @Override
@@ -247,7 +260,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
                 return false;
             }
         }
-        bodyMutationRequested = true;
+        mutationTracker.recordBodyWrite();
         return true;
     }
 
@@ -320,12 +333,16 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         this.disabled = null;
     }
 
-    private static <T> JsListWrapper<T> reuseOrCreate(JsListWrapper<T> shared,
-                                                       List<T> current,
-                                                       JsListWrapper.ListType type) {
+    private <T> JsListWrapper<T> reuseOrCreate(JsListWrapper<T> shared,
+                                               List<T> current,
+                                               JsListWrapper.ListType type) {
         return shared != null && shared.getList() == current
                 ? shared
-                : new JsListWrapper<>(current, type);
+                : new JsListWrapper<>(
+                        current,
+                        type,
+                        mutationTracker.bodyWriteCallback()
+                );
     }
 
     private List<HttpFormData> ensureFormDataList() {
@@ -380,84 +397,13 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         return resolveMode(request) != null;
     }
 
-    static Object toJavaObject(Object value) {
-        if (!(value instanceof Value jsValue)) {
-            return value;
-        }
-        if (jsValue.isNull()) {
-            return null;
-        }
-        if (jsValue.isHostObject()) {
-            return jsValue.asHostObject();
-        }
-        if (jsValue.isString()) {
-            return jsValue.asString();
-        }
-        if (jsValue.isBoolean()) {
-            return jsValue.asBoolean();
-        }
-        if (jsValue.isNumber()) {
-            if (jsValue.fitsInLong()) {
-                return jsValue.asLong();
-            }
-            return jsValue.asDouble();
-        }
-        if (jsValue.hasArrayElements()) {
-            List<Object> items = new ArrayList<>((int) jsValue.getArraySize());
-            for (long index = 0; index < jsValue.getArraySize(); index++) {
-                items.add(toJavaObject(jsValue.getArrayElement(index)));
-            }
-            return items;
-        }
-        if (jsValue.hasMembers()) {
-            Map<String, Object> result = new LinkedHashMap<>();
-            for (String key : jsValue.getMemberKeys()) {
-                result.put(key, toJavaObject(jsValue.getMember(key)));
-            }
-            return result;
-        }
-        return jsValue.toString();
-    }
-
-    /**
-     * Matches Postman's QueryParam string conversion: separators are escaped while unresolved
-     * variable tokens remain intact for the runtime's later variable-resolution pass.
-     */
-    static String normalizeQueryParamComponent(String value, boolean encodeEquals) {
-        if (value == null || value.isEmpty()) {
-            return "";
-        }
-
-        StringBuilder normalized = new StringBuilder(value.length());
-        int index = 0;
-        while (index < value.length()) {
-            if (value.startsWith("{{", index)) {
-                int variableEnd = value.indexOf("}}", index + 2);
-                if (variableEnd >= 0) {
-                    normalized.append(value, index, variableEnd + 2);
-                    index = variableEnd + 2;
-                    continue;
-                }
-            }
-
-            char current = value.charAt(index++);
-            switch (current) {
-                case '&' -> normalized.append("%26");
-                case '#' -> normalized.append("%23");
-                case '=' -> normalized.append(encodeEquals ? "%3D" : '=');
-                default -> normalized.append(current);
-            }
-        }
-        return normalized.toString();
-    }
-
     private static Object comparable(Object value) {
         Object converted = collectionSource(value);
         return deepComparable(converted);
     }
 
     private static Object collectionSource(Object value) {
-        Object converted = toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         if (converted instanceof JsListWrapper<?> wrapper) {
             wrapper.sync();
             return wrapper.getList();
@@ -476,12 +422,15 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         }
         if (converted instanceof Map<?, ?> map) {
             Map<String, Object> copy = new LinkedHashMap<>();
-            map.forEach((key, item) -> copy.put(String.valueOf(key), deepComparable(toJavaObject(item))));
+            map.forEach((key, item) -> copy.put(
+                    String.valueOf(key),
+                    deepComparable(ScriptValueConverter.toJavaObject(item))
+            ));
             return copy;
         }
         if (converted instanceof Collection<?> collection) {
             List<Object> copy = new ArrayList<>(collection.size());
-            collection.forEach(item -> copy.add(deepComparable(toJavaObject(item))));
+            collection.forEach(item -> copy.add(deepComparable(ScriptValueConverter.toJavaObject(item))));
             return copy;
         }
         return converted;
@@ -505,7 +454,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         }
         List<HttpFormData> result = new ArrayList<>();
         for (Object item : collection) {
-            Object convertedItem = toJavaObject(item);
+            Object convertedItem = ScriptValueConverter.toJavaObject(item);
             if (convertedItem instanceof HttpFormData formData) {
                 result.add(formData);
                 continue;
@@ -539,7 +488,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         }
         List<HttpFormUrlencoded> result = new ArrayList<>();
         for (Object item : collection) {
-            Object convertedItem = toJavaObject(item);
+            Object convertedItem = ScriptValueConverter.toJavaObject(item);
             if (convertedItem instanceof HttpFormUrlencoded urlencodedItem) {
                 result.add(urlencodedItem);
                 continue;
@@ -624,11 +573,11 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     private static Object mapValue(Map<?, ?> map, String key) {
-        return toJavaObject(map.get(key));
+        return ScriptValueConverter.toJavaObject(map.get(key));
     }
 
     private static String scalarOrFirst(Object value) {
-        Object converted = toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         if (converted instanceof List<?> list) {
             return list.isEmpty() ? "" : stringify(list.get(0));
         }
@@ -636,7 +585,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     private static String fileSource(Object value) {
-        Object converted = toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         if (converted instanceof CharSequence source) {
             return source.toString();
         }
@@ -648,7 +597,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     private static String stringify(Object value) {
-        Object converted = toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         return converted == null ? "" : String.valueOf(converted);
     }
 
@@ -661,7 +610,7 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
     }
 
     private static String nullableString(Object value) {
-        Object converted = toJavaObject(value);
+        Object converted = ScriptValueConverter.toJavaObject(value);
         return converted == null ? null : String.valueOf(converted);
     }
 
@@ -675,18 +624,6 @@ public class ScriptRequestBodyAccessor implements ProxyObject {
         if (value != null && !value.isBlank()) {
             map.put(key, value);
         }
-    }
-
-    private static Object toProxyValue(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            Map<String, Object> proxyValues = new LinkedHashMap<>();
-            map.forEach((key, item) -> proxyValues.put(String.valueOf(key), toProxyValue(item)));
-            return ProxyObject.fromMap(proxyValues);
-        }
-        if (value instanceof List<?> list) {
-            return ProxyArray.fromList(list.stream().map(ScriptRequestBodyAccessor::toProxyValue).toList());
-        }
-        return value;
     }
 
     private record BodySnapshot(String mode,

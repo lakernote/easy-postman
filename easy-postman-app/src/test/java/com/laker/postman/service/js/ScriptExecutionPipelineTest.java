@@ -674,6 +674,43 @@ public class ScriptExecutionPipelineTest {
     }
 
     @Test
+    public void shouldKeepHeaderProxyLiveWhenRequestUpdateReusesExistingItems() {
+        PreparedRequest request = rawRequest("original");
+        request.headersList.add(new HttpHeader(false, "X-A", "one", "kept"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const header = pm.request.headers.all()[0];
+
+                        pm.request.update({header: pm.request.headers.all()});
+                        pm.variables.set('sameAfterSdkList',
+                            String(pm.request.headers.all()[0] === header));
+                        header.value = 'after-sdk-list';
+                        pm.variables.set('valueAfterSdkList', pm.request.headers.get('X-A'));
+
+                        pm.request.update({header: pm.request.raw.headersList});
+                        pm.variables.set('sameAfterRawList',
+                            String(pm.request.headers.all()[0] === header));
+                        header.value = 'after-raw-list';
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{sameAfterSdkList}}"), "true");
+            assertEquals(VariableResolver.resolve("{{valueAfterSdkList}}"), "after-sdk-list");
+            assertEquals(VariableResolver.resolve("{{sameAfterRawList}}"), "true");
+        });
+        assertEquals(request.headersList.size(), 1);
+        assertEquals(request.headersList.get(0).getValue(), "after-raw-list");
+        assertFalse(request.headersList.get(0).isEnabled());
+        assertEquals(request.headersList.get(0).getDescription(), "kept");
+    }
+
+    @Test
     public void shouldSupportPostmanParsedUrlDefinitionInRequestUpdate() {
         PreparedRequest request = rawRequest("original");
 
@@ -909,6 +946,37 @@ public class ScriptExecutionPipelineTest {
         assertEquals(request.headersList.get(0).getDescription(), "kept");
         assertNull(request.paramsList.get(0).getValue());
         assertEquals(request.paramsList.get(0).getDescription(), "kept");
+        pipeline.finalizeRequest();
+        assertEquals(request.url, "https://example.com/body?flag");
+    }
+
+    @Test
+    public void shouldApplyPostmanDefaultsToDirectElementUpdates() {
+        PreparedRequest request = rawRequest(null);
+        request.url = "https://example.com/body?flag=old";
+        request.paramsList.add(new HttpParam(true, "flag", "old", "kept"));
+        request.headersList.add(new HttpHeader(true, "X-Flag", "old", "kept"));
+        request.bodyType = RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+        request.urlencodedList.add(new HttpFormUrlencoded(true, "bodyFlag", "old", "kept"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.headers.one('X-Flag').update({key: 'X-Flag'});
+                        pm.request.url.query.one('flag').update({key: 'flag'});
+                        pm.request.body.urlencoded.one('bodyFlag').update({key: 'bodyFlag'});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.headersList.get(0).getValue(), "");
+        assertEquals(request.headersList.get(0).getDescription(), "kept");
+        assertNull(request.paramsList.get(0).getValue());
+        assertEquals(request.paramsList.get(0).getDescription(), "kept");
+        assertNull(request.urlencodedList.get(0).getValue());
+        assertEquals(request.urlencodedList.get(0).getDescription(), "kept");
         pipeline.finalizeRequest();
         assertEquals(request.url, "https://example.com/body?flag");
     }

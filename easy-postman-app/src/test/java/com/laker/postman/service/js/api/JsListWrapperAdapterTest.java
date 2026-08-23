@@ -133,4 +133,45 @@ public class JsListWrapperAdapterTest {
         assertNull(urlencodedRow.getValue());
         assertEquals(urlencodedRow.getDescription(), "body description");
     }
+
+    @Test
+    public void shouldApplyPostmanDefaultsWhenUpdatingElementsDirectly() {
+        HttpHeader headerRow = new HttpHeader(true, "X-Flag", "old", "kept");
+        JsListWrapper<HttpHeader> headers = new JsListWrapper<>(
+                new ArrayList<>(List.of(headerRow)),
+                JsListWrapper.ListType.HEADER
+        );
+        headers.idx(0).update(Map.of("key", "X-Flag"));
+        headers.sync();
+        assertEquals(headerRow.getValue(), "");
+        assertEquals(headerRow.getDescription(), "kept");
+
+        headers.idx(0).update(Map.of("value", "new"));
+        headers.sync();
+        assertEquals(headerRow.getKey(), "");
+        assertEquals(headerRow.getValue(), "new");
+
+        HttpParam queryRow = new HttpParam(true, "flag", "old", "kept");
+        JsListWrapper<HttpParam> query = new JsListWrapper<>(
+                new ArrayList<>(List.of(queryRow)),
+                JsListWrapper.ListType.PARAM
+        );
+        query.idx(0).update(Map.of("key", "flag"));
+        query.sync();
+        assertNull(queryRow.getValue());
+
+        query.idx(0).update(Map.of("value", "new"));
+        query.sync();
+        assertNull(queryRow.getKey());
+        assertEquals(queryRow.getValue(), "new");
+
+        HttpFormUrlencoded urlencodedRow = new HttpFormUrlencoded(true, "bodyFlag", "old", "kept");
+        JsListWrapper<HttpFormUrlencoded> urlencoded = new JsListWrapper<>(
+                new ArrayList<>(List.of(urlencodedRow)),
+                JsListWrapper.ListType.URLENCODED
+        );
+        urlencoded.idx(0).update(Map.of("key", "bodyFlag"));
+        urlencoded.sync();
+        assertNull(urlencodedRow.getValue());
+    }
 }

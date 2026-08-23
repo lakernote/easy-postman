@@ -289,16 +289,16 @@ public class ScriptRequestAccessor {
     private void addHeaderDefinition(JsListWrapper<HttpHeader> target, Object definition) {
         Object converted = ScriptValueConverter.toJavaObject(definition);
         if (converted instanceof JsListWrapper.ItemProxy proxy) {
-            target.add(proxy.toDefinition());
+            Object item = proxy.unwrap();
+            if (item instanceof HttpHeader header) {
+                target.getList().add(header);
+            } else {
+                target.add(proxy.toDefinition());
+            }
             return;
         }
         if (converted instanceof HttpHeader header) {
-            target.getList().add(new HttpHeader(
-                    header.isEnabled(),
-                    header.getKey(),
-                    header.getValue(),
-                    header.getDescription()
-            ));
+            target.getList().add(header);
             return;
         }
         if (converted instanceof CharSequence headerLine) {

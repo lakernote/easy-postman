@@ -161,7 +161,7 @@ public class JsListWrapper<T> {
             add(obj);
             return true;
         } else {
-            existing.update(adapter.normalizeUpsertDefinition(obj));
+            existing.update(obj);
             existing.sync();
             reconcileProxies(true);
             return false;
@@ -382,6 +382,7 @@ public class JsListWrapper<T> {
         }
 
         void update(Map<String, Object> definition) {
+            definition = adapter.normalizeUpdateDefinition(definition);
             boolean recognized = false;
             if (definition.containsKey("key")) {
                 Object requestedKey = ScriptValueConverter.toJavaObject(definition.get("key"));
@@ -524,6 +525,11 @@ public class JsListWrapper<T> {
                 json.put("disabled", true);
             }
             return json;
+        }
+
+        Object unwrap() {
+            sync();
+            return item;
         }
 
         public Object toJSON(Object ignoredKey) {

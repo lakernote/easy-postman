@@ -47,11 +47,11 @@ interface PostmanPropertyListAdapter {
     }
 
     /**
-     * Applies the item-type defaults used by Postman's PropertyList when an existing row is
-     * updated through {@code upsert}. Missing fields and explicitly null fields are distinct in
-     * the Collection SDK, so adapters only fill properties that are absent from the definition.
+     * Applies the item-type defaults used by the Postman SDK's element {@code update} method.
+     * Missing fields and explicitly null fields are distinct in the Collection SDK, so adapters
+     * only fill properties that are absent from the definition.
      */
-    default Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+    default Map<String, Object> normalizeUpdateDefinition(Map<String, Object> definition) {
         return new LinkedHashMap<>(definition);
     }
 }
@@ -151,9 +151,12 @@ class PostmanPropertyListAdapters {
         }
 
         @Override
-        public Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+        public Map<String, Object> normalizeUpdateDefinition(Map<String, Object> definition) {
             Map<String, Object> normalized = PostmanPropertyListAdapter.super
-                    .normalizeUpsertDefinition(definition);
+                    .normalizeUpdateDefinition(definition);
+            if (!normalized.containsKey("key")) {
+                normalized.put("key", "");
+            }
             if (!normalized.containsKey("value")) {
                 normalized.put("value", "");
             }
@@ -263,9 +266,12 @@ class PostmanPropertyListAdapters {
         }
 
         @Override
-        public Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+        public Map<String, Object> normalizeUpdateDefinition(Map<String, Object> definition) {
             Map<String, Object> normalized = PostmanPropertyListAdapter.super
-                    .normalizeUpsertDefinition(definition);
+                    .normalizeUpdateDefinition(definition);
+            if (!normalized.containsKey("key")) {
+                normalized.put("key", null);
+            }
             if (!normalized.containsKey("value")) {
                 normalized.put("value", null);
             }
@@ -320,9 +326,12 @@ class PostmanPropertyListAdapters {
         }
 
         @Override
-        public Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+        public Map<String, Object> normalizeUpdateDefinition(Map<String, Object> definition) {
             Map<String, Object> normalized = PostmanPropertyListAdapter.super
-                    .normalizeUpsertDefinition(definition);
+                    .normalizeUpdateDefinition(definition);
+            if (!normalized.containsKey("key")) {
+                normalized.put("key", null);
+            }
             if (!normalized.containsKey("value")) {
                 normalized.put("value", null);
             }

@@ -1,6 +1,7 @@
 package com.laker.postman.service.js.api;
 
 import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpParam;
 import org.graalvm.polyglot.Value;
@@ -89,5 +90,47 @@ public class JsListWrapperAdapterTest {
         assertEquals(mutations.get(), 1);
         assertEquals(row.getValue(), "same");
         assertFalse(row.isEnabled());
+    }
+
+    @Test
+    public void shouldApplyPostmanKeyOnlyUpsertDefaultsByItemType() {
+        HttpHeader headerRow = new HttpHeader(false, "X-Flag", "old", "header description");
+        JsListWrapper<HttpHeader> headers = new JsListWrapper<>(
+                new ArrayList<>(List.of(headerRow)),
+                JsListWrapper.ListType.HEADER
+        );
+        assertFalse(headers.upsert(Map.of("key", "X-Flag")));
+        assertEquals(headerRow.getValue(), "");
+        assertEquals(headerRow.getDescription(), "header description");
+        assertFalse(headerRow.isEnabled());
+
+        Map<String, Object> explicitNullHeader = new LinkedHashMap<>();
+        explicitNullHeader.put("key", "X-Flag");
+        explicitNullHeader.put("value", null);
+        headers.upsert(explicitNullHeader);
+        assertNull(headerRow.getValue());
+
+        HttpParam queryRow = new HttpParam(true, "flag", "old", "query description");
+        JsListWrapper<HttpParam> query = new JsListWrapper<>(
+                new ArrayList<>(List.of(queryRow)),
+                JsListWrapper.ListType.PARAM
+        );
+        assertFalse(query.upsert(Map.of("key", "flag")));
+        assertNull(queryRow.getValue());
+        assertEquals(queryRow.getDescription(), "query description");
+
+        HttpFormUrlencoded urlencodedRow = new HttpFormUrlencoded(
+                true,
+                "flag",
+                "old",
+                "body description"
+        );
+        JsListWrapper<HttpFormUrlencoded> urlencoded = new JsListWrapper<>(
+                new ArrayList<>(List.of(urlencodedRow)),
+                JsListWrapper.ListType.URLENCODED
+        );
+        assertFalse(urlencoded.upsert(Map.of("key", "flag")));
+        assertNull(urlencodedRow.getValue());
+        assertEquals(urlencodedRow.getDescription(), "body description");
     }
 }

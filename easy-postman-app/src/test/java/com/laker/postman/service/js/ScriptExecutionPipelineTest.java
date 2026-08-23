@@ -637,6 +637,43 @@ public class ScriptExecutionPipelineTest {
     }
 
     @Test
+    public void shouldPreserveSupportedHeaderRepresentationsInRequestUpdate() {
+        PreparedRequest request = rawRequest("original");
+        request.headersList.add(new HttpHeader(false, "X-A", "one", "kept"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        const sdkHeaders = pm.request.headers.all();
+                        pm.request.update({header: sdkHeaders});
+                        pm.variables.set('proxyValue', pm.request.headers.get('X-A'));
+                        pm.variables.set('proxyDisabled', String(pm.request.headers.all()[0].disabled));
+
+                        pm.request.update({header: pm.request.raw.headersList});
+                        pm.variables.set('hostValue', pm.request.headers.get('X-A'));
+                        pm.variables.set('hostDisabled', String(pm.request.headers.all()[0].disabled));
+
+                        pm.request.update({header: ['X-String: value', 'X-Flag']});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{proxyValue}}"), "one");
+            assertEquals(VariableResolver.resolve("{{proxyDisabled}}"), "true");
+            assertEquals(VariableResolver.resolve("{{hostValue}}"), "one");
+            assertEquals(VariableResolver.resolve("{{hostDisabled}}"), "true");
+        });
+        assertEquals(request.headersList.size(), 2);
+        assertEquals(request.headersList.get(0).getKey(), "X-String");
+        assertEquals(request.headersList.get(0).getValue(), "value");
+        assertEquals(request.headersList.get(1).getKey(), "X-Flag");
+        assertEquals(request.headersList.get(1).getValue(), "");
+    }
+
+    @Test
     public void shouldSupportPostmanParsedUrlDefinitionInRequestUpdate() {
         PreparedRequest request = rawRequest("original");
 
@@ -848,6 +885,56 @@ public class ScriptExecutionPipelineTest {
         assertNull(request.paramsList.get(0).getValue());
         pipeline.finalizeRequest();
         assertEquals(request.url, "https://example.com/body?flag");
+    }
+
+    @Test
+    public void shouldApplyPostmanKeyOnlyUpsertDefaultsToExistingItems() {
+        PreparedRequest request = rawRequest(null);
+        request.url = "https://example.com/body?flag=old";
+        request.paramsList.add(new HttpParam(true, "flag", "old", "kept"));
+        request.headersList.add(new HttpHeader(true, "X-Flag", "old", "kept"));
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.headers.upsert({key: 'X-Flag'});
+                        pm.request.url.query.upsert({key: 'flag'});
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        assertEquals(request.headersList.get(0).getValue(), "");
+        assertEquals(request.headersList.get(0).getDescription(), "kept");
+        assertNull(request.paramsList.get(0).getValue());
+        assertEquals(request.paramsList.get(0).getDescription(), "kept");
+        pipeline.finalizeRequest();
+        assertEquals(request.url, "https://example.com/body?flag");
+    }
+
+    @Test
+    public void shouldRenderRawBodyAssignmentsLikePostmanJavaScript() {
+        PreparedRequest request = rawRequest("original");
+        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
+                .request(request)
+                .preScript("""
+                        pm.request.body.update({mode: 'raw', raw: 0});
+                        pm.variables.set('zeroRaw', pm.request.body.toString());
+                        pm.request.body.raw = {a: 1};
+                        pm.variables.set('objectRaw', pm.request.body.toString());
+                        """)
+                .postScript("")
+                .build();
+
+        ScriptExecutionResult result = pipeline.executePreScript();
+
+        assertTrue(result.isSuccess(), result.getErrorMessage());
+        pipeline.withExecutionContext(() -> {
+            assertEquals(VariableResolver.resolve("{{zeroRaw}}"), "");
+            assertEquals(VariableResolver.resolve("{{objectRaw}}"), "[object Object]");
+        });
+        assertEquals(request.body, "[object Object]");
     }
 
     @Test

@@ -9,6 +9,8 @@ import com.laker.postman.request.model.RequestBodyTypes;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -254,35 +256,63 @@ public class ScriptRequestAccessor {
     }
 
     private void replaceHeaders(Object headerDefinition) {
-        raw.headersList.clear();
+        List<HttpHeader> replacements = new ArrayList<>();
+        JsListWrapper<HttpHeader> replacementHeaders = new JsListWrapper<>(
+                replacements,
+                JsListWrapper.ListType.HEADER
+        );
         Object converted = ScriptValueConverter.toJavaObject(headerDefinition);
         if (converted instanceof CharSequence headerLines) {
             for (String line : headerLines.toString().split("\\R")) {
                 if (!line.isBlank()) {
-                    headers.add(line);
+                    replacementHeaders.add(line);
                 }
             }
+        } else if (converted instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                addHeaderDefinition(replacementHeaders, item);
+            }
+        } else if (converted instanceof Map<?, ?> map) {
+            // Postman's PropertyList.populate treats every top-level plain object as a key/value
+            // map, even when the object itself contains properties named "key" and "value".
+            map.forEach((key, value) -> addHeaderMapEntry(replacementHeaders, key, value));
+        } else {
+            addHeaderDefinition(replacementHeaders, converted);
+        }
+
+        // Convert first so aliases such as pm.request.raw.headersList and
+        // pm.request.headers.all() stay readable until every replacement has been captured.
+        raw.headersList.clear();
+        raw.headersList.addAll(replacements);
+    }
+
+    private void addHeaderDefinition(JsListWrapper<HttpHeader> target, Object definition) {
+        Object converted = ScriptValueConverter.toJavaObject(definition);
+        if (converted instanceof JsListWrapper.ItemProxy proxy) {
+            target.add(proxy.toDefinition());
             return;
         }
-        if (converted instanceof Collection<?> collection) {
-            for (Object item : collection) {
-                Object convertedItem = ScriptValueConverter.toJavaObject(item);
-                if (convertedItem instanceof Map<?, ?> map) {
-                    Map<String, Object> header = new java.util.LinkedHashMap<>();
-                    map.forEach((key, value) -> header.put(String.valueOf(key), value));
-                    headers.add(header);
-                }
-            }
+        if (converted instanceof HttpHeader header) {
+            target.getList().add(new HttpHeader(
+                    header.isEnabled(),
+                    header.getKey(),
+                    header.getValue(),
+                    header.getDescription()
+            ));
+            return;
+        }
+        if (converted instanceof CharSequence headerLine) {
+            target.add(headerLine.toString());
             return;
         }
         if (converted instanceof Map<?, ?> map) {
-            // Postman's PropertyList.populate treats every top-level plain object as a key/value
-            // map, even when the object itself contains properties named "key" and "value".
-            map.forEach((key, value) -> addHeaderMapEntry(key, value));
+            Map<String, Object> header = new LinkedHashMap<>();
+            map.forEach((key, value) -> header.put(String.valueOf(key), value));
+            target.add(header);
         }
     }
 
-    private void addHeaderMapEntry(Object key, Object value) {
+    private void addHeaderMapEntry(JsListWrapper<HttpHeader> target, Object key, Object value) {
         Object convertedValue = ScriptValueConverter.toJavaObject(value);
         if (convertedValue == null
                 || (convertedValue instanceof Double number && number.isNaN())
@@ -290,19 +320,19 @@ public class ScriptRequestAccessor {
             return;
         }
         if (convertedValue instanceof CharSequence text) {
-            headers.add(String.valueOf(key), text.toString());
+            target.add(String.valueOf(key), text.toString());
             return;
         }
         if (convertedValue instanceof Map<?, ?> definition) {
-            Map<String, Object> header = new java.util.LinkedHashMap<>();
+            Map<String, Object> header = new LinkedHashMap<>();
             definition.forEach((itemKey, itemValue) -> header.put(String.valueOf(itemKey), itemValue));
-            headers.add(header);
+            target.add(header);
             return;
         }
 
         // Header.create(value, key) only uses the map key when value is a string. Other scalar
         // values construct an empty Header definition in postman-collection.
-        headers.add("", "");
+        target.add("", "");
     }
 
     private void replaceBody(Object definition) {

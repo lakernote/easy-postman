@@ -7,7 +7,9 @@ import com.laker.postman.request.model.HttpParam;
 import lombok.experimental.UtilityClass;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -42,6 +44,15 @@ interface PostmanPropertyListAdapter {
 
     default String valueFromDefinition(Object value, Object src) {
         return PostmanPropertyListAdapters.scalarOrFirst(value != null ? value : src);
+    }
+
+    /**
+     * Applies the item-type defaults used by Postman's PropertyList when an existing row is
+     * updated through {@code upsert}. Missing fields and explicitly null fields are distinct in
+     * the Collection SDK, so adapters only fill properties that are absent from the definition.
+     */
+    default Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+        return new LinkedHashMap<>(definition);
     }
 }
 
@@ -137,6 +148,16 @@ class PostmanPropertyListAdapters {
         @Override
         public String toObjectKey(String key) {
             return key == null ? null : key.toLowerCase(Locale.ROOT);
+        }
+
+        @Override
+        public Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+            Map<String, Object> normalized = PostmanPropertyListAdapter.super
+                    .normalizeUpsertDefinition(definition);
+            if (!normalized.containsKey("value")) {
+                normalized.put("value", "");
+            }
+            return normalized;
         }
     }
 
@@ -240,6 +261,16 @@ class PostmanPropertyListAdapters {
         public String valueFromDefinition(Object value, Object src) {
             return value == null ? null : PostmanPropertyListAdapters.scalarOrFirst(value);
         }
+
+        @Override
+        public Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+            Map<String, Object> normalized = PostmanPropertyListAdapter.super
+                    .normalizeUpsertDefinition(definition);
+            if (!normalized.containsKey("value")) {
+                normalized.put("value", null);
+            }
+            return normalized;
+        }
     }
 
     private static final class ParamAdapter implements PostmanPropertyListAdapter {
@@ -286,6 +317,16 @@ class PostmanPropertyListAdapters {
         @Override
         public String valueFromDefinition(Object value, Object src) {
             return value == null ? null : PostmanPropertyListAdapters.scalarOrFirst(value);
+        }
+
+        @Override
+        public Map<String, Object> normalizeUpsertDefinition(Map<String, Object> definition) {
+            Map<String, Object> normalized = PostmanPropertyListAdapter.super
+                    .normalizeUpsertDefinition(definition);
+            if (!normalized.containsKey("value")) {
+                normalized.put("value", null);
+            }
+            return normalized;
         }
     }
 }

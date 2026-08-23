@@ -161,7 +161,7 @@ public class JsListWrapper<T> {
             add(obj);
             return true;
         } else {
-            existing.update(obj);
+            existing.update(adapter.normalizeUpsertDefinition(obj));
             existing.sync();
             reconcileProxies(true);
             return false;
@@ -502,6 +502,10 @@ public class JsListWrapper<T> {
          * Keep {@code JSON.stringify(list.all())} aligned with Postman SDK property objects.
          */
         public Object toJSON() {
+            return ProxyObject.fromMap(toDefinition());
+        }
+
+        Map<String, Object> toDefinition() {
             sync();
             Map<String, Object> json = new LinkedHashMap<>();
             json.put("key", key);
@@ -519,7 +523,7 @@ public class JsListWrapper<T> {
             if (disabled) {
                 json.put("disabled", true);
             }
-            return ProxyObject.fromMap(json);
+            return json;
         }
 
         public Object toJSON(Object ignoredKey) {

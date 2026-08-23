@@ -6,6 +6,7 @@ import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.RequestBodyTypes;
 import lombok.experimental.UtilityClass;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -35,7 +36,7 @@ class PostmanRequestBodyCodec {
             return true;
         }
         return switch (mode) {
-            case "raw" -> stringify(raw).isEmpty();
+            case "raw" -> stringifyRaw(raw).isEmpty();
             case "urlencoded" -> collectionIsEmpty(urlencoded);
             case "formdata" -> collectionIsEmpty(formdata);
             case "file" -> fileSource(file).isEmpty();
@@ -45,7 +46,7 @@ class PostmanRequestBodyCodec {
 
     static String render(String mode, Object raw, Object urlencoded) {
         if ("raw".equals(mode)) {
-            return stringify(raw);
+            return stringifyRaw(raw);
         }
         if ("urlencoded".equals(mode)) {
             StringJoiner joiner = new StringJoiner("&");
@@ -119,7 +120,7 @@ class PostmanRequestBodyCodec {
             default -> {
                 request.formDataList = new ArrayList<>();
                 request.urlencodedList = new ArrayList<>();
-                request.body = stringify(raw);
+                request.body = stringifyRaw(raw);
                 request.bodyType = RequestBodyTypes.BODY_TYPE_RAW;
                 request.isMultipart = false;
             }
@@ -189,6 +190,64 @@ class PostmanRequestBodyCodec {
     static String stringify(Object value) {
         Object converted = ScriptValueConverter.toJavaObject(value);
         return converted == null ? "" : String.valueOf(converted);
+    }
+
+    /**
+     * Mirrors RequestBody#toString in postman-collection: a falsy active raw value renders as an
+     * empty payload, while truthy values use JavaScript's String conversion rather than Java's
+     * collection/map representation.
+     */
+    static String stringifyRaw(Object value) {
+        Object converted = ScriptValueConverter.toJavaObject(value);
+        if (isJavaScriptFalsy(converted)) {
+            return "";
+        }
+        return stringifyJavaScriptValue(converted);
+    }
+
+    private static boolean isJavaScriptFalsy(Object value) {
+        if (value == null || Boolean.FALSE.equals(value)) {
+            return true;
+        }
+        if (value instanceof CharSequence text) {
+            return text.isEmpty();
+        }
+        if (value instanceof Number number) {
+            double numericValue = number.doubleValue();
+            return numericValue == 0.0d || Double.isNaN(numericValue);
+        }
+        return false;
+    }
+
+    private static String stringifyJavaScriptValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof Map<?, ?>) {
+            return "[object Object]";
+        }
+        if (value instanceof Collection<?> collection) {
+            return joinJavaScriptArray(collection);
+        }
+        if (value.getClass().isArray()) {
+            StringJoiner joiner = new StringJoiner(",");
+            int length = Array.getLength(value);
+            for (int index = 0; index < length; index++) {
+                joiner.add(stringifyJavaScriptValue(
+                        ScriptValueConverter.toJavaObject(Array.get(value, index))
+                ));
+            }
+            return joiner.toString();
+        }
+        return String.valueOf(value);
+    }
+
+    private static String joinJavaScriptArray(Collection<?> values) {
+        StringJoiner joiner = new StringJoiner(",");
+        for (Object value : values) {
+            joiner.add(stringifyJavaScriptValue(ScriptValueConverter.toJavaObject(value)));
+        }
+        return joiner.toString();
     }
 
     private static void clearRequestBody(PreparedRequest request) {

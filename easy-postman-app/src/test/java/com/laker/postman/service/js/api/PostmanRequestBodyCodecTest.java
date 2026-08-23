@@ -116,6 +116,30 @@ public class PostmanRequestBodyCodecTest {
         ));
     }
 
+    @Test
+    public void shouldRenderNonStringRawBodyUsingPostmanJavaScriptSemantics() {
+        assertEquals(PostmanRequestBodyCodec.render("raw", 0, null), "");
+        assertEquals(PostmanRequestBodyCodec.render("raw", false, null), "");
+        assertEquals(PostmanRequestBodyCodec.render("raw", null, null), "");
+        assertEquals(PostmanRequestBodyCodec.render("raw", true, null), "true");
+        assertEquals(PostmanRequestBodyCodec.render("raw", Map.of("a", 1), null),
+                "[object Object]");
+        assertEquals(PostmanRequestBodyCodec.render("raw", List.of(1, false, Map.of("a", 1)), null),
+                "1,false,[object Object]");
+
+        PreparedRequest request = rawRequest("original");
+        assertTrue(PostmanRequestBodyCodec.applyToRequest(
+                request,
+                "raw",
+                Map.of("a", 1),
+                null,
+                null,
+                null,
+                false
+        ));
+        assertEquals(request.body, "[object Object]");
+    }
+
     private static PreparedRequest rawRequest(String body) {
         PreparedRequest request = new PreparedRequest();
         request.bodyType = RequestBodyTypes.BODY_TYPE_RAW;

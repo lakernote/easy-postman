@@ -64,7 +64,7 @@
         <!-- UI / core 基础依赖版本 -->
         <flatlaf.version>3.7.1</flatlaf.version>
         <miglayout.version>11.4.2</miglayout.version>
-        <hutool.version>5.8.41</hutool.version>
+        <hutool.version>5.8.47</hutool.version>
         <logback-classic.version>1.5.20</logback-classic.version>
         <jfreechart.version>1.5.5</jfreechart.version>
         <okhttp.version>4.12.0</okhttp.version>

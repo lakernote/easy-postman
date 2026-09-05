@@ -1,5 +1,6 @@
 package com.laker.postman.panel.collections.editor.request.sub;
 
+import com.laker.postman.common.component.WindowOpacitySupport;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 
 import javax.swing.*;
@@ -29,7 +30,9 @@ final class ResponseSizeTooltipWindow extends JWindow {
         instance.setContentPane(wrapContent(content));
         instance.pack();
         instance.setLocation(calculateLocation(anchor, instance));
-        instance.setOpacity(0f);
+        if (WindowOpacitySupport.isOpacitySupported(instance)) {
+            instance.setOpacity(0f);
+        }
         instance.setVisible(true);
 
         fadeIn(instance);
@@ -83,6 +86,9 @@ final class ResponseSizeTooltipWindow extends JWindow {
     }
 
     private static void fadeIn(ResponseSizeTooltipWindow tooltipWindow) {
+        if (!WindowOpacitySupport.isOpacitySupported(tooltipWindow)) {
+            return;
+        }
         Timer fadeIn = new Timer(20, null);
         fadeIn.addActionListener(e -> {
             if (instance == null) {
@@ -90,7 +96,12 @@ final class ResponseSizeTooltipWindow extends JWindow {
                 return;
             }
             float opacity = Math.min(1f, tooltipWindow.getOpacity() + 0.1f);
-            tooltipWindow.setOpacity(opacity);
+            try {
+                tooltipWindow.setOpacity(opacity);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                ((Timer) e.getSource()).stop();
+                return;
+            }
             if (opacity >= 1f) {
                 ((Timer) e.getSource()).stop();
             }
@@ -99,10 +110,22 @@ final class ResponseSizeTooltipWindow extends JWindow {
     }
 
     private static void fadeOut(ResponseSizeTooltipWindow tooltipWindow) {
+        if (!WindowOpacitySupport.isOpacitySupported(tooltipWindow)) {
+            tooltipWindow.setVisible(false);
+            tooltipWindow.dispose();
+            return;
+        }
         Timer fadeOut = new Timer(20, null);
         fadeOut.addActionListener(e -> {
             float opacity = Math.max(0f, tooltipWindow.getOpacity() - 0.12f);
-            tooltipWindow.setOpacity(opacity);
+            try {
+                tooltipWindow.setOpacity(opacity);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                ((Timer) e.getSource()).stop();
+                tooltipWindow.setVisible(false);
+                tooltipWindow.dispose();
+                return;
+            }
             if (opacity <= 0f) {
                 ((Timer) e.getSource()).stop();
                 tooltipWindow.setVisible(false);

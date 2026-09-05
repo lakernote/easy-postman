@@ -1,5 +1,6 @@
 package com.laker.postman.panel.update;
 
+import com.laker.postman.common.component.WindowOpacitySupport;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 
 import javax.swing.*;
@@ -16,6 +17,7 @@ class UpdateFloatingNotificationWindow {
     private final JDialog dialog;
     private final JFrame parent;
     private final int displayDurationMs;
+    private final boolean opacitySupported;
     private Timer fadeTimer;
     private Timer autoCloseTimer;
     private float opacity = 0f;
@@ -25,6 +27,7 @@ class UpdateFloatingNotificationWindow {
         this.parent = parent;
         this.displayDurationMs = displayDurationMs;
         this.dialog = new JDialog(parent, false);
+        this.opacitySupported = WindowOpacitySupport.isOpacitySupported(dialog);
         configureDialog();
     }
 
@@ -56,10 +59,20 @@ class UpdateFloatingNotificationWindow {
     void fadeOut() {
         stopFadeTimer();
         stopAutoCloseTimer();
+        if (!opacitySupported) {
+            cleanupAndClose();
+            return;
+        }
         fadeTimer = new Timer(FADE_TIMER_DELAY, null);
         fadeTimer.addActionListener(e -> {
             opacity = Math.max(opacity - FADE_STEP, 0f);
-            dialog.setOpacity(opacity);
+            try {
+                dialog.setOpacity(opacity);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                stopFadeTimer();
+                cleanupAndClose();
+                return;
+            }
             if (opacity <= 0f) {
                 stopFadeTimer();
                 cleanupAndClose();
@@ -79,7 +92,11 @@ class UpdateFloatingNotificationWindow {
         dialog.setUndecorated(true);
         dialog.setFocusableWindowState(false);
         dialog.setType(Window.Type.UTILITY);
-        dialog.setOpacity(0f);
+        if (opacitySupported) {
+            dialog.setOpacity(0f);
+        } else {
+            opacity = 1f;
+        }
         dialog.getRootPane().putClientProperty("Window.shadow", Boolean.FALSE);
         ToolWindowSurfaceStyle.skipDialogWindowChrome(dialog);
         dialog.setBackground(new Color(0, 0, 0, 0));
@@ -87,10 +104,19 @@ class UpdateFloatingNotificationWindow {
 
     private void fadeIn() {
         stopFadeTimer();
+        if (!opacitySupported) {
+            return;
+        }
         fadeTimer = new Timer(FADE_TIMER_DELAY, null);
         fadeTimer.addActionListener(e -> {
             opacity = Math.min(opacity + FADE_STEP, 1.0f);
-            dialog.setOpacity(opacity);
+            try {
+                dialog.setOpacity(opacity);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                stopFadeTimer();
+                opacity = 1f;
+                return;
+            }
             if (opacity >= 1.0f) {
                 stopFadeTimer();
             }

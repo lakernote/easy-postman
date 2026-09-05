@@ -1,5 +1,6 @@
 package com.laker.postman.common.component.notification;
 
+import com.laker.postman.common.component.WindowOpacitySupport;
 import com.laker.postman.model.NotificationPosition;
 import com.laker.postman.util.CommonI18n;
 import com.laker.postman.util.CommonMessageKeys;
@@ -25,6 +26,7 @@ class ToastWindow extends JWindow {
     private boolean hovered = false;
     private boolean expanded = false;
     private boolean closed = false;
+    private boolean opacitySupported;
     private int slideStep = 0;
     private Point targetPosition;
 
@@ -58,6 +60,7 @@ class ToastWindow extends JWindow {
         this.onClosed = onClosed;
         this.onLayoutChanged = onLayoutChanged;
 
+        opacitySupported = WindowOpacitySupport.isOpacitySupported(this);
         configureWindow();
         title = customTitle != null && !customTitle.isBlank() ? customTitle : type.getDefaultTitle();
         String displayMessage = ToastTextFormatter.displayText(message, false);
@@ -93,9 +96,7 @@ class ToastWindow extends JWindow {
     }
 
     void closeQuietly() {
-        stopTimers();
-        dispose();
-        notifyClosed();
+        finishClose();
     }
 
     void updateStackOffset(int offset) {
@@ -245,19 +246,33 @@ class ToastWindow extends JWindow {
         if (closed) {
             return;
         }
+        if (!opacitySupported) {
+            finishClose();
+            return;
+        }
         stopTimers();
         final int[] step = {0};
         fadeTimer = new Timer(ToastStyle.FADE_INTERVAL, e -> {
             step[0]++;
             float alpha = Math.max(0f, 1f - (float) step[0] / ToastStyle.FADE_STEPS);
-            setOpacity(alpha);
+            try {
+                setOpacity(alpha);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                opacitySupported = false;
+                finishClose();
+                return;
+            }
             if (step[0] >= ToastStyle.FADE_STEPS) {
-                ((Timer) e.getSource()).stop();
-                dispose();
-                notifyClosed();
+                finishClose();
             }
         });
         fadeTimer.start();
+    }
+
+    private void finishClose() {
+        stopTimers();
+        dispose();
+        notifyClosed();
     }
 
     private void stopTimers() {

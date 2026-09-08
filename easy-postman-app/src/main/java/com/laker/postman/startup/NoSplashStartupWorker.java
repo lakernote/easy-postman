@@ -28,7 +28,7 @@ class NoSplashStartupWorker extends SwingWorker<MainFrame, Void> {
             startupCoordinator.showMainFrameAndLoadContent(mainFrame);
             startupCoordinator.runAfterMainContentReady(
                     mainFrame,
-                    startupCoordinator::scheduleBackgroundUpdateCheck,
+                    startupCoordinator::scheduleBackgroundTasks,
                     StartupFailureHandler::showStartupErrorAndExit
             );
         } catch (Exception e) {

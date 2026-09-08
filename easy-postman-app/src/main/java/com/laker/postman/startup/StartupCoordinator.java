@@ -2,6 +2,8 @@ package com.laker.postman.startup;
 
 import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.frame.MainFrame;
+import com.laker.postman.ioc.BeanFactory;
+import com.laker.postman.service.sync.WebDavSyncScheduler;
 
 import javax.swing.SwingUtilities;
 import java.util.function.Consumer;
@@ -38,6 +40,11 @@ public class StartupCoordinator {
 
     public void scheduleBackgroundUpdateCheck() {
         StartupUpdateScheduler.scheduleBackgroundUpdateCheck();
+    }
+
+    public void scheduleBackgroundTasks() {
+        scheduleBackgroundUpdateCheck();
+        BeanFactory.getBean(WebDavSyncScheduler.class).start();
     }
 
     public void runAfterMainContentReady(MainFrame mainFrame,

@@ -5,6 +5,7 @@ import com.laker.postman.util.JsonUtil;
 import com.laker.postman.util.SystemUtil;
 import okhttp3.OkHttpClient;
 import okhttp3.HttpUrl;
+import okhttp3.Protocol;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
@@ -14,15 +15,25 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class WebDavSyncService {
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     private static final int READ_TIMEOUT_MS = 60_000;
     private static final int WRITE_TIMEOUT_MS = 60_000;
+    private static final ReentrantLock SYNC_LOCK = new ReentrantLock();
 
     private final Path dataRoot;
     private final WebDavSnapshotService snapshotService;
     private final WebDavClientFactory clientFactory;
+
+    enum AutoUploadResult {
+        UPLOADED,
+        SKIPPED_BUSY,
+        SKIPPED_REMOTE_NEWER,
+        SKIPPED_REMOTE_TIMESTAMP_UNKNOWN
+    }
 
     public WebDavSyncService() {
         this(
@@ -41,24 +52,80 @@ public class WebDavSyncService {
     }
 
     public void testConnection(WebDavSyncSettings settings) throws IOException {
-        createClient(validate(settings)).testConnection();
+        SYNC_LOCK.lock();
+        try {
+            createClient(validate(settings)).testConnection();
+        } finally {
+            SYNC_LOCK.unlock();
+        }
     }
 
     public Optional<WebDavRemoteSnapshot> fetchRemoteSnapshot(WebDavSyncSettings settings) throws IOException {
-        WebDavClient client = createClient(validate(settings));
-        Optional<byte[]> manifest = client.downloadManifestIfPresent();
-        if (manifest.isEmpty()) {
-            return Optional.empty();
-        }
+        SYNC_LOCK.lock();
         try {
-            return Optional.of(WebDavRemoteSnapshot.fromJson(new String(manifest.get(), StandardCharsets.UTF_8)));
-        } catch (RuntimeException e) {
-            throw new IOException("Invalid WebDAV manifest", e);
+            return fetchRemoteSnapshotInternal(validate(settings));
+        } finally {
+            SYNC_LOCK.unlock();
         }
     }
 
     public void uploadSnapshot(WebDavSyncSettings settings) throws IOException {
         WebDavSyncSettings validatedSettings = validate(settings);
+        SYNC_LOCK.lock();
+        try {
+            uploadSnapshotInternal(validatedSettings);
+        } finally {
+            SYNC_LOCK.unlock();
+        }
+    }
+
+    /**
+     * Attempts a background upload without waiting for a manual sync already in progress.
+     *
+     * @return false when another WebDAV operation currently owns the sync lock
+     */
+    public boolean tryUploadSnapshot(WebDavSyncSettings settings) throws IOException {
+        WebDavSyncSettings validatedSettings = validate(settings);
+        if (!SYNC_LOCK.tryLock()) {
+            return false;
+        }
+        try {
+            uploadSnapshotInternal(validatedSettings);
+            return true;
+        } finally {
+            SYNC_LOCK.unlock();
+        }
+    }
+
+    /**
+     * Attempts an automatic upload while holding the same lock as manual sync operations.
+     * A newer or unreadable remote manifest is treated as a conflict and never overwritten
+     * by the background scheduler.
+     */
+    AutoUploadResult tryAutoUploadSnapshot(WebDavSyncSettings settings, long localLastSyncTime) throws IOException {
+        WebDavSyncSettings validatedSettings = validate(settings);
+        if (!SYNC_LOCK.tryLock()) {
+            return AutoUploadResult.SKIPPED_BUSY;
+        }
+        try {
+            Optional<WebDavRemoteSnapshot> remoteSnapshot = fetchRemoteSnapshotInternal(validatedSettings);
+            if (remoteSnapshot.isPresent()) {
+                OptionalLong remoteCreatedAt = remoteCreatedAt(remoteSnapshot.get());
+                if (remoteCreatedAt.isEmpty()) {
+                    return AutoUploadResult.SKIPPED_REMOTE_TIMESTAMP_UNKNOWN;
+                }
+                if (remoteCreatedAt.getAsLong() > localLastSyncTime) {
+                    return AutoUploadResult.SKIPPED_REMOTE_NEWER;
+                }
+            }
+            uploadSnapshotInternal(validatedSettings);
+            return AutoUploadResult.UPLOADED;
+        } finally {
+            SYNC_LOCK.unlock();
+        }
+    }
+
+    private void uploadSnapshotInternal(WebDavSyncSettings validatedSettings) throws IOException {
         Path snapshot = Files.createTempFile("easypostman-webdav-upload-", ".zip");
         try {
             snapshotService.createSnapshot(dataRoot, snapshot);
@@ -73,13 +140,18 @@ public class WebDavSyncService {
     }
 
     public WebDavRestoreResult restoreSnapshot(WebDavSyncSettings settings) throws IOException {
-        WebDavClient client = createClient(validate(settings));
-        Path snapshot = Files.createTempFile("easypostman-webdav-restore-", ".zip");
+        SYNC_LOCK.lock();
         try {
-            client.downloadSnapshot(snapshot);
-            return snapshotService.restoreSnapshot(snapshot, dataRoot);
+            WebDavClient client = createClient(validate(settings));
+            Path snapshot = Files.createTempFile("easypostman-webdav-restore-", ".zip");
+            try {
+                client.downloadSnapshot(snapshot);
+                return snapshotService.restoreSnapshot(snapshot, dataRoot);
+            } finally {
+                Files.deleteIfExists(snapshot);
+            }
         } finally {
-            Files.deleteIfExists(snapshot);
+            SYNC_LOCK.unlock();
         }
     }
 
@@ -92,16 +164,38 @@ public class WebDavSyncService {
         );
     }
 
+    private Optional<WebDavRemoteSnapshot> fetchRemoteSnapshotInternal(WebDavSyncSettings settings) throws IOException {
+        WebDavClient client = createClient(settings);
+        Optional<byte[]> manifest = client.downloadManifestIfPresent();
+        if (manifest.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(WebDavRemoteSnapshot.fromJson(new String(manifest.get(), StandardCharsets.UTF_8)));
+        } catch (RuntimeException e) {
+            throw new IOException("Invalid WebDAV manifest", e);
+        }
+    }
+
+    private static OptionalLong remoteCreatedAt(WebDavRemoteSnapshot snapshot) {
+        try {
+            return OptionalLong.of(Instant.parse(snapshot.createdAt()).toEpochMilli());
+        } catch (RuntimeException e) {
+            return OptionalLong.empty();
+        }
+    }
+
     private static WebDavClient createRuntimeClient(String serverUrl,
                                                     String remoteDirectory,
                                                     String username,
                                                     String password) {
-        OkHttpClient okHttpClient = OkHttpClientManager.getClientForUrl(
+        OkHttpClient okHttpClient = OkHttpClientManager.createDedicatedClientForUrl(
                 serverUrl,
                 true,
                 CONNECT_TIMEOUT_MS,
                 READ_TIMEOUT_MS,
-                WRITE_TIMEOUT_MS
+                WRITE_TIMEOUT_MS,
+                java.util.List.of(Protocol.HTTP_1_1)
         );
         return new WebDavClient(okHttpClient, serverUrl, remoteDirectory, username, password);
     }

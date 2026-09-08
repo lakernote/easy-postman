@@ -778,7 +778,9 @@ public class SettingManager {
                 get(AppSettingKeys.WEBDAV_SYNC_SERVER_URL),
                 get(AppSettingKeys.WEBDAV_SYNC_REMOTE_DIRECTORY),
                 get(AppSettingKeys.WEBDAV_SYNC_USERNAME),
-                get(AppSettingKeys.WEBDAV_SYNC_PASSWORD)
+                get(AppSettingKeys.WEBDAV_SYNC_PASSWORD),
+                get(AppSettingKeys.WEBDAV_SYNC_AUTO_UPLOAD_ENABLED),
+                get(AppSettingKeys.WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_MINUTES)
         );
     }
 
@@ -792,6 +794,11 @@ public class SettingManager {
             AppSettingKeys.WEBDAV_SYNC_REMOTE_DIRECTORY.write(properties, normalized.remoteDirectory());
             AppSettingKeys.WEBDAV_SYNC_USERNAME.write(properties, normalized.username());
             AppSettingKeys.WEBDAV_SYNC_PASSWORD.write(properties, normalized.password());
+            AppSettingKeys.WEBDAV_SYNC_AUTO_UPLOAD_ENABLED.write(properties, normalized.autoUploadEnabled());
+            AppSettingKeys.WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_MINUTES.write(
+                    properties,
+                    normalized.autoUploadIntervalMinutes()
+            );
         });
     }
 

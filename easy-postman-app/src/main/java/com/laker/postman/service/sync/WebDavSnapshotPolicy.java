@@ -83,6 +83,22 @@ public class WebDavSnapshotPolicy {
         return "workspaces".equals(segments.get(0));
     }
 
+    boolean shouldDescend(Path dataRoot, Path path) {
+        Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
+        Path normalizedPath = path.toAbsolutePath().normalize();
+        if (!normalizedPath.startsWith(normalizedRoot)) {
+            return false;
+        }
+        if (normalizedPath.equals(normalizedRoot)) {
+            return true;
+        }
+
+        List<String> segments = relativeSegments(normalizedRoot, normalizedPath);
+        return !segments.isEmpty()
+                && !hasUnsafeCrossPlatformSegment(segments)
+                && !hasExcludedSegment(segments);
+    }
+
     boolean shouldRestoreEntry(String entryName) {
         if (entryName == null || entryName.isBlank() || entryName.startsWith("/") || entryName.startsWith("\\")) {
             return false;

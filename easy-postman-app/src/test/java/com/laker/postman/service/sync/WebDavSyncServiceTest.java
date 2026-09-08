@@ -10,6 +10,7 @@ import org.testng.annotations.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.zip.ZipInputStream;
 
@@ -143,6 +144,38 @@ public class WebDavSyncServiceTest {
             ));
 
             assertTrue(remote.isEmpty());
+        }
+    }
+
+    @Test
+    public void autoUploadShouldNotOverwriteNewerRemoteSnapshot() throws Exception {
+        Path dataRoot = Files.createTempDirectory("webdav-sync-auto-upload-conflict");
+        write(dataRoot.resolve("workspaces/default/collections.json"), "{\"local\":true}");
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""
+                            {
+                                "schemaVersion": 1,
+                                "createdAt": "2026-06-22T08:00:00Z",
+                                "appVersion": "v1.2.3",
+                                "snapshotFile": "snapshot.zip",
+                                "snapshotBytes": 12345
+                            }
+                            """));
+            server.start();
+
+            WebDavSyncService service = newService(dataRoot);
+            WebDavSyncService.AutoUploadResult result = service.tryAutoUploadSnapshot(
+                    new WebDavSyncSettings(true, server.url("/dav/").toString(), "EasyPostman", "", ""),
+                    Instant.parse("2026-06-22T07:00:00Z").toEpochMilli()
+            );
+
+            assertEquals(result, WebDavSyncService.AutoUploadResult.SKIPPED_REMOTE_NEWER);
+            assertEquals(server.getRequestCount(), 1);
+            RecordedRequest request = server.takeRequest();
+            assertEquals(request.getMethod(), "GET");
+            assertEquals(request.getPath(), "/dav/EasyPostman/manifest.json");
         }
     }
 

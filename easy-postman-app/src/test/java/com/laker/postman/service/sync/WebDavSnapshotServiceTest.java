@@ -211,6 +211,34 @@ public class WebDavSnapshotServiceTest {
     }
 
     @Test
+    public void snapshotShouldAbortAndIdentifyOversizedExternalWorkspace() throws Exception {
+        Path dataRoot = Files.createTempDirectory("webdav-snapshot-preflight-root");
+        Path externalWorkspace = Files.createTempDirectory("webdav-snapshot-preflight-workspace");
+        write(externalWorkspace.resolve("large-collection.json"), "12345");
+        write(dataRoot.resolve("workspaces.json"), """
+                [{"id":"documents-workspace","name":"Documents 工作区","path":"%s"}]
+                """.formatted(externalWorkspace.toString()));
+
+        WebDavSnapshotService service = new WebDavSnapshotService(
+                new WebDavSnapshotPolicy(),
+                4,
+                100
+        );
+        Path snapshot = Files.createTempFile("webdav-snapshot-preflight", ".zip");
+
+        try {
+            service.createSnapshot(dataRoot, snapshot);
+            fail("Expected oversized external workspace to be rejected");
+        } catch (WebDavSnapshotPreflightException exception) {
+            assertEquals(exception.workspaceName(), "Documents 工作区");
+            assertEquals(exception.workspacePath(), externalWorkspace);
+            assertTrue(exception.contentBytes() > exception.maxContentBytes());
+            assertEquals(exception.maxFileCount(), 100L);
+            assertTrue(exception.getMessage().contains(externalWorkspace.toString()));
+        }
+    }
+
+    @Test
     public void restoreShouldKeepOnlyLatestThreeWebDavSyncBackups() throws Exception {
         Path sourceRoot = Files.createTempDirectory("webdav-snapshot-backup-source");
         write(sourceRoot.resolve("workspaces/default/collections.json"), "{\"source\":true}");
@@ -294,6 +322,11 @@ public class WebDavSnapshotServiceTest {
         Path dataRoot = Files.createTempDirectory("webdav-policy-case");
         WebDavSnapshotPolicy policy = new WebDavSnapshotPolicy();
 
+        assertFalse(policy.shouldDescend(dataRoot, dataRoot.resolve("workspaces/api/.GIT")));
+        assertFalse(policy.shouldDescend(dataRoot, dataRoot.resolve("workspaces/api/Plugins")));
+        assertFalse(policy.shouldDescend(dataRoot, dataRoot.resolve("workspaces/api/LOGS")));
+        assertFalse(policy.shouldDescend(dataRoot, dataRoot.resolve("workspaces/api/Backups")));
+        assertFalse(policy.shouldDescend(dataRoot, dataRoot.resolve("workspaces/api/CAPTURE-CA")));
         assertFalse(policy.shouldInclude(dataRoot, dataRoot.resolve("workspaces/api/.GIT/config")));
         assertFalse(policy.shouldInclude(dataRoot, dataRoot.resolve("workspaces/api/Plugins/settings.json")));
         assertFalse(policy.shouldInclude(dataRoot, dataRoot.resolve("workspaces/api/LOGS/app.log")));

@@ -291,7 +291,7 @@ class SplashWindow extends JFrame {
 
     private void closeSplash(StartupCoordinator startupCoordinator) {
         disposeSafely();
-        startupCoordinator.scheduleBackgroundUpdateCheck();
+        startupCoordinator.scheduleBackgroundTasks();
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.laker.postman.service.sync;
 
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.Credentials;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 public class WebDavClient {
     private static final MediaType OCTET_STREAM = MediaType.get("application/octet-stream");
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
@@ -73,21 +75,21 @@ public class WebDavClient {
                 .header("Depth", "0")
                 .method("PROPFIND", RequestBody.create(PROPFIND_ALLPROP.getBytes(java.nio.charset.StandardCharsets.UTF_8), XML))
                 .build();
-        try (Response response = client.newCall(propfind).execute()) {
+        try (Response response = execute("PROPFIND directory", propfind)) {
             if (isSuccessfulWebDavResponse(response)) {
                 return;
             }
             if (response.code() != 404) {
-                throw responseException("WebDAV connection test failed", response);
+                throw responseException("WebDAV PROPFIND directory failed", response);
             }
         }
 
         Request mkcol = requestBuilder(directoryUrl)
                 .method("MKCOL", RequestBody.create(new byte[0], null))
                 .build();
-        try (Response response = client.newCall(mkcol).execute()) {
+        try (Response response = execute("MKCOL directory", mkcol)) {
             if (!isSuccessfulWebDavResponse(response) && response.code() != 405) {
-                throw responseException("WebDAV directory creation failed", response);
+                throw responseException("WebDAV MKCOL directory failed", response);
             }
         }
     }
@@ -124,9 +126,9 @@ public class WebDavClient {
         Request request = requestBuilder(remoteUrl(fileName, false))
                 .put(RequestBody.create(content == null ? new byte[0] : content, mediaType))
                 .build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("PUT " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response)) {
-                throw responseException("WebDAV upload failed", response);
+                throw responseException("WebDAV PUT " + fileName + " failed", response);
             }
         }
     }
@@ -135,18 +137,18 @@ public class WebDavClient {
         Request request = requestBuilder(remoteUrl(fileName, false))
                 .put(fileRequestBody(contentPath, mediaType))
                 .build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("PUT " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response)) {
-                throw responseException("WebDAV upload failed", response);
+                throw responseException("WebDAV PUT " + fileName + " failed", response);
             }
         }
     }
 
     private byte[] download(String fileName) throws IOException {
         Request request = requestBuilder(remoteUrl(fileName, false)).get().build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("GET " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response) || response.body() == null) {
-                throw responseException("WebDAV download failed", response);
+                throw responseException("WebDAV GET " + fileName + " failed", response);
             }
             return response.body().bytes();
         }
@@ -154,12 +156,12 @@ public class WebDavClient {
 
     private Optional<byte[]> downloadIfPresent(String fileName) throws IOException {
         Request request = requestBuilder(remoteUrl(fileName, false)).get().build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("GET " + fileName, request)) {
             if (response.code() == 404) {
                 return Optional.empty();
             }
             if (!isSuccessfulWebDavResponse(response) || response.body() == null) {
-                throw responseException("WebDAV download failed", response);
+                throw responseException("WebDAV GET " + fileName + " failed", response);
             }
             return Optional.of(response.body().bytes());
         }
@@ -167,9 +169,9 @@ public class WebDavClient {
 
     private void download(String fileName, Path targetPath) throws IOException {
         Request request = requestBuilder(remoteUrl(fileName, false)).get().build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("GET " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response) || response.body() == null) {
-                throw responseException("WebDAV download failed", response);
+                throw responseException("WebDAV GET " + fileName + " failed", response);
             }
             Path parent = targetPath.toAbsolutePath().normalize().getParent();
             if (parent != null) {
@@ -270,7 +272,24 @@ public class WebDavClient {
         return response.isSuccessful() || code == 207;
     }
 
-    private static IOException responseException(String message, Response response) {
-        return new IOException(message + ": HTTP " + response.code());
+    private Response execute(String operation, Request request) throws IOException {
+        String endpoint = request.url().toString();
+        log.debug("WebDAV {} started: {} {}", operation, request.method(), endpoint);
+        try {
+            Response response = client.newCall(request).execute();
+            log.debug("WebDAV {} completed: HTTP {} ({})", operation, response.code(), endpoint);
+            return response;
+        } catch (IOException e) {
+            log.error("WebDAV {} failed: {} {}: {}", operation, request.method(), endpoint, e.getMessage(), e);
+            throw new IOException(operation + " failed: " + e.getMessage(), e);
+        }
+    }
+
+    private IOException responseException(String message, Response response) {
+        IOException exception = new IOException(
+                message + ": HTTP " + response.code() + " (" + response.request().url() + ")"
+        );
+        log.error("{}", exception.getMessage());
+        return exception;
     }
 }

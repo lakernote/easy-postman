@@ -334,6 +334,19 @@ class AppSettingKeys {
             "webdav_sync_password",
             ""
     ).normalized(value -> value == null ? "" : value);
+    static final SettingKey<Boolean> WEBDAV_SYNC_AUTO_UPLOAD_ENABLED = SettingKey.booleanKey(
+            "webdav_sync_auto_upload_enabled",
+            false
+    );
+    static final SettingKey<Integer> WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_MINUTES = SettingKey.integerKey(
+            "webdav_sync_auto_upload_interval_minutes",
+            WebDavSyncSettings.DEFAULT_AUTO_UPLOAD_INTERVAL_MINUTES,
+            value -> clamp(
+                    value,
+                    WebDavSyncSettings.MIN_AUTO_UPLOAD_INTERVAL_MINUTES,
+                    WebDavSyncSettings.MAX_AUTO_UPLOAD_INTERVAL_MINUTES
+            )
+    );
     static final SettingKey<Long> WEBDAV_SYNC_LAST_SYNC_TIME = SettingKey.longKey(
             "webdav_sync_last_sync_time",
             0L,

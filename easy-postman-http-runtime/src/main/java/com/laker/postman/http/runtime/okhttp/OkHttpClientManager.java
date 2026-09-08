@@ -112,6 +112,45 @@ public class OkHttpClientManager {
     }
 
     /**
+     * Creates an isolated client for protocol integrations that must not reuse the
+     * general request client's connection pool or cookie jar.
+     *
+     * <p>The client still uses the global proxy and SSL settings, but owns its
+     * dispatcher, connection pool, and protocol selection.</p>
+     */
+    public static OkHttpClient createDedicatedClientForUrl(String url,
+                                                           boolean followRedirects,
+                                                           int connectTimeoutMs,
+                                                           int readTimeoutMs,
+                                                           int writeTimeoutMs,
+                                                           List<Protocol> protocols) {
+        String baseUri = extractBaseUri(url);
+        Dispatcher dispatcher = new Dispatcher();
+        dispatcher.setMaxRequests(DEFAULT_MAX_REQUESTS);
+        dispatcher.setMaxRequestsPerHost(DEFAULT_MAX_REQUESTS_PER_HOST);
+
+        OkHttpClient client = createClient(
+                baseUri,
+                followRedirects,
+                resolveSslVerificationMode(baseUri, HttpRequestProxyPolicy.DEFAULT),
+                dispatcher,
+                1,
+                30L,
+                true,
+                CookieJar.NO_COOKIES,
+                HttpRequestProxyPolicy.DEFAULT
+        );
+        OkHttpClient.Builder builder = client.newBuilder()
+                .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+                .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+                .writeTimeout(writeTimeoutMs, TimeUnit.MILLISECONDS);
+        if (protocols != null && !protocols.isEmpty()) {
+            builder.protocols(protocols);
+        }
+        return builder.build();
+    }
+
+    /**
      * 配置网络代理
      */
     private static void configureProxy(OkHttpClient.Builder builder, String baseUri, HttpRequestProxyPolicy proxyPolicy) {

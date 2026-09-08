@@ -2400,6 +2400,17 @@ public final class MessageKeys {
     public static final String SETTINGS_WEBDAV_SYNC_DESCRIPTION = "settings.webdav_sync.description";
     public static final String SETTINGS_WEBDAV_SYNC_ENABLED_CHECKBOX = "settings.webdav_sync.enabled.checkbox";
     public static final String SETTINGS_WEBDAV_SYNC_ENABLED_TOOLTIP = "settings.webdav_sync.enabled.tooltip";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_CHECKBOX = "settings.webdav_sync.auto_upload.checkbox";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_TOOLTIP = "settings.webdav_sync.auto_upload.tooltip";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL = "settings.webdav_sync.auto_upload.interval";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_TOOLTIP = "settings.webdav_sync.auto_upload.interval.tooltip";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_15_MINUTES = "settings.webdav_sync.auto_upload.interval.15_minutes";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_30_MINUTES = "settings.webdav_sync.auto_upload.interval.30_minutes";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_1_HOUR = "settings.webdav_sync.auto_upload.interval.1_hour";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_2_HOURS = "settings.webdav_sync.auto_upload.interval.2_hours";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_6_HOURS = "settings.webdav_sync.auto_upload.interval.6_hours";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_1_DAY = "settings.webdav_sync.auto_upload.interval.1_day";
+    public static final String SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_MINUTES_FORMAT = "settings.webdav_sync.auto_upload.interval.minutes_format";
     public static final String SETTINGS_WEBDAV_SYNC_SERVER_URL = "settings.webdav_sync.server_url";
     public static final String SETTINGS_WEBDAV_SYNC_SERVER_URL_TOOLTIP = "settings.webdav_sync.server_url.tooltip";
     public static final String SETTINGS_WEBDAV_SYNC_REMOTE_DIRECTORY = "settings.webdav_sync.remote_directory";
@@ -2431,6 +2442,7 @@ public final class MessageKeys {
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE = "settings.webdav_sync.restore.restart.title";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE = "settings.webdav_sync.restore.restart.message";
     public static final String SETTINGS_WEBDAV_SYNC_ACTION_FAILED = "settings.webdav_sync.action.failed";
+    public static final String SETTINGS_WEBDAV_SYNC_SNAPSHOT_PRECHECK_FAILED = "settings.webdav_sync.snapshot.precheck.failed";
     public static final String SETTINGS_WEBDAV_SYNC_VALIDATION_REQUIRED = "settings.webdav_sync.validation.required";
     public static final String SETTINGS_WEBDAV_SYNC_VALIDATION_URL = "settings.webdav_sync.validation.url";
     public static final String SETTINGS_WEBDAV_SYNC_VALIDATION_HTTP_WARNING = "settings.webdav_sync.validation.http_warning";

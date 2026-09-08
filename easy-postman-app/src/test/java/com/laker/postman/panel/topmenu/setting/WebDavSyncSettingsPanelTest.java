@@ -6,6 +6,7 @@ import org.testng.annotations.Test;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextField;
 import java.awt.Component;
@@ -84,6 +85,31 @@ public class WebDavSyncSettingsPanelTest extends AbstractSwingUiTest {
                 "The restore button must stay within its row: restore="
                         + actionRowBounds.x + ", row=" + actionRowBounds.y
         );
+    }
+
+    @Test
+    public void autoUploadIntervalShouldAlignWithWebDavFields() throws Exception {
+        AtomicReference<Point> rightEdges = new AtomicReference<>();
+
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                WebDavSyncSettingsPanel panel = new WebDavSyncSettingsPanel();
+                panel.getPreferredSize();
+                panel.setSize(900, 900);
+                layoutRecursively(panel);
+
+                JComboBox<?> intervalComboBox = (JComboBox<?>) field(panel, "autoUploadIntervalComboBox");
+                JTextField serverUrlField = (JTextField) field(panel, "serverUrlField");
+                rightEdges.set(new Point(
+                        intervalComboBox.getX() + intervalComboBox.getWidth(),
+                        serverUrlField.getX() + serverUrlField.getWidth()
+                ));
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        assertEquals(rightEdges.get().x, rightEdges.get().y);
     }
 
     private static void layoutRecursively(Container container) {

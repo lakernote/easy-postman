@@ -6,10 +6,14 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -24,6 +28,9 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 public class WebDavSnapshotService {
+    static final long DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES = 100L * 1024L * 1024L;
+    static final long DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES = 1_000L;
+
     private static final DateTimeFormatter BACKUP_TIMESTAMP_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final String WORKSPACES_JSON = "workspaces.json";
@@ -47,13 +54,28 @@ public class WebDavSnapshotService {
     );
 
     private final WebDavSnapshotPolicy policy;
+    private final long maxExternalWorkspaceBytes;
+    private final long maxExternalWorkspaceFiles;
 
     public WebDavSnapshotService() {
-        this(new WebDavSnapshotPolicy());
+        this(new WebDavSnapshotPolicy(),
+                DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES,
+                DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES);
     }
 
     WebDavSnapshotService(WebDavSnapshotPolicy policy) {
+        this(policy, DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES, DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES);
+    }
+
+    WebDavSnapshotService(WebDavSnapshotPolicy policy,
+                          long maxExternalWorkspaceBytes,
+                          long maxExternalWorkspaceFiles) {
         this.policy = policy;
+        if (maxExternalWorkspaceBytes <= 0 || maxExternalWorkspaceFiles <= 0) {
+            throw new IllegalArgumentException("WebDAV snapshot limits must be positive");
+        }
+        this.maxExternalWorkspaceBytes = maxExternalWorkspaceBytes;
+        this.maxExternalWorkspaceFiles = maxExternalWorkspaceFiles;
     }
 
     public void createSnapshot(Path dataRoot, Path snapshotPath) throws IOException {
@@ -69,16 +91,10 @@ public class WebDavSnapshotService {
             if (!Files.exists(normalizedRoot)) {
                 return;
             }
-            try (var stream = Files.walk(normalizedRoot)) {
-                for (Path file : stream
-                        .filter(Files::isRegularFile)
-                        .filter(path -> policy.shouldInclude(normalizedRoot, path))
-                        .sorted(Comparator.comparing(path -> policy.entryName(normalizedRoot, path)))
-                        .toList()) {
-                    String entryName = policy.entryName(normalizedRoot, file);
-                    writeSnapshotEntry(zip, writtenEntries, entryName,
-                            snapshotContent(normalizedRoot, entryName, file, workspacePlan));
-                }
+            for (Path file : collectIncludedFiles(normalizedRoot, normalizedRoot, normalizedRoot)) {
+                String entryName = policy.entryName(normalizedRoot, file);
+                writeSnapshotEntry(zip, writtenEntries, entryName,
+                        snapshotContent(normalizedRoot, entryName, file, workspacePlan));
             }
             writeExternalWorkspaceEntries(zip, writtenEntries, normalizedRoot, workspacePlan.externalWorkspaces());
         }
@@ -237,7 +253,7 @@ public class WebDavSnapshotService {
         return createWorkspaceSnapshotPlan(content, dataRoot);
     }
 
-    private WorkspaceSnapshotPlan createWorkspaceSnapshotPlan(String content, Path dataRoot) {
+    private WorkspaceSnapshotPlan createWorkspaceSnapshotPlan(String content, Path dataRoot) throws IOException {
         List<ExternalWorkspace> externalWorkspaces = new ArrayList<>();
         Set<String> usedExternalNames = new HashSet<>();
         Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
@@ -254,8 +270,18 @@ public class WebDavSnapshotService {
                 }
                 String snapshotName = uniqueExternalWorkspaceName(objectNode, index, usedExternalNames);
                 String snapshotRoot = EXTERNAL_WORKSPACES_DIR + "/" + snapshotName;
+                inspectExternalWorkspace(
+                        workspaceText(objectNode, "name"),
+                        workspacePath,
+                        snapshotRoot,
+                        dataRoot
+                );
                 externalWorkspaces.add(new ExternalWorkspace(workspacePath, snapshotRoot));
                 return WebDavSnapshotPolicy.DATA_ROOT_TOKEN + "/" + ensureTrailingSlash(snapshotRoot);
+            } catch (WebDavSnapshotPreflightException e) {
+                throw e;
+            } catch (IOException e) {
+                throw e;
             } catch (Exception e) {
                 return path;
             }
@@ -263,7 +289,7 @@ public class WebDavSnapshotService {
         return new WorkspaceSnapshotPlan(transformed, externalWorkspaces);
     }
 
-    private String restorePortableWorkspacePaths(String content, Path dataRoot) {
+    private String restorePortableWorkspacePaths(String content, Path dataRoot) throws IOException {
         return transformWorkspacePaths(content, path -> {
             String prefix = WebDavSnapshotPolicy.DATA_ROOT_TOKEN + "/";
             if (path == null || !path.startsWith(prefix)) {
@@ -274,11 +300,11 @@ public class WebDavSnapshotService {
         });
     }
 
-    private String transformWorkspacePaths(String content, WorkspacePathTransformer transformer) {
+    private String transformWorkspacePaths(String content, WorkspacePathTransformer transformer) throws IOException {
         return transformWorkspaceNodes(content, (objectNode, index, path) -> transformer.transform(path));
     }
 
-    private String transformWorkspaceNodes(String content, WorkspaceNodePathTransformer transformer) {
+    private String transformWorkspaceNodes(String content, WorkspaceNodePathTransformer transformer) throws IOException {
         try {
             JsonNode root = JsonUtil.readTree(content == null || content.isBlank() ? "[]" : content);
             if (!(root instanceof ArrayNode arrayNode)) {
@@ -296,6 +322,8 @@ public class WebDavSnapshotService {
                 index++;
             }
             return JsonUtil.toJsonPrettyStr(arrayNode);
+        } catch (IOException e) {
+            throw e;
         } catch (Exception e) {
             return content;
         }
@@ -324,22 +352,102 @@ public class WebDavSnapshotService {
                                                Path dataRoot,
                                                List<ExternalWorkspace> externalWorkspaces) throws IOException {
         for (ExternalWorkspace externalWorkspace : externalWorkspaces) {
-            try (var stream = Files.walk(externalWorkspace.sourceRoot())) {
-                for (Path file : stream
-                        .filter(Files::isRegularFile)
-                        .sorted(Comparator.comparing(file -> externalWorkspace.sourceRoot().relativize(file).toString()))
-                        .toList()) {
-                    Path relative = externalWorkspace.sourceRoot().relativize(file);
-                    String relativeEntryName = relative.toString().replace('\\', '/');
-                    String entryName = externalWorkspace.snapshotRoot() + "/" + relativeEntryName;
-                    Path virtualPath = dataRoot.resolve(entryName).normalize();
-                    if (!policy.shouldInclude(dataRoot, virtualPath)) {
-                        continue;
-                    }
-                    writeSnapshotEntry(zip, writtenEntries, entryName, Files.readAllBytes(file));
-                }
+            Path virtualRoot = dataRoot.resolve(externalWorkspace.snapshotRoot()).normalize();
+            for (Path file : collectIncludedFiles(externalWorkspace.sourceRoot(), dataRoot, virtualRoot)) {
+                Path relative = externalWorkspace.sourceRoot().relativize(file);
+                String relativeEntryName = relative.toString().replace('\\', '/');
+                String entryName = externalWorkspace.snapshotRoot() + "/" + relativeEntryName;
+                writeSnapshotEntry(zip, writtenEntries, entryName, file);
             }
         }
+    }
+
+    private void inspectExternalWorkspace(String workspaceName,
+                                          Path workspacePath,
+                                          String snapshotRoot,
+                                          Path dataRoot) throws IOException {
+        long[] fileCount = {0};
+        long[] contentBytes = {0};
+        Path virtualRoot = dataRoot.resolve(snapshotRoot).normalize();
+        String displayName = workspaceName == null || workspaceName.isBlank()
+                ? workspacePath.getFileName().toString()
+                : workspaceName;
+        try {
+            Files.walkFileTree(workspacePath, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                    Path relative = workspacePath.relativize(directory);
+                    Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                    return policy.shouldDescend(dataRoot, virtualPath)
+                            ? FileVisitResult.CONTINUE
+                            : FileVisitResult.SKIP_SUBTREE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                    if (!Files.isRegularFile(file)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    Path relative = workspacePath.relativize(file);
+                    Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                    if (!policy.shouldInclude(dataRoot, virtualPath)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    fileCount[0]++;
+                    contentBytes[0] = Math.addExact(contentBytes[0], Files.size(file));
+                    if (fileCount[0] > maxExternalWorkspaceFiles || contentBytes[0] > maxExternalWorkspaceBytes) {
+                        throw new WebDavSnapshotPreflightException(
+                                displayName,
+                                workspacePath,
+                                fileCount[0],
+                                contentBytes[0],
+                                maxExternalWorkspaceBytes,
+                                maxExternalWorkspaceFiles
+                        );
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (ArithmeticException e) {
+            throw new WebDavSnapshotPreflightException(
+                    displayName,
+                    workspacePath,
+                    fileCount[0],
+                    Long.MAX_VALUE,
+                    maxExternalWorkspaceBytes,
+                    maxExternalWorkspaceFiles
+            );
+        }
+    }
+
+    private List<Path> collectIncludedFiles(Path sourceRoot,
+                                            Path dataRoot,
+                                            Path virtualRoot) throws IOException {
+        List<Path> files = new ArrayList<>();
+        Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                Path relative = sourceRoot.relativize(directory);
+                Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                return policy.shouldDescend(dataRoot, virtualPath)
+                        ? FileVisitResult.CONTINUE
+                        : FileVisitResult.SKIP_SUBTREE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                if (Files.isRegularFile(file)) {
+                    Path relative = sourceRoot.relativize(file);
+                    Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                    if (policy.shouldInclude(dataRoot, virtualPath)) {
+                        files.add(file);
+                    }
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        files.sort(Comparator.comparing(file -> sourceRoot.relativize(file).toString()));
+        return files;
     }
 
     private void writeSnapshotEntry(ZipOutputStream zip,
@@ -352,6 +460,21 @@ public class WebDavSnapshotService {
         zip.putNextEntry(new ZipEntry(entryName));
         zip.write(content);
         zip.closeEntry();
+    }
+
+    private void writeSnapshotEntry(ZipOutputStream zip,
+                                    Set<String> writtenEntries,
+                                    String entryName,
+                                    Path source) throws IOException {
+        if (!writtenEntries.add(entryName)) {
+            return;
+        }
+        zip.putNextEntry(new ZipEntry(entryName));
+        try (InputStream input = Files.newInputStream(source)) {
+            input.transferTo(zip);
+        } finally {
+            zip.closeEntry();
+        }
     }
 
     private String uniqueExternalWorkspaceName(ObjectNode workspaceNode, int index, Set<String> usedNames) {
@@ -396,12 +519,12 @@ public class WebDavSnapshotService {
 
     @FunctionalInterface
     private interface WorkspacePathTransformer {
-        String transform(String path);
+        String transform(String path) throws IOException;
     }
 
     @FunctionalInterface
     private interface WorkspaceNodePathTransformer {
-        String transform(ObjectNode workspaceNode, int index, String path);
+        String transform(ObjectNode workspaceNode, int index, String path) throws IOException;
     }
 
     private record WorkspaceSnapshotPlan(String workspacesJson, List<ExternalWorkspace> externalWorkspaces) {

@@ -85,6 +85,14 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         ));
         section.add(createVerticalSpace(FIELD_SPACING));
 
+        serverUrlField = new JTextField(settings.serverUrl(), 24);
+        serverUrlRow = createFieldRow(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_SERVER_URL),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_SERVER_URL_TOOLTIP),
+                serverUrlField
+        );
+        int webDavFieldWidth = serverUrlField.getPreferredSize().width;
+
         autoUploadIntervalComboBox = new JComboBox<>(createAutoUploadIntervalOptions(
                 settings.autoUploadIntervalMinutes()
         ));
@@ -92,17 +100,13 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         autoUploadIntervalRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_TOOLTIP),
-                autoUploadIntervalComboBox
+                autoUploadIntervalComboBox,
+                SettingsFieldRow.DEFAULT_LABEL_WIDTH,
+                webDavFieldWidth
         );
         section.add(autoUploadIntervalRow);
         section.add(createVerticalSpace(FIELD_SPACING));
 
-        serverUrlField = new JTextField(settings.serverUrl(), 24);
-        serverUrlRow = createFieldRow(
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_SERVER_URL),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_SERVER_URL_TOOLTIP),
-                serverUrlField
-        );
         section.add(serverUrlRow);
         section.add(createVerticalSpace(FIELD_SPACING));
 

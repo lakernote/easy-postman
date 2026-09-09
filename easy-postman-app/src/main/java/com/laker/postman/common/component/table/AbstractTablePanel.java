@@ -14,6 +14,7 @@ import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -76,6 +77,8 @@ public abstract class AbstractTablePanel<T> extends JPanel {
 
     private static final String ACTION_DELETE_ROW = "deleteRow";
     private static final String ACTION_ENTER_NAV  = "enterNav";
+    private static final String ACTION_EDITOR_NEXT_CELL = "editorNextCell";
+    private static final String ACTION_EDITOR_PREVIOUS_CELL = "editorPreviousCell";
 
     // ========== 构造函数 ==========
 
@@ -324,13 +327,88 @@ public abstract class AbstractTablePanel<T> extends JPanel {
         SwingUtilities.invokeLater(() -> {
             if (!table.isEditing() || table.getEditingRow() != row || table.getEditingColumn() != col) {
                 table.editCellAt(row, col);
+            }
+            if (table.isEditing()
+                    && table.getEditingRow() == row
+                    && table.getEditingColumn() == col) {
                 Component ed = table.getEditorComponent();
                 if (ed != null) {
-                    ed.requestFocusInWindow();
-                    if (ed instanceof JTextField tf) tf.selectAll();
+                    focusEditorTextComponent(ed, true);
                 }
             }
         });
+    }
+
+    /**
+     * 将焦点交给当前可见的文本编辑组件。
+     *
+     * <p>智能值编辑器是一个 CardLayout 容器，同时持有单行 JTextField 和多行 JTextArea。
+     * 不能只按组件类型查找 JTextField，否则长值切换到多行卡片后会找到隐藏的单行组件，
+     * Windows 下尤其容易表现为双击后无法输入。</p>
+     */
+    private void focusEditorTextComponent(Component editor, boolean selectSingleLineText) {
+        JTextComponent textComponent = findVisibleTextComponent(editor);
+        if (textComponent == null) {
+            editor.requestFocusInWindow();
+            return;
+        }
+
+        if (textComponent instanceof JTextArea textArea) {
+            installTextAreaTabNavigation(textArea);
+        }
+        textComponent.requestFocusInWindow();
+        if (selectSingleLineText && textComponent instanceof JTextField textField) {
+            textField.selectAll();
+        }
+    }
+
+    /**
+     * JTextArea 默认会把 Tab 插入为制表符，优先级高于表格的祖先 InputMap。
+     * 长值编辑器使用 JTextArea 时，需要显式转发到表格的单元格导航。
+     */
+    private void installTextAreaTabNavigation(JTextArea textArea) {
+        InputMap inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_TAB, 0),
+                ACTION_EDITOR_NEXT_CELL);
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_TAB,
+                        java.awt.event.InputEvent.SHIFT_DOWN_MASK),
+                ACTION_EDITOR_PREVIOUS_CELL);
+
+        ActionMap actionMap = textArea.getActionMap();
+        actionMap.put(ACTION_EDITOR_NEXT_CELL, new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                moveToNextEditableCell(false);
+            }
+        });
+        actionMap.put(ACTION_EDITOR_PREVIOUS_CELL, new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                moveToNextEditableCell(true);
+            }
+        });
+    }
+
+    private static JTextComponent findVisibleTextComponent(Component root) {
+        return findVisibleTextComponent(root, true);
+    }
+
+    private static JTextComponent findVisibleTextComponent(Component root, boolean parentVisible) {
+        boolean visible = parentVisible && root.isVisible();
+        if (root instanceof JTextComponent textComponent
+                && visible
+                && textComponent.isEnabled()) {
+            return textComponent;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                JTextComponent found = findVisibleTextComponent(child, visible);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
 
@@ -1185,7 +1263,7 @@ public abstract class AbstractTablePanel<T> extends JPanel {
         return new int[]{row, getFirstEditableColumnIndex()};
     }
 
-    /** 开始编辑指定单元格并全选文本 */
+    /** 开始编辑指定单元格并聚焦当前可见的编辑组件 */
     private void startEditAt(int row, int col) {
         table.changeSelection(row, col, false, false);
         table.editCellAt(row, col);
@@ -1193,33 +1271,7 @@ public abstract class AbstractTablePanel<T> extends JPanel {
         SwingUtilities.invokeLater(() -> {
             Component ed = table.getEditorComponent();
             if (ed == null) return;
-            // 直接是 JTextField
-            if (ed instanceof JTextField tf) {
-                tf.requestFocusInWindow();
-                tf.selectAll();
-                return;
-            }
-            // 容器面板（EasySmartValueCellEditor / AutoComplete 编辑器）
-            // 找到其中第一个可获焦的 JTextField
-            JTextField tf = findFirstTextField(ed);
-            if (tf != null) {
-                tf.requestFocusInWindow();
-                tf.selectAll();
-            } else {
-                ed.requestFocusInWindow();
-            }
+            focusEditorTextComponent(ed, true);
         });
-    }
-
-    /** 在组件树中找到第一个可见的 JTextField */
-    private static JTextField findFirstTextField(Component root) {
-        if (root instanceof JTextField tf) return tf;
-        if (root instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                JTextField found = findFirstTextField(child);
-                if (found != null) return found;
-            }
-        }
-        return null;
     }
 }

@@ -25,7 +25,7 @@
         <plugin.minPlatformVersion>${plugin.platform.version}</plugin.minPlatformVersion>
         <plugin.maxPlatformVersion>${plugin.platform.version}</plugin.maxPlatformVersion>
 
-        <netty.version>4.1.118.Final</netty.version>
+        <netty.version>4.2.17.Final</netty.version>
         <bouncycastle.version>1.83</bouncycastle.version>
     </properties>
 

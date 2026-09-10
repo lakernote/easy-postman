@@ -73,7 +73,7 @@
         <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
         <jackson.version>3.0.2</jackson.version>
         <lombok.version>1.18.42</lombok.version>
-        <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
+        <twelvemonkeys.version>3.14.0</twelvemonkeys.version>
         <kotlin.version>1.9.25</kotlin.version>
         <rsyntaxtextarea.version>3.5.4</rsyntaxtextarea.version>
         <autocomplete.version>3.3.2</autocomplete.version>

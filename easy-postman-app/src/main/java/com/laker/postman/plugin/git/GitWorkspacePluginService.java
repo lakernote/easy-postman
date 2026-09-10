@@ -71,12 +71,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 public class GitWorkspacePluginService implements GitPluginService {
 
     private static final int GIT_OPERATION_TIMEOUT = 10;
     private static final int MAX_DIFF_PREVIEW_BYTES = 512 * 1024;
+    private static final long WORKING_TREE_STATUS_CACHE_NANOS = 500_000_000L;
+    private final AtomicReference<CachedWorkingTreeStatus> cachedWorkingTreeStatus = new AtomicReference<>();
 
     @Override
     public void prepareGitWorkspace(Workspace workspace) throws Exception {
@@ -761,7 +764,7 @@ public class GitWorkspacePluginService implements GitPluginService {
     public List<GitFileChange> listWorkingTreeChanges(Workspace workspace) throws Exception {
         ensureGitWorkspace(workspace);
         try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = git.status().call();
+            var status = readAndCacheWorkingTreeStatus(workspace, git);
             Map<String, GitFileChange.Type> changes = new HashMap<>();
             putChanges(changes, status.getAdded(), GitFileChange.Type.ADDED);
             putChanges(changes, status.getChanged(), GitFileChange.Type.MODIFIED);
@@ -783,7 +786,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         String normalizedPath = normalizeWorkspaceRelativePath(filePath);
         Path workspacePath = Paths.get(workspace.getPath());
         try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = git.status().call();
+            var status = consumeCachedWorkingTreeStatus(workspace, git);
             int largeFileThresholdMb = SettingManager.getGitDiffLargeFileThresholdMb();
             long largeFileThresholdBytes = SettingManager.gitDiffLargeFileThresholdBytes(largeFileThresholdMb);
             if (status.getUntracked().contains(normalizedPath)) {
@@ -800,6 +803,30 @@ public class GitWorkspacePluginService implements GitPluginService {
             }
             return renderJGitTrackedFileDiff(git, normalizedPath);
         }
+    }
+
+    private Status readAndCacheWorkingTreeStatus(Workspace workspace, Git git) throws Exception {
+        Status status = git.status().call();
+        cachedWorkingTreeStatus.set(new CachedWorkingTreeStatus(
+                workspaceStatusCacheKey(workspace),
+                System.nanoTime(),
+                status
+        ));
+        return status;
+    }
+
+    private Status consumeCachedWorkingTreeStatus(Workspace workspace, Git git) throws Exception {
+        CachedWorkingTreeStatus cached = cachedWorkingTreeStatus.getAndSet(null);
+        if (cached != null
+                && cached.workspacePath().equals(workspaceStatusCacheKey(workspace))
+                && System.nanoTime() - cached.createdAtNanos() <= WORKING_TREE_STATUS_CACHE_NANOS) {
+            return cached.status();
+        }
+        return git.status().call();
+    }
+
+    private String workspaceStatusCacheKey(Workspace workspace) {
+        return Paths.get(workspace.getPath()).toAbsolutePath().normalize().toString();
     }
 
     private String renderLargeTrackedFileSummary(Status status,
@@ -1132,6 +1159,9 @@ public class GitWorkspacePluginService implements GitPluginService {
                     || indexSize > thresholdBytes
                     || worktreeSize > thresholdBytes;
         }
+    }
+
+    private record CachedWorkingTreeStatus(String workspacePath, long createdAtNanos, Status status) {
     }
 
     private record UntrackedTextPreview(String content, boolean truncated) {

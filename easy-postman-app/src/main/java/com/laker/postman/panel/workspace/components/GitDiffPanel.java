@@ -23,12 +23,15 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.text.MessageFormat;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 
 /**
  * Embedded Git working tree diff viewer for a workspace.
  */
 @Slf4j
 public class GitDiffPanel extends JPanel {
+
+    private static final int MAX_DIFF_LINE_CHARS = 8 * 1024;
 
     private final transient Workspace workspace;
     private final transient WorkspaceService workspaceService;
@@ -39,6 +42,8 @@ public class GitDiffPanel extends JPanel {
     private JButton refreshButton;
     private int changeLoadGeneration;
     private int diffLoadGeneration;
+    private SwingWorker<List<GitFileChange>, Void> changesWorker;
+    private SwingWorker<DiffLoadResult, Void> diffWorker;
 
     public GitDiffPanel(Workspace workspace) {
         this.workspace = workspace;
@@ -148,12 +153,14 @@ public class GitDiffPanel extends JPanel {
     private void loadChanges() {
         int generation = ++changeLoadGeneration;
         diffLoadGeneration++;
+        cancelWorker(changesWorker);
+        cancelWorker(diffWorker);
         setBusy(true);
         statusLabel.setText(I18nUtil.getMessage(MessageKeys.GIT_DIFF_LOADING));
         changeListModel.clear();
         renderPlainMessage(I18nUtil.getMessage(MessageKeys.GIT_DIFF_LOADING));
 
-        new SwingWorker<List<GitFileChange>, Void>() {
+        changesWorker = new SwingWorker<>() {
             @Override
             protected List<GitFileChange> doInBackground() throws Exception {
                 return workspaceService.listWorkingTreeChanges(workspace.getId());
@@ -164,9 +171,14 @@ public class GitDiffPanel extends JPanel {
                 if (generation != changeLoadGeneration) {
                     return;
                 }
+                if (isCancelled()) {
+                    return;
+                }
                 try {
                     List<GitFileChange> changes = get();
                     displayChanges(changes);
+                } catch (CancellationException ignored) {
+                    // A newer refresh superseded this worker.
                 } catch (Exception ex) {
                     log.warn("Failed to load Git changes for workspace: {}", workspace.getId(), ex);
                     String message = format(MessageKeys.GIT_DIFF_LOAD_FAILED, ex.getMessage());
@@ -176,7 +188,8 @@ public class GitDiffPanel extends JPanel {
                     setBusy(false);
                 }
             }
-        }.execute();
+        };
+        changesWorker.execute();
     }
 
     private void displayChanges(List<GitFileChange> changes) {
@@ -191,16 +204,20 @@ public class GitDiffPanel extends JPanel {
             changeListModel.addElement(change);
         }
         statusLabel.setText(format(MessageKeys.GIT_DIFF_STATUS_COUNT, changes.size()));
+        // Keep the first-file preview for a useful first-open experience. The Git
+        // status used here is reused by the immediate Diff load, so opening a large
+        // workspace does not perform the same repository scan twice.
         changeList.setSelectedIndex(0);
     }
 
     private void loadDiff(GitFileChange change) {
         int generation = ++diffLoadGeneration;
+        cancelWorker(diffWorker);
         String selectedPath = change.getPath();
         statusLabel.setText(format(MessageKeys.GIT_DIFF_LOADING_FILE, change.getPath()));
         renderPlainMessage(I18nUtil.getMessage(MessageKeys.GIT_DIFF_LOADING));
 
-        new SwingWorker<DiffLoadResult, Void>() {
+        diffWorker = new SwingWorker<>() {
             @Override
             protected DiffLoadResult doInBackground() throws Exception {
                 String diff = workspaceService.getWorkingTreeDiff(workspace.getId(), change.getPath());
@@ -215,6 +232,9 @@ public class GitDiffPanel extends JPanel {
                 if (generation != diffLoadGeneration) {
                     return;
                 }
+                if (isCancelled()) {
+                    return;
+                }
                 GitFileChange currentSelection = changeList.getSelectedValue();
                 if (currentSelection == null || !selectedPath.equals(currentSelection.getPath())) {
                     return;
@@ -227,6 +247,8 @@ public class GitDiffPanel extends JPanel {
                         renderDiff(result.document());
                     }
                     statusLabel.setText(change.getPath());
+                } catch (CancellationException ignored) {
+                    // A newer file selection superseded this worker.
                 } catch (Exception ex) {
                     log.warn("Failed to load Git diff for workspace: {}, file: {}",
                             workspace.getId(), change.getPath(), ex);
@@ -235,15 +257,25 @@ public class GitDiffPanel extends JPanel {
                     renderPlainMessage(message);
                 }
             }
-        }.execute();
+        };
+        diffWorker.execute();
     }
 
     private StyledDocument createDiffDocument(String diff) throws BadLocationException {
         StyledDocument document = new DefaultStyledDocument();
         for (String line : diff.split("\n", -1)) {
-            document.insertString(document.getLength(), line + "\n", styleForLine(line));
+            String displayLine = line.length() > MAX_DIFF_LINE_CHARS
+                    ? line.substring(0, MAX_DIFF_LINE_CHARS) + " …"
+                    : line;
+            document.insertString(document.getLength(), displayLine + "\n", styleForLine(line));
         }
         return document;
+    }
+
+    private static void cancelWorker(SwingWorker<?, ?> worker) {
+        if (worker != null && !worker.isDone()) {
+            worker.cancel(true);
+        }
     }
 
     private void renderPlainMessage(String message) {

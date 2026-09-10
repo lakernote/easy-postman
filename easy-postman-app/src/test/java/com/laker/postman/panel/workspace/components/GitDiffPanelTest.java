@@ -12,14 +12,14 @@ import static org.testng.Assert.assertTrue;
 public class GitDiffPanelTest {
 
     @Test
-    public void loadedChangesShouldAutoOpenFirstDiffThroughAsyncWorker() throws IOException {
+    public void loadedChangesShouldAutoOpenFirstDiffWithoutBlockingEdt() throws IOException {
         String source = Files.readString(gitDiffPanelSource());
         String displayChanges = methodBody(source, "private void displayChanges", "\n    private void loadDiff");
 
         assertTrue(displayChanges.contains("changeList.setSelectedIndex(0);"),
-                "Opening the Git changes panel should select the first file so the diff loads asynchronously.");
+                "Opening the Git changes panel should preview the first file for a useful initial experience.");
         assertFalse(displayChanges.contains("renderDiff(diff)"),
-                "Auto-loading must go through the async diff worker, not render raw diff text on the EDT.");
+                "The first-file preview must still be built through the async diff worker.");
     }
 
     @Test
@@ -36,7 +36,7 @@ public class GitDiffPanelTest {
         String source = Files.readString(gitDiffPanelSource());
         String loadDiff = methodBody(source, "private void loadDiff", "\n    private void renderPlainMessage");
 
-        assertTrue(loadDiff.contains("new SwingWorker<DiffLoadResult, Void>()"));
+        assertTrue(loadDiff.contains("new SwingWorker<>()"));
         assertTrue(loadDiff.contains("int generation = ++diffLoadGeneration;"));
         assertTrue(loadDiff.contains("generation != diffLoadGeneration"));
         assertTrue(loadDiff.contains("return DiffLoadResult.diff(createDiffDocument(diff));"));
@@ -52,6 +52,25 @@ public class GitDiffPanelTest {
         assertTrue(loadChanges.contains("int generation = ++changeLoadGeneration;"));
         assertTrue(loadChanges.contains("diffLoadGeneration++;"));
         assertTrue(loadChanges.contains("generation != changeLoadGeneration"));
+    }
+
+    @Test
+    public void repeatedSelectionsShouldCancelPreviousDiffWorker() throws IOException {
+        String source = Files.readString(gitDiffPanelSource());
+        String loadDiff = methodBody(source, "private void loadDiff", "\n    private StyledDocument createDiffDocument");
+
+        assertTrue(loadDiff.contains("cancelWorker(diffWorker);"));
+        assertTrue(source.contains("private static void cancelWorker(SwingWorker<?, ?> worker)"));
+    }
+
+    @Test
+    public void diffDocumentShouldBoundVeryLongJsonLinesBeforeAttachingToTextPane() throws IOException {
+        String source = Files.readString(gitDiffPanelSource());
+        String createDocument = methodBody(source, "private StyledDocument createDiffDocument", "\n    private void renderPlainMessage");
+
+        assertTrue(source.contains("MAX_DIFF_LINE_CHARS = 8 * 1024"));
+        assertTrue(createDocument.contains("line.length() > MAX_DIFF_LINE_CHARS"));
+        assertTrue(createDocument.contains("line.substring(0, MAX_DIFF_LINE_CHARS)"));
     }
 
     @Test

@@ -80,6 +80,7 @@ public class HistoryPanel extends UiSingletonPanel {
     private JLabel structureDetailLabel;
     private JLabel resultValueLabel;
     private JLabel resultDetailLabel;
+    private JButton clearHistoryButton;
 
     private final List<RequestHistoryItem> allHistoryItems = new ArrayList<>();
     private final Set<String> collapsedGroups = new HashSet<>();
@@ -131,9 +132,19 @@ public class HistoryPanel extends UiSingletonPanel {
         JLabel title = new JLabel(I18nUtil.getMessage(MessageKeys.MENU_HISTORY));
         title.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, +1));
 
-        ClearButton clearBtn = new ClearButton();
-        clearBtn.addActionListener(e -> clearRequestHistory());
-        JPanel btnPanel = ToolWindowActionToolbar.inlineRight(clearBtn);
+        clearHistoryButton = new ClearButton(IconUtil.SIZE_MEDIUM);
+        clearHistoryButton.setToolTipText(I18nUtil.getMessage(MessageKeys.HISTORY_CLEAR));
+        clearHistoryButton.getAccessibleContext().setAccessibleName(
+                I18nUtil.getMessage(MessageKeys.HISTORY_CLEAR));
+        clearHistoryButton.setFocusable(false);
+        clearHistoryButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        clearHistoryButton.putClientProperty(
+                FlatClientProperties.BUTTON_TYPE,
+                FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON
+        );
+        clearHistoryButton.setEnabled(false);
+        clearHistoryButton.addActionListener(e -> clearRequestHistory());
+        JPanel btnPanel = ToolWindowActionToolbar.inlineRight(clearHistoryButton);
 
         titlePanel.add(title, BorderLayout.WEST);
         titlePanel.add(btnPanel, BorderLayout.EAST);
@@ -775,6 +786,9 @@ public class HistoryPanel extends UiSingletonPanel {
     private void rebuildHistoryListModel(RequestHistoryItem preferredSelection) {
         if (historyListModel == null) {
             return;
+        }
+        if (clearHistoryButton != null) {
+            clearHistoryButton.setEnabled(!allHistoryItems.isEmpty());
         }
 
         List<RequestHistoryItem> itemsSnapshot = new ArrayList<>(allHistoryItems);
@@ -1428,6 +1442,20 @@ public class HistoryPanel extends UiSingletonPanel {
     }
 
     private void clearRequestHistory() {
+        if (allHistoryItems.isEmpty()) {
+            return;
+        }
+        int option = JOptionPane.showConfirmDialog(
+                this,
+                I18nUtil.getMessage(MessageKeys.HISTORY_CLEAR_CONFIRM, allHistoryItems.size()),
+                I18nUtil.getMessage(MessageKeys.HISTORY_CLEAR_TITLE),
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+        );
+        if (option != JOptionPane.YES_OPTION) {
+            return;
+        }
+
         BeanFactory.getBean(HistoryPersistenceService.class).clearHistory();
         allHistoryItems.clear();
         rebuildHistoryListModel(null);

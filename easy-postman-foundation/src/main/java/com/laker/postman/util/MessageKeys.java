@@ -1133,6 +1133,9 @@ public final class MessageKeys {
 
     // ============ 历史记录相关 ============
     public static final String HISTORY_EMPTY_BODY = "history.empty_body";
+    public static final String HISTORY_CLEAR = "history.clear";
+    public static final String HISTORY_CLEAR_TITLE = "history.clear.title";
+    public static final String HISTORY_CLEAR_CONFIRM = "history.clear.confirm";
     public static final String HISTORY_TODAY = "history.today";
     public static final String HISTORY_YESTERDAY = "history.yesterday";
     public static final String HISTORY_SEARCH_PLACEHOLDER = "history.search_placeholder";

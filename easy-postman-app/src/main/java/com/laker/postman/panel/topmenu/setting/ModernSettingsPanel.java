@@ -7,9 +7,9 @@ import com.laker.postman.common.component.setting.SettingsFieldRow;
 import com.laker.postman.common.component.setting.SettingsInputStyle;
 import com.laker.postman.common.component.setting.SettingsSectionPanel;
 import com.laker.postman.common.component.setting.SettingsTextFieldValidator;
-import com.laker.postman.common.component.setting.SettingsWarningBar;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.Getter;
@@ -43,7 +43,7 @@ public abstract class ModernSettingsPanel extends JPanel {
 
     // 状态管理
     protected boolean hasUnsavedChanges = false;
-    protected JPanel warningPanel;
+    private JLabel unsavedChangesLabel;
     private boolean initialized;
 
     /**
@@ -128,10 +128,6 @@ public abstract class ModernSettingsPanel extends JPanel {
         JPanel mainContainer = new JPanel(new BorderLayout(0, 0));
         ToolWindowSurfaceStyle.applyDialogSurface(mainContainer);
 
-        // 未保存更改警告面板
-        warningPanel = createWarningPanel();
-        warningPanel.setVisible(false);
-
         // 主内容区域
         JPanel contentPanel = new ViewportWidthTrackingPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
@@ -151,7 +147,6 @@ public abstract class ModernSettingsPanel extends JPanel {
         customizeScrollBar(contentScrollPane);
 
         // 组装主容器
-        mainContainer.add(warningPanel, BorderLayout.NORTH);
         mainContainer.add(contentScrollPane, BorderLayout.CENTER);
 
         // 底部按钮栏
@@ -261,8 +256,21 @@ public abstract class ModernSettingsPanel extends JPanel {
      * 创建现代化的按钮栏
      */
     private JPanel createModernButtonBar() {
-        JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        JPanel buttonBar = new JPanel(new BorderLayout(12, 0));
         ToolWindowSurfaceStyle.applyDialogFooter(buttonBar);
+
+        unsavedChangesLabel = new JLabel(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_UNSAVED_CHANGES_WARNING),
+                IconUtil.createColored("icons/warning.svg", 14, 14, ModernColors.getWarning()),
+                SwingConstants.LEADING
+        );
+        unsavedChangesLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        unsavedChangesLabel.setForeground(ModernColors.getTextSecondary());
+        unsavedChangesLabel.setVisible(false);
+        buttonBar.add(unsavedChangesLabel, BorderLayout.WEST);
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        ToolWindowSurfaceStyle.applyDialogSurface(actionPanel);
 
         cancelBtn = createModernButton(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_DIALOG_CANCEL),
@@ -280,9 +288,10 @@ public abstract class ModernSettingsPanel extends JPanel {
                 true
         );
 
-        buttonBar.add(cancelBtn);
-        buttonBar.add(applyBtn);
-        buttonBar.add(saveBtn);
+        actionPanel.add(cancelBtn);
+        actionPanel.add(applyBtn);
+        actionPanel.add(saveBtn);
+        buttonBar.add(actionPanel, BorderLayout.EAST);
 
         return buttonBar;
     }
@@ -403,23 +412,6 @@ public abstract class ModernSettingsPanel extends JPanel {
     // ==================== 状态管理方法 ====================
 
     /**
-     * 创建未保存更改警告面板
-     */
-    private JPanel createWarningPanel() {
-        return new SettingsWarningBar(
-                I18nUtil.getMessage(MessageKeys.SETTINGS_UNSAVED_CHANGES_WARNING),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_DISCARD_CHANGES),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_NOW),
-                this::discardChanges,
-                () -> {
-                    if (saveBtn != null) {
-                        saveBtn.doClick();
-                    }
-                }
-        );
-    }
-
-    /**
      * 记录组件的原始值
      */
     protected void trackComponentValue(JComponent component) {
@@ -489,8 +481,10 @@ public abstract class ModernSettingsPanel extends JPanel {
      */
     protected void setHasUnsavedChanges(boolean hasChanges) {
         this.hasUnsavedChanges = hasChanges;
-        if (warningPanel != null) {
-            warningPanel.setVisible(hasChanges);
+        if (unsavedChangesLabel != null) {
+            unsavedChangesLabel.setVisible(hasChanges);
+            unsavedChangesLabel.revalidate();
+            unsavedChangesLabel.repaint();
         }
         if (applyBtn != null) {
             applyBtn.setEnabled(hasChanges);

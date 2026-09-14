@@ -127,7 +127,6 @@ jpackage \
     --java-options "-Dfile.encoding=UTF-8" \
     --java-options "-Dawt.useSystemAAFontSettings=on" \
     --java-options "-Dswing.aatext=true" \
-    --java-options "-Djava.net.preferIPv4Stack=true" \
     --java-options "-Dhttp.keepAlive=true" \
     --java-options "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED"
 

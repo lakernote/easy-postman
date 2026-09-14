@@ -118,7 +118,6 @@ jpackage \
     --java-options "-Dsun.java2d.metal=false" \
     --java-options "-Dapple.awt.application.appearance=system" \
     --java-options "-Dswing.aatext=true" \
-    --java-options "-Djava.net.preferIPv4Stack=true" \
     --java-options "-Dhttp.keepAlive=true" \
     --java-options "--add-opens java.desktop/java.awt=ALL-UNNAMED" \
     --java-options "--add-opens java.desktop/sun.lwawt=ALL-UNNAMED" \

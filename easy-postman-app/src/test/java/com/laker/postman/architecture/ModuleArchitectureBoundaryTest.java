@@ -356,6 +356,25 @@ public class ModuleArchitectureBoundaryTest {
     }
 
     @Test
+    public void packagingKeepsIpv4Ipv6DualStackEnabled() throws IOException {
+        Path root = repositoryRoot();
+        List<Path> packagingFiles = List.of(
+                root.resolve(".github/workflows/pr-check.yml"),
+                root.resolve(".github/workflows/release.yml"),
+                root.resolve("build/mac.sh"),
+                root.resolve("build/linux-deb.sh"),
+                root.resolve("build/linux-rpm.sh"),
+                root.resolve("build/win-exe.bat")
+        );
+
+        for (Path file : packagingFiles) {
+            String source = Files.readString(file);
+            assertFalse(source.contains("-Djava.net.preferIPv4Stack=true"),
+                    file + " must not disable IPv6 in packaged applications");
+        }
+    }
+
+    @Test
     public void pluginServiceContractsLiveInPluginApi() {
         Path root = repositoryRoot();
         Path servicePackage = root.resolve("easy-postman-plugin-api/src/main/java/com/laker/postman/plugin/api/service");

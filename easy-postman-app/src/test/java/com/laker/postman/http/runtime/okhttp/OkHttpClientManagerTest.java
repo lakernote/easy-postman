@@ -35,6 +35,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
 public class OkHttpClientManagerTest {
@@ -60,6 +61,42 @@ public class OkHttpClientManagerTest {
         } finally {
             props.clear();
             props.putAll(backup);
+        }
+    }
+
+    @Test
+    public void clientsShouldEnableHappyEyeballsFallback() {
+        try {
+            OkHttpClient client = OkHttpClientManager.getClient("https://api.example.com", true);
+
+            assertTrue(client.fastFallback());
+        } finally {
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void ordinaryClientsShouldNotSendGlobalHttp2Pings() {
+        try {
+            OkHttpClient client = OkHttpClientManager.getClient("https://api.example.com", true);
+
+            assertEquals(client.pingIntervalMillis(), 0);
+        } finally {
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void originsWithTheSameTransportProfileShouldShareAClient() {
+        try {
+            OkHttpClient first = OkHttpClientManager.getClient(
+                    "http://first.example.test", true, HttpRequestProxyPolicy.NO_PROXY);
+            OkHttpClient second = OkHttpClientManager.getClient(
+                    "http://second.example.test", true, HttpRequestProxyPolicy.NO_PROXY);
+
+            assertSame(second, first);
+        } finally {
+            OkHttpClientManager.clearClientCache();
         }
     }
 

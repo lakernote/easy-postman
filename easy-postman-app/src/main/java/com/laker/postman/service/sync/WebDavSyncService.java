@@ -1,6 +1,7 @@
 package com.laker.postman.service.sync;
 
 import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
+import com.laker.postman.request.util.HttpUrlUtil;
 import com.laker.postman.util.JsonUtil;
 import com.laker.postman.util.SystemUtil;
 import okhttp3.OkHttpClient;
@@ -207,7 +208,7 @@ public class WebDavSyncService {
         if (!normalized.hasEndpoint()) {
             throw new IllegalArgumentException("WebDAV server URL is required");
         }
-        HttpUrl parsedUrl = HttpUrl.parse(normalized.serverUrl());
+        HttpUrl parsedUrl = HttpUrl.parse(HttpUrlUtil.normalizeIpv6Url(normalized.serverUrl()));
         if (parsedUrl == null || !isHttpScheme(parsedUrl.scheme())) {
             throw new IllegalArgumentException("Invalid WebDAV server URL");
         }

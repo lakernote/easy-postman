@@ -8,6 +8,7 @@ import com.laker.postman.http.runtime.interaction.ResponseSizeLimitWarningSink;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.http.runtime.sse.SseEventReader;
 import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.util.FileExtensionUtil;
 import com.laker.postman.util.HttpHeaderConstants;
@@ -17,7 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-import okhttp3.internal.sse.ServerSentEventReader;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -122,7 +122,7 @@ public class OkHttpResponseHandler {
                 callback.onOpen(response);
                 boolean failed = false;
                 if (body != null) {
-                    var reader = new ServerSentEventReader(body.source(), callback);
+                    var reader = new SseEventReader(body.source(), callback);
                     try {
                         while (reader.processNextEvent()) {
                             // 持续读取直到流结束

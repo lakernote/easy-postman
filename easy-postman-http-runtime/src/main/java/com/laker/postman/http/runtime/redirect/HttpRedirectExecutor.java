@@ -13,8 +13,10 @@ import com.laker.postman.http.runtime.transport.HttpTransport;
 import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
 import com.laker.postman.http.runtime.observation.NetworkLogSupport;
 import com.laker.postman.http.runtime.sse.SseResponseCallback;
+import com.laker.postman.request.util.HttpUrlUtil;
 import lombok.extern.slf4j.Slf4j;
 
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,7 +57,7 @@ public class HttpRedirectExecutor {
         // 否则 3xx 响应会被 OkHttp 吞掉，后续的重定向日志、跨域敏感头清理和最大跳转次数都会失效。
         workingReq.followRedirects = false;
 
-        URL prevUrl = new URL(workingReq.url);
+        URL prevUrl = new URL(HttpUrlUtil.normalizeIpv6Url(workingReq.url));
         int redirectCount = 0;
 
         while (true) {
@@ -63,12 +65,12 @@ public class HttpRedirectExecutor {
 
             // 判断是否重定向
             RedirectInfo info = buildRedirectInfo(workingReq.url, resp);
-            if (info.statusCode >= 300 && info.statusCode < 400 && info.location != null) {
+            if (isRedirectStatus(info.statusCode) && info.location != null) {
                 if (redirectCount >= maxRedirects) {
                     return resp;
                 }
 
-                URL nextUrl = info.location.startsWith("http") ? new URL(info.location) : new URL(prevUrl, info.location);
+                URL nextUrl = resolveRedirectUrl(prevUrl, info.location);
                 boolean isCrossDomain = isCrossOrigin(prevUrl, nextUrl);
 
                 redirectCount++;
@@ -81,6 +83,25 @@ public class HttpRedirectExecutor {
             } else {
                 return resp;
             }
+        }
+    }
+
+    /**
+     * Resolve Location according to URI rules before handing the result to the
+     * legacy URL-based redirect model. This handles absolute, protocol-relative,
+     * path-relative, and IPv6 authorities without a case-sensitive prefix check.
+     */
+    private static URL resolveRedirectUrl(URL previousUrl, String location) throws Exception {
+        try {
+            URI previousUri = URI.create(HttpUrlUtil.normalizeIpv6Url(previousUrl.toString()));
+            URI locationUri = URI.create(HttpUrlUtil.normalizeIpv6Url(location));
+            URI resolvedUri = previousUri.resolve(locationUri);
+            return new URL(HttpUrlUtil.normalizeIpv6Url(resolvedUri.toString()));
+        } catch (IllegalArgumentException strictUriFailure) {
+            // Preserve the legacy URL parser's tolerance for non-strict Location
+            // values (for example, an unescaped space). OkHttp canonicalizes the
+            // resulting URL before sending the follow-up request.
+            return new URL(previousUrl, location);
         }
     }
 
@@ -125,12 +146,14 @@ public class HttpRedirectExecutor {
     static PreparedRequest prepareRedirectRequest(PreparedRequest currentReq, String newUrl, int statusCode, boolean isCrossDomain) {
         PreparedRequest redirectReq = currentReq.shallowCopy();
         redirectReq.url = newUrl;
-        boolean preserveRequestBody = statusCode == 307 || statusCode == 308;
+        boolean redirectToGet = shouldRedirectToGet(statusCode, redirectReq.method);
+        boolean preserveRequestBody = !redirectToGet && !"HEAD".equalsIgnoreCase(redirectReq.method);
 
         // 根据状态码处理 method 和 body
         if (!preserveRequestBody) {
-            // 301/302/303 重定向：HEAD 保持不变，其余改为 GET，并清空 body
-            if (!"HEAD".equalsIgnoreCase(redirectReq.method)) {
+            // 301/302 only permit the historical POST -> GET rewrite.
+            // 303 changes every method except HEAD to GET; 307/308 preserve it.
+            if (redirectToGet) {
                 redirectReq.method = "GET";
             }
             redirectReq.body = null;
@@ -138,7 +161,6 @@ public class HttpRedirectExecutor {
             redirectReq.formDataList = null;
             redirectReq.urlencodedList = null;
         }
-        // 307/308 保持原 method 和 body
 
         // 处理 headers：移除特定 header
         redirectReq.headersList = cleanHeadersList(
@@ -149,6 +171,25 @@ public class HttpRedirectExecutor {
         );
 
         return redirectReq;
+    }
+
+    private static boolean isRedirectStatus(int statusCode) {
+        return statusCode == 300
+                || statusCode == 301
+                || statusCode == 302
+                || statusCode == 303
+                || statusCode == 307
+                || statusCode == 308;
+    }
+
+    private static boolean shouldRedirectToGet(int statusCode, String method) {
+        if ("HEAD".equalsIgnoreCase(method)) {
+            return false;
+        }
+        if (statusCode == 303) {
+            return true;
+        }
+        return (statusCode == 301 || statusCode == 302) && "POST".equalsIgnoreCase(method);
     }
 
 
@@ -220,7 +261,8 @@ public class HttpRedirectExecutor {
         if (resp.headers != null) {
             for (Map.Entry<String, List<String>> entry : resp.headers.entrySet()) {
                 if (entry.getKey() != null && "Location".equalsIgnoreCase(entry.getKey())) {
-                    return entry.getValue().get(0);
+                    List<String> values = entry.getValue();
+                    return values == null || values.isEmpty() ? null : values.get(0);
                 }
             }
         }

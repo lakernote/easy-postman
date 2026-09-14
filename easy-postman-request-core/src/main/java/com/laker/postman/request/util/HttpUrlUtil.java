@@ -58,20 +58,88 @@ public class HttpUrlUtil {
 
     public static String extractBaseUri(String urlString) {
         try {
-            URI uri = URI.create(urlString);
+            String normalizedUrl = normalizeIpv6Url(urlString);
+            URI uri = URI.create(normalizedUrl);
             String scheme = uri.getScheme();
             String host = uri.getHost();
+            if (scheme == null || host == null || host.isBlank()) {
+                return normalizedUrl;
+            }
+            host = formatHostForUri(host);
             int port = uri.getPort();
-            int defaultPort = "https".equals(scheme) ? 443 : 80;
+            int defaultPort = isSecureScheme(scheme) ? 443 : 80;
             int usePort = (port == -1) ? defaultPort : port;
             String portPart = (port == -1
-                    || ("http".equals(scheme) && usePort == 80)
-                    || ("https".equals(scheme) && usePort == 443))
+                    || ("http".equalsIgnoreCase(scheme) && usePort == 80)
+                    || ("https".equalsIgnoreCase(scheme) && usePort == 443)
+                    || ("ws".equalsIgnoreCase(scheme) && usePort == 80)
+                    || ("wss".equalsIgnoreCase(scheme) && usePort == 443))
                     ? "" : (":" + usePort);
             return scheme + "://" + host + portPart;
         } catch (Exception e) {
             return urlString;
         }
+    }
+
+    /**
+     * Normalizes an IPv6 literal in an HTTP-style URL so it can be consumed by
+     * URI and OkHttp. RFC 2732 requires the literal host to be enclosed in
+     * square brackets when it appears in a URL authority.
+     */
+    public static String normalizeIpv6Url(String url) {
+        if (url == null || url.isBlank()) {
+            return url;
+        }
+
+        int schemeSeparator = url.indexOf("://");
+        if (schemeSeparator <= 0) {
+            return url;
+        }
+
+        int authorityStart = schemeSeparator + 3;
+        int authorityEnd = firstIndexOf(url, authorityStart, '/', '?');
+        int fragmentIndex = url.indexOf('#', authorityStart);
+        if (fragmentIndex >= 0 && (authorityEnd < 0 || fragmentIndex < authorityEnd)) {
+            authorityEnd = fragmentIndex;
+        }
+        if (authorityEnd < 0) {
+            authorityEnd = url.length();
+        }
+
+        String authority = url.substring(authorityStart, authorityEnd);
+        int userInfoSeparator = authority.lastIndexOf('@');
+        String userInfo = userInfoSeparator >= 0 ? authority.substring(0, userInfoSeparator + 1) : "";
+        String hostPort = userInfoSeparator >= 0
+                ? authority.substring(userInfoSeparator + 1)
+                : authority;
+
+        if (hostPort.isBlank()
+                || hostPort.startsWith("[")
+                || hostPort.contains("{{")
+                || hostPort.contains("}}")
+                || !isLikelyIpv6Literal(hostPort)) {
+            return url;
+        }
+
+        return url.substring(0, authorityStart)
+                + userInfo
+                + "[" + hostPort + "]"
+                + url.substring(authorityEnd);
+    }
+
+    /**
+     * Returns a host value without URL-literal brackets. Network APIs and
+     * certificate matchers generally use the unbracketed IPv6 form.
+     */
+    public static String normalizeHost(String host) {
+        if (host == null) {
+            return null;
+        }
+        String normalized = host.trim();
+        if (normalized.length() >= 2 && normalized.startsWith("[") && normalized.endsWith("]")) {
+            return normalized.substring(1, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     public static String encodeComponent(String value) {
@@ -535,6 +603,61 @@ public class HttpUrlUtil {
 
     private static boolean isNotBlank(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private static String formatHostForUri(String host) {
+        String normalizedHost = normalizeHost(host);
+        return normalizedHost != null && normalizedHost.indexOf(':') >= 0
+                ? "[" + normalizedHost + "]"
+                : normalizedHost;
+    }
+
+    private static boolean isSecureScheme(String scheme) {
+        return "https".equalsIgnoreCase(scheme) || "wss".equalsIgnoreCase(scheme);
+    }
+
+    private static int countOccurrences(String value, char target) {
+        int count = 0;
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == target) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static boolean isLikelyIpv6Literal(String hostPort) {
+        if (countOccurrences(hostPort, ':') < 2) {
+            return false;
+        }
+        boolean zoneIdentifier = false;
+        for (int i = 0; i < hostPort.length(); i++) {
+            char c = hostPort.charAt(i);
+            if (c == '%' && i + 2 < hostPort.length()
+                    && hostPort.charAt(i + 1) == '2' && hostPort.charAt(i + 2) == '5') {
+                zoneIdentifier = true;
+                i += 2;
+                continue;
+            }
+            if (zoneIdentifier ? !isZoneIdentifierChar(c)
+                    : !(isAsciiHexDigit(c) || c == ':' || c == '.')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAsciiHexDigit(char c) {
+        return (c >= '0' && c <= '9')
+                || (c >= 'a' && c <= 'f')
+                || (c >= 'A' && c <= 'F');
+    }
+
+    private static boolean isZoneIdentifierChar(char c) {
+        return (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9')
+                || c == '.' || c == '_' || c == '-' || c == '~';
     }
 
     public record PathVariableSegment(int startIndex, int endIndex, String name) {

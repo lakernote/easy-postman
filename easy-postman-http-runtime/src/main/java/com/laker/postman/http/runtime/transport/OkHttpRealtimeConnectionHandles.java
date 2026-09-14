@@ -3,21 +3,30 @@ package com.laker.postman.http.runtime.transport;
 import okhttp3.WebSocket;
 import okhttp3.sse.EventSource;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 final class OkHttpRealtimeConnectionHandles {
     private OkHttpRealtimeConnectionHandles() {
     }
 
     static RealtimeConnectionHandle sse(EventSource eventSource) {
-        return new SseHandle(eventSource);
+        return sse(eventSource, new AtomicBoolean());
+    }
+
+    static RealtimeConnectionHandle sse(EventSource eventSource, AtomicBoolean cancellationRequested) {
+        return new SseHandle(eventSource,
+                cancellationRequested == null ? new AtomicBoolean() : cancellationRequested);
     }
 
     static RealtimeWebSocketConnection webSocket(WebSocket webSocket) {
         return new WebSocketHandle(webSocket);
     }
 
-    private record SseHandle(EventSource eventSource) implements RealtimeConnectionHandle {
+    private record SseHandle(EventSource eventSource,
+                             AtomicBoolean cancellationRequested) implements RealtimeConnectionHandle {
         @Override
         public void cancel() {
+            cancellationRequested.set(true);
             if (eventSource != null) {
                 eventSource.cancel();
             }

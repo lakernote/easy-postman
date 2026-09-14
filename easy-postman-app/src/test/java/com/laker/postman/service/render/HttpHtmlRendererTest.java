@@ -3,6 +3,7 @@ package com.laker.postman.service.render;
 import com.laker.postman.common.constants.ThemeColors;
 import com.laker.postman.http.runtime.model.HttpEventInfo;
 import com.laker.postman.http.runtime.model.HttpResponse;
+import com.laker.postman.http.runtime.model.HttpRouteAttempt;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.HttpHeader;
 import org.testng.annotations.AfterMethod;
@@ -152,6 +153,29 @@ public class HttpHtmlRendererTest {
         assertTrue(html.contains("border-top:1px solid"));
         assertFalse(html.contains("border-bottom:1px solid #101112"));
         assertFalse(html.contains("background:#101112;height:8px"));
+    }
+
+    @Test
+    public void shouldRenderTransparentRouteDiagnosticsAndEscapeNetworkErrors() {
+        HttpEventInfo eventInfo = new HttpEventInfo();
+        eventInfo.setDnsHost("dual.example.test");
+        eventInfo.replaceDnsAddresses(List.of("[2001:db8::10]", "192.0.2.10"));
+        eventInfo.setRetryDecisionCount(2);
+        eventInfo.setRetryCount(1);
+        eventInfo.addRouteAttempt(new HttpRouteAttempt(
+                "[2001:db8::10]:443", "IPv6", 100L, 125L, 25L,
+                false, true, null, "canceled <after fallback>"
+        ));
+        HttpResponse response = new HttpResponse();
+        response.httpEventInfo = eventInfo;
+
+        String html = HttpHtmlRenderer.renderEventInfo(response);
+
+        assertTrue(html.contains("dual.example.test"));
+        assertTrue(html.contains("[2001:db8::10]:443"));
+        assertTrue(html.contains("canceled &lt;after fallback&gt;"));
+        assertFalse(html.contains("canceled <after fallback>"));
+        assertTrue(html.contains("1 / 2"));
     }
 
     @Test

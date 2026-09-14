@@ -1648,6 +1648,20 @@ public final class MessageKeys {
     public static final String RESPONSE_MEDIA_SYSTEM_UNAVAILABLE = "response.media.system_unavailable";
     public static final String RESPONSE_MEDIA_FILE_UNAVAILABLE = "response.media.file_unavailable";
     public static final String RESPONSE_MEDIA_FILE_SUMMARY = "response.media.file_summary";
+    public static final String HTTP_EVENT_ROUTE_ATTEMPTS = "http.event.route_attempts";
+    public static final String HTTP_EVENT_ROUTE_FAMILY = "http.event.route.family";
+    public static final String HTTP_EVENT_ROUTE_ADDRESS = "http.event.route.address";
+    public static final String HTTP_EVENT_ROUTE_RESULT = "http.event.route.result";
+    public static final String HTTP_EVENT_ROUTE_DURATION = "http.event.route.duration";
+    public static final String HTTP_EVENT_ROUTE_CONNECTED = "http.event.route.connected";
+    public static final String HTTP_EVENT_ROUTE_FAILED = "http.event.route.failed";
+    public static final String HTTP_EVENT_ROUTE_CANCELED = "http.event.route.canceled";
+    public static final String HTTP_EVENT_DNS_HOST = "http.event.dns_host";
+    public static final String HTTP_EVENT_DNS_ADDRESSES = "http.event.dns_addresses";
+    public static final String HTTP_EVENT_DNS_ERROR = "http.event.dns_error";
+    public static final String HTTP_EVENT_RETRIES = "http.event.retries";
+    public static final String HTTP_EVENT_FOLLOW_UPS = "http.event.follow_ups";
+    public static final String HTTP_EVENT_DECISIONS = "http.event.decisions";
 
     // ============ CSV Data Panel related ============
     public static final String CSV_STATUS_NO_DATA = "csv.status.no_data";

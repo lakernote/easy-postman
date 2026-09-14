@@ -2,7 +2,9 @@ package com.laker.postman.http.runtime.okhttp;
 
 import com.laker.postman.http.runtime.model.HttpCapturePolicy;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
+import com.laker.postman.http.runtime.model.HttpExchangeKind;
 import com.laker.postman.http.runtime.model.HttpEventInfo;
+import com.laker.postman.http.runtime.model.HttpRouteAttempt;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
 import com.laker.postman.http.runtime.observation.NetworkLogSupport;
@@ -18,36 +20,45 @@ import okhttp3.*;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 事件监听器，既记录详细连接事件和耗时，也统计连接信息
  */
 @Slf4j
 public class OkHttpExchangeEventListener extends EventListener {
-    private static final ThreadLocal<HttpEventInfo> eventInfoThreadLocal = new ThreadLocal<>();
     private final long callStartNanos;
     private final HttpEventInfo info;
     private final PreparedRequest preparedRequest;
+    private final HttpExchangeKind exchangeKind;
 
     // 精细化控制开关
     private final boolean collectMetricsInfo; // 是否收集轻量统计指标（时间戳、发送/接收字节）
     private final boolean collectEventInfo; // 是否收集完整事件信息（DNS、连接等）
     private final boolean enableNetworkLog; // 是否启用网络日志面板输出
+    private final Object routeAttemptLock = new Object();
+    private final List<PendingRouteAttempt> pendingRouteAttempts = new ArrayList<>();
+    private boolean successfulRouteConnected;
 
     public OkHttpExchangeEventListener(PreparedRequest preparedRequest) {
+        this(preparedRequest, HttpExchangeKind.HTTP);
+    }
+
+    public OkHttpExchangeEventListener(PreparedRequest preparedRequest, HttpExchangeKind exchangeKind) {
         this.callStartNanos = System.nanoTime();
         this.info = new HttpEventInfo();
         this.preparedRequest = preparedRequest;
-        // EventListener 可能在发起线程构造，真实 callStart 在 OkHttp 线程触发；ThreadLocal 只绑定真实回调线程。
-        eventInfoThreadLocal.remove();
+        this.exchangeKind = exchangeKind == null ? HttpExchangeKind.HTTP : exchangeKind;
         HttpExchangeTraceSupport.bindToRequest(preparedRequest, info);
         HttpCapturePolicy capturePolicy = HttpCaptureProfiles.resolve(preparedRequest);
         this.collectMetricsInfo = capturePolicy.collectMetrics();
@@ -64,7 +75,7 @@ public class OkHttpExchangeEventListener extends EventListener {
 
     private void log(NetworkLogEventStage stage, String msg, Long durationMs) {
         // 只有启用了网络日志才向外发布事件，具体展示由调用方注入的 sink 负责。
-        if (!enableNetworkLog) {
+        if (!enableNetworkLog || shouldDelegateRealtimeStage(stage)) {
             return;
         }
 
@@ -82,16 +93,64 @@ public class OkHttpExchangeEventListener extends EventListener {
             SSLConfigurationUtil.clearValidationResult();
             CertificateCapturingSSLSocketFactory.clearLastCapturedCertificates();
         }
-        eventInfoThreadLocal.set(info);
         info.setCallStart(System.currentTimeMillis());
         info.setThreadName(Thread.currentThread().getName());
         Request request = call.request();
         if (enableNetworkLog) {
             OkHttpRequestSnapshotCapture.capture(preparedRequest, request, false);
         }
-        if (enableNetworkLog) {
-            log(NetworkLogEventStage.CALL_START, request.method() + " " + request.url());
+        if (enableNetworkLog && exchangeKind != HttpExchangeKind.WEBSOCKET) {
+            log(NetworkLogEventStage.CALL_START, formatCallStart(request));
         }
+    }
+
+    @Override
+    public void dispatcherQueueStart(Call call, Dispatcher dispatcher) {
+        if (!collectMetricsInfo) {
+            return;
+        }
+        info.setDispatcherQueueStart(System.currentTimeMillis());
+        log(NetworkLogEventStage.DISPATCHER_QUEUE_START, "Waiting for dispatcher capacity");
+    }
+
+    @Override
+    public void dispatcherQueueEnd(Call call, Dispatcher dispatcher) {
+        if (!collectMetricsInfo) {
+            return;
+        }
+        info.setDispatcherQueueEnd(System.currentTimeMillis());
+        log(NetworkLogEventStage.DISPATCHER_QUEUE_END, "Dispatcher capacity acquired",
+                duration(info.getDispatcherQueueStart(), info.getDispatcherQueueEnd()));
+    }
+
+    private String formatCallStart(Request request) {
+        if (exchangeKind == HttpExchangeKind.ASYNC_SSE) {
+            String sseUrl = valueOrDash(preparedRequest != null ? preparedRequest.url : null);
+            return "\nSSE URL: " + sseUrl + "\n"
+                    + "Stream Request: " + request.method() + " " + request.url() + "\n"
+                    + "Stream Flow: HTTP " + request.method()
+                    + " + text/event-stream response body stays open\n";
+        }
+        return request.method() + " " + request.url();
+    }
+
+    private String valueOrDash(String value) {
+        return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private boolean shouldDelegateRealtimeStage(NetworkLogEventStage stage) {
+        if (exchangeKind == HttpExchangeKind.HTTP) {
+            return false;
+        }
+        boolean delegatedLifecycleStage = stage == NetworkLogEventStage.REQUEST_HEADERS_END
+                || stage == NetworkLogEventStage.REQUEST_BODY_START
+                || stage == NetworkLogEventStage.RESPONSE_HEADERS_END
+                || stage == NetworkLogEventStage.RESPONSE_BODY_START
+                || stage == NetworkLogEventStage.CALL_END
+                || stage == NetworkLogEventStage.CALL_FAILED;
+        return delegatedLifecycleStage
+                || (exchangeKind == HttpExchangeKind.ASYNC_SSE
+                && stage == NetworkLogEventStage.CANCELED);
     }
 
     @Override
@@ -114,7 +173,8 @@ public class OkHttpExchangeEventListener extends EventListener {
         for (Proxy proxy : proxies) {
             sb.append(proxy.type()).append(" ");
             if (proxy.address() instanceof InetSocketAddress address) {
-                sb.append(address.getHostName()).append(":").append(address.getPort()).append(" ");
+                // getHostName() may trigger an unrelated reverse-DNS lookup while tracing.
+                sb.append(address.getHostString()).append(":").append(address.getPort()).append(" ");
             }
         }
         log(NetworkLogEventStage.PROXY_SELECT_END, sb.toString(),
@@ -127,6 +187,9 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setDnsStart(System.currentTimeMillis());
+        info.setDnsHost(domainName);
+        info.setDnsError(null);
+        info.replaceDnsAddresses(List.of());
         log(NetworkLogEventStage.DNS_START, domainName);
     }
 
@@ -136,6 +199,9 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setDnsEnd(System.currentTimeMillis());
+        info.replaceDnsAddresses(inetAddressList.stream()
+                .map(OkHttpExchangeEventListener::concreteAddress)
+                .toList());
         log(NetworkLogEventStage.DNS_END, domainName + " -> " + inetAddressList,
                 duration(info.getDnsStart(), info.getDnsEnd()));
     }
@@ -145,8 +211,15 @@ public class OkHttpExchangeEventListener extends EventListener {
         if (!collectEventInfo) {
             return;
         }
-        info.setConnectStart(System.currentTimeMillis());
-        info.setRemoteAddress(inetSocketAddress.toString());
+        long startTime = System.currentTimeMillis();
+        synchronized (routeAttemptLock) {
+            pendingRouteAttempts.add(new PendingRouteAttempt(
+                    routeAddress(inetSocketAddress),
+                    addressFamily(inetSocketAddress),
+                    startTime,
+                    System.nanoTime()
+            ));
+        }
         log(NetworkLogEventStage.CONNECT_START, inetSocketAddress + " via " + proxy.type());
     }
 
@@ -305,10 +378,25 @@ public class OkHttpExchangeEventListener extends EventListener {
         if (!collectEventInfo) {
             return;
         }
-        info.setConnectEnd(System.currentTimeMillis());
+        long endTime = System.currentTimeMillis();
         info.setProtocol(protocol == null ? null : protocol.toString());
+        HttpRouteAttempt attempt;
+        synchronized (routeAttemptLock) {
+            attempt = completeRouteAttemptLocked(inetSocketAddress, endTime, true, false,
+                    protocol == null ? null : protocol.toString(), null);
+            if (protocol != null) {
+                successfulRouteConnected = true;
+                markCanceledFallbackRoutesLocked(attempt);
+            }
+        }
+        if (attempt != null) {
+            // Summary timing always describes the winning route. Failed fallback
+            // attempts remain visible in routeAttempts without overwriting it.
+            info.setConnectStart(attempt.startTime());
+            info.setConnectEnd(attempt.endTime());
+        }
         log(NetworkLogEventStage.CONNECT_END, inetSocketAddress + " via " + proxy.type() + ", protocol=" + protocol,
-                duration(info.getConnectStart(), info.getConnectEnd()));
+                attempt == null ? null : attempt.durationMs());
     }
 
     @Override
@@ -316,10 +404,173 @@ public class OkHttpExchangeEventListener extends EventListener {
         if (!collectEventInfo) {
             return;
         }
-        info.setConnectEnd(System.currentTimeMillis());
-        info.setError(ioe);
-        log(NetworkLogEventStage.CONNECT_FAILED, inetSocketAddress + " via " + proxy.type() + ", protocol=" + protocol + ", error: " + ioe.getMessage(),
-                duration(info.getConnectStart(), info.getConnectEnd()));
+        HttpRouteAttempt attempt;
+        synchronized (routeAttemptLock) {
+            boolean canceled = (call != null && call.isCanceled())
+                    || (successfulRouteConnected && isRouteCancellationSignal(ioe));
+            attempt = completeRouteAttemptLocked(
+                    inetSocketAddress,
+                    System.currentTimeMillis(),
+                    false,
+                    canceled,
+                    protocol == null ? null : protocol.toString(),
+                    exceptionMessage(ioe)
+            );
+        }
+        log(NetworkLogEventStage.CONNECT_FAILED, inetSocketAddress + " via " + proxy.type() + ", protocol=" + protocol + ", error: " + exceptionMessage(ioe),
+                attempt == null ? null : attempt.durationMs());
+    }
+
+    private HttpRouteAttempt completeRouteAttemptLocked(InetSocketAddress address,
+                                                        long endTime,
+                                                        boolean connected,
+                                                        boolean canceled,
+                                                        String protocol,
+                                                        String error) {
+        String routeAddress = routeAddress(address);
+        HttpRouteAttempt completedAttempt = null;
+        for (int i = pendingRouteAttempts.size() - 1; i >= 0; i--) {
+            PendingRouteAttempt pending = pendingRouteAttempts.get(i);
+            if (!pending.address.equals(routeAddress)) {
+                continue;
+            }
+            pendingRouteAttempts.remove(i);
+            completedAttempt = toRouteAttempt(pending, endTime, connected, canceled, protocol, error);
+            break;
+        }
+        info.addRouteAttempt(completedAttempt);
+        return completedAttempt;
+    }
+
+    /**
+     * OkHttp cancels in-flight Fast Fallback plans as soon as one route wins.
+     * Those plans still report connectFailed("canceled"/"Socket closed"), often
+     * before the winner's TLS setup reaches connectEnd. Reclassify only matching
+     * cancellation signals whose lifetime overlapped the winning route.
+     */
+    private void markCanceledFallbackRoutesLocked(HttpRouteAttempt winningAttempt) {
+        if (winningAttempt == null) {
+            return;
+        }
+        List<HttpRouteAttempt> attempts = info.getRouteAttempts();
+        for (int i = 0; i < attempts.size(); i++) {
+            HttpRouteAttempt attempt = attempts.get(i);
+            if (attempt.connected() || attempt.canceled()
+                    || !isRouteCancellationSignal(attempt.error())
+                    || attempt.endTime() < winningAttempt.startTime()) {
+                continue;
+            }
+            info.replaceRouteAttempt(i, new HttpRouteAttempt(
+                    attempt.address(),
+                    attempt.addressFamily(),
+                    attempt.startTime(),
+                    attempt.endTime(),
+                    attempt.durationMs(),
+                    false,
+                    true,
+                    attempt.protocol(),
+                    attempt.error()
+            ));
+        }
+    }
+
+    private void completePendingRouteAttempts(long endTime, boolean canceled, String error) {
+        List<HttpRouteAttempt> completedAttempts = new ArrayList<>();
+        synchronized (routeAttemptLock) {
+            for (PendingRouteAttempt pending : pendingRouteAttempts) {
+                completedAttempts.add(toRouteAttempt(pending, endTime, false, canceled, null, error));
+            }
+            pendingRouteAttempts.clear();
+        }
+        completedAttempts.forEach(info::addRouteAttempt);
+    }
+
+    private void applyFailedRouteWindowToSummary() {
+        if (info.getConnectStart() > 0 || info.getConnectEnd() > 0) {
+            return;
+        }
+        long earliestStart = Long.MAX_VALUE;
+        long latestEnd = 0L;
+        for (HttpRouteAttempt attempt : info.getRouteAttempts()) {
+            if (attempt.startTime() > 0) {
+                earliestStart = Math.min(earliestStart, attempt.startTime());
+            }
+            latestEnd = Math.max(latestEnd, attempt.endTime());
+        }
+        if (earliestStart != Long.MAX_VALUE && latestEnd >= earliestStart) {
+            info.setConnectStart(earliestStart);
+            info.setConnectEnd(latestEnd);
+        }
+    }
+
+    private static HttpRouteAttempt toRouteAttempt(PendingRouteAttempt pending,
+                                                   long endTime,
+                                                   boolean connected,
+                                                   boolean canceled,
+                                                   String protocol,
+                                                   String error) {
+        long durationMs = Math.max(0L,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - pending.startNanos));
+        return new HttpRouteAttempt(
+                pending.address,
+                pending.addressFamily,
+                pending.startTime,
+                endTime,
+                durationMs,
+                connected,
+                canceled,
+                protocol,
+                error
+        );
+    }
+
+    private static String routeAddress(InetSocketAddress address) {
+        InetAddress resolvedAddress = address.getAddress();
+        if (resolvedAddress == null) {
+            return address.getHostString() + ":" + address.getPort();
+        }
+        return socketEndpoint(resolvedAddress, address.getPort());
+    }
+
+    private static String concreteAddress(InetAddress address) {
+        if (address == null) {
+            return "";
+        }
+        String value = address.getHostAddress();
+        return address instanceof Inet6Address ? "[" + value + "]" : value;
+    }
+
+    private static String socketEndpoint(InetAddress address, int port) {
+        String host = address.getHostAddress();
+        if (address instanceof Inet6Address) {
+            host = "[" + host + "]";
+        }
+        return host + ":" + port;
+    }
+
+    private static String addressFamily(InetSocketAddress address) {
+        InetAddress inetAddress = address.getAddress();
+        if (inetAddress instanceof Inet6Address) {
+            return "IPv6";
+        }
+        if (inetAddress != null) {
+            return "IPv4";
+        }
+        return "Unknown";
+    }
+
+    private static final class PendingRouteAttempt {
+        private final String address;
+        private final String addressFamily;
+        private final long startTime;
+        private final long startNanos;
+
+        private PendingRouteAttempt(String address, String addressFamily, long startTime, long startNanos) {
+            this.address = address;
+            this.addressFamily = addressFamily;
+            this.startTime = startTime;
+            this.startNanos = startNanos;
+        }
     }
 
     @Override
@@ -330,8 +581,8 @@ public class OkHttpExchangeEventListener extends EventListener {
         info.setConnectionAcquired(System.currentTimeMillis());
         try {
             Socket socket = connection.socket();
-            String local = socket.getLocalAddress().getHostAddress() + ":" + socket.getLocalPort();
-            String remote = socket.getInetAddress().getHostAddress() + ":" + socket.getPort();
+            String local = socketEndpoint(socket.getLocalAddress(), socket.getLocalPort());
+            String remote = socketEndpoint(socket.getInetAddress(), socket.getPort());
             info.setLocalAddress(local);
             info.setRemoteAddress(remote);
             if (connection.protocol() != null) {
@@ -521,6 +772,7 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setCallEnd(System.currentTimeMillis());
+        completePendingRouteAttempts(info.getCallEnd(), true, "Canceled after another route connected");
         log(NetworkLogEventStage.CALL_END, "done");
     }
 
@@ -532,6 +784,11 @@ public class OkHttpExchangeEventListener extends EventListener {
         info.setCallFailed(System.currentTimeMillis());
         info.setErrorMessage(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe));
         info.setError(ioe);
+        if (info.getDnsStart() > 0 && info.getDnsEnd() <= 0 && info.getRouteAttempts().isEmpty()) {
+            info.setDnsError(exceptionMessage(ioe));
+        }
+        completePendingRouteAttempts(info.getCallFailed(), call != null && call.isCanceled(), exceptionMessage(ioe));
+        applyFailedRouteWindowToSummary();
         if (!enableNetworkLog) {
             return;
         }
@@ -545,7 +802,31 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setCanceled(System.currentTimeMillis());
+        completePendingRouteAttempts(info.getCanceled(), true, "Call was canceled");
+        applyFailedRouteWindowToSummary();
         log(NetworkLogEventStage.CANCELED, "Call was canceled");
+    }
+
+    @Override
+    public void retryDecision(Call call, IOException ioe, boolean retry) {
+        if (!collectEventInfo) {
+            return;
+        }
+        info.recordRetryDecision(retry);
+        String error = exceptionMessage(ioe);
+        log(NetworkLogEventStage.RETRY_DECISION, "Retry: " + retry + ", reason: " + error);
+    }
+
+    @Override
+    public void followUpDecision(Call call, Response response, Request nextRequest) {
+        if (!collectEventInfo) {
+            return;
+        }
+        boolean followUp = nextRequest != null;
+        info.recordFollowUpDecision(followUp);
+        String next = followUp ? nextRequest.method() + " " + nextRequest.url() : "none";
+        log(NetworkLogEventStage.FOLLOW_UP_DECISION,
+                "Follow-up: " + followUp + ", response: " + response.code() + ", next: " + next);
     }
 
 
@@ -624,12 +905,32 @@ public class OkHttpExchangeEventListener extends EventListener {
         return endMs - startMs;
     }
 
-    /**
-     * 获取并移除当前线程的 HttpEventInfo
-     */
-    public static HttpEventInfo getAndRemove() {
-        HttpEventInfo info = eventInfoThreadLocal.get();
-        eventInfoThreadLocal.remove();
-        return info;
+    private static String exceptionMessage(Throwable throwable) {
+        if (throwable == null) {
+            return "Unknown error";
+        }
+        String message = throwable.getMessage();
+        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;
     }
+
+    private static boolean isRouteCancellationSignal(Throwable throwable) {
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if (isRouteCancellationSignal(current.getMessage())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRouteCancellationSignal(String message) {
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.trim().toLowerCase(java.util.Locale.ROOT);
+        return "canceled".equals(normalized)
+                || "cancelled".equals(normalized)
+                || "socket closed".equals(normalized)
+                || "socket is closed".equals(normalized);
+    }
+
 }

@@ -6,6 +6,8 @@ import okhttp3.sse.EventSource;
 import okio.ByteString;
 import org.testng.annotations.Test;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
@@ -15,12 +17,15 @@ public class RealtimeConnectionHandleTest {
     @Test
     public void shouldDelegateSseCancellationThroughNeutralHandle() {
         FakeEventSource eventSource = new FakeEventSource();
+        AtomicBoolean cancellationRequested = new AtomicBoolean();
 
-        RealtimeConnectionHandle handle = OkHttpRealtimeConnectionHandles.sse(eventSource);
+        RealtimeConnectionHandle handle = OkHttpRealtimeConnectionHandles.sse(
+                eventSource, cancellationRequested);
 
         handle.cancel();
 
         assertTrue(eventSource.cancelled);
+        assertTrue(cancellationRequested.get());
         assertSame(handle.metricKey(), eventSource);
     }
 

@@ -3,30 +3,24 @@ package com.laker.postman.http.runtime.transport;
 import com.laker.postman.http.runtime.model.HttpEventInfo;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
-import com.laker.postman.http.runtime.okhttp.OkHttpExchangeEventListener;
 import lombok.experimental.UtilityClass;
 import okhttp3.Connection;
 
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.Socket;
 
 /**
  * HTTP 交换链路信息的统一出口。
  * <p>
- * 普通 HTTP 同步执行时优先从 OkHttp EventListener 的 ThreadLocal 取值；
- * SSE/WebSocket 回调会切换线程，所以同时把同一份事件信息绑定到 PreparedRequest 的 transient 字段。
+ * EventListener、同步请求和 SSE/WebSocket 回调可能运行在不同线程，
+ * 因此链路信息绑定到 PreparedRequest 的 transient 字段，不依赖 ThreadLocal。
  */
 @UtilityClass
 public class HttpExchangeTraceSupport {
 
-    public static void attachToResponse(HttpResponse httpResponse, long queueStartMs) {
-        attachToResponse(httpResponse, queueStartMs, null);
-    }
-
     public static void attachToResponse(HttpResponse httpResponse, long queueStartMs, PreparedRequest request) {
-        HttpEventInfo httpEventInfo = OkHttpExchangeEventListener.getAndRemove();
-        if (httpEventInfo == null) {
-            httpEventInfo = resolveFromRequest(request);
-        }
+        HttpEventInfo httpEventInfo = resolveFromRequest(request);
         if (httpEventInfo != null) {
             completeTiming(httpEventInfo, queueStartMs);
         }
@@ -73,8 +67,8 @@ public class HttpExchangeTraceSupport {
         try {
             Socket socket = connection.socket();
             if (socket != null) {
-                httpEventInfo.setLocalAddress(socket.getLocalAddress().getHostAddress() + ":" + socket.getLocalPort());
-                httpEventInfo.setRemoteAddress(socket.getInetAddress().getHostAddress() + ":" + socket.getPort());
+                httpEventInfo.setLocalAddress(formatSocketEndpoint(socket.getLocalAddress(), socket.getLocalPort()));
+                httpEventInfo.setRemoteAddress(formatSocketEndpoint(socket.getInetAddress(), socket.getPort()));
             }
         } catch (Exception ignored) {
             // mock 连接或已释放连接可能无法暴露 socket 细节。
@@ -87,7 +81,10 @@ public class HttpExchangeTraceSupport {
         }
         long responseEnd = Math.max(
                 httpResponse.httpEventInfo.getResponseBodyEnd(),
-                Math.max(httpResponse.httpEventInfo.getCallEnd(), httpResponse.httpEventInfo.getResponseHeadersEnd())
+                Math.max(
+                        Math.max(httpResponse.httpEventInfo.getCallEnd(), httpResponse.httpEventInfo.getCallFailed()),
+                        Math.max(httpResponse.httpEventInfo.getCanceled(), httpResponse.httpEventInfo.getResponseHeadersEnd())
+                )
         );
         return responseEnd > 0 ? Math.max(httpResponse.httpEventInfo.getQueueStart(), responseEnd) : fallbackEndTime;
     }
@@ -109,6 +106,7 @@ public class HttpExchangeTraceSupport {
             return -1L;
         }
         long earliest = Long.MAX_VALUE;
+        earliest = minPositiveAtOrAfter(earliest, callStart, httpEventInfo.getDispatcherQueueStart());
         earliest = minPositiveAtOrAfter(earliest, callStart, httpEventInfo.getProxySelectStart());
         earliest = minPositiveAtOrAfter(earliest, callStart, httpEventInfo.getDnsStart());
         earliest = minPositiveAtOrAfter(earliest, callStart, httpEventInfo.getConnectStart());
@@ -129,5 +127,13 @@ public class HttpExchangeTraceSupport {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static String formatSocketEndpoint(InetAddress address, int port) {
+        String host = address.getHostAddress();
+        if (address instanceof Inet6Address) {
+            host = "[" + host + "]";
+        }
+        return host + ":" + port;
     }
 }

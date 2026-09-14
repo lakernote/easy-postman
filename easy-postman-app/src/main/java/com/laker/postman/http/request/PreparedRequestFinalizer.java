@@ -62,7 +62,9 @@ public class PreparedRequestFinalizer {
             request.url = HttpUrlUtil.replacePathVariables(request.url, request.pathVariablesList);
             replaceVariablesInParamsList(request.paramsList);
             applyDeferredQueryAuthorization(request, deferredAuthorization);
-            request.url = HttpUrlUtil.buildEncodedUrl(request.url, request.paramsList);
+            request.url = HttpUrlUtil.normalizeIpv6Url(
+                    HttpUrlUtil.buildEncodedUrl(request.url, request.paramsList)
+            );
             request.body = VariableResolver.resolve(request.body);
 
             applyDeferredAuthorization(request, deferredAuthorization);

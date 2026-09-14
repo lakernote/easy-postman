@@ -174,4 +174,11 @@ public class WebDavClientTest {
             assertEquals(server.takeRequest().getMethod(), "MKCOL");
         }
     }
+
+    @Test
+    public void shouldAcceptBareIpv6LiteralWhenNoPortIsPresent() {
+        WebDavClient client = new WebDavClient("http://::1/dav/", "EasyPostman", "", "");
+
+        assertNotNull(client);
+    }
 }

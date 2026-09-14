@@ -5,17 +5,26 @@ import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.model.HttpCaptureProfile;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
 import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.http.runtime.observation.NetworkLogEvent;
+import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
 import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
+import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpRequestProxyPolicy;
+import com.sun.net.httpserver.HttpServer;
+import okhttp3.EventListener;
 import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.testng.annotations.Test;
 
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.ProxySelector;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -36,6 +45,17 @@ public class HttpClientResolverTest {
         assertEquals(client.readTimeoutMillis(), 1000);
         assertEquals(client.writeTimeoutMillis(), 1000);
         assertEquals(client.callTimeoutMillis(), 1000);
+    }
+
+    @Test
+    public void bareIpv6UrlShouldBeAcceptedByRequestBuilder() {
+        PreparedRequest request = new PreparedRequest();
+        request.url = "http://2001:db8::10/api";
+        request.method = "GET";
+
+        okhttp3.Request okRequest = PreparedOkHttpRequestFactory.build(request);
+
+        assertEquals(okRequest.url().toString(), "http://[2001:db8::10]/api");
     }
 
     @Test
@@ -88,6 +108,87 @@ public class HttpClientResolverTest {
 
         assertTrue(hasNetworkInterceptor(client, RequestSnapshotNetworkInterceptor.class));
         assertFalse(HttpCaptureProfiles.resolve(request).emitNetworkLog());
+    }
+
+    @Test
+    public void diagnosticListenerShouldComposeWithBaseClientListener() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = "ok".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+
+        AtomicInteger baseCallStarts = new AtomicInteger();
+        OkHttpClient baseClient = new OkHttpClient.Builder()
+                .eventListenerFactory(ignored -> new EventListener() {
+                    @Override
+                    public void callStart(okhttp3.Call call) {
+                        baseCallStarts.incrementAndGet();
+                    }
+                })
+                .build();
+        PreparedRequest request = new PreparedRequest();
+        request.method = "GET";
+        request.url = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
+        HttpCaptureProfiles.apply(request, HttpCaptureProfile.COLLECTION_DIAGNOSTIC);
+
+        try {
+            OkHttpClient resolved = new HttpClientResolver().resolveClient(request, ignored -> baseClient);
+            Request okRequest = PreparedOkHttpRequestFactory.build(request);
+            try (Response response = resolved.newCall(okRequest).execute()) {
+                assertEquals(response.code(), 200);
+            }
+            assertEquals(baseCallStarts.get(), 1);
+            assertTrue(request.exchangeEventInfo != null);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void acceptEventStreamShouldNotTurnRegularHttpCallIntoAsyncSse() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = "{\"status\":\"ok\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+
+        PreparedRequest request = new PreparedRequest();
+        request.method = "GET";
+        request.url = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
+        request.headersList = List.of(new HttpHeader(true, "Accept", "text/event-stream"));
+        HttpCaptureProfiles.apply(request, HttpCaptureProfile.COLLECTION_DIAGNOSTIC);
+        List<NetworkLogEvent> events = new ArrayList<>();
+        request.networkLogSink = events::add;
+
+        try {
+            OkHttpClient client = new HttpClientResolver().resolveClient(request, ignored -> new OkHttpClient());
+            Request okRequest = PreparedOkHttpRequestFactory.build(request);
+            try (Response response = client.newCall(okRequest).execute()) {
+                assertEquals(response.code(), 200);
+                assertEquals(response.body().string(), "{\"status\":\"ok\"}");
+            }
+
+            String callStart = events.stream()
+                    .filter(event -> event.stage() == NetworkLogEventStage.CALL_START)
+                    .map(NetworkLogEvent::message)
+                    .findFirst()
+                    .orElseThrow();
+            assertFalse(callStart.contains("SSE URL:"));
+            assertTrue(events.stream().anyMatch(event -> event.stage() == NetworkLogEventStage.CALL_END));
+            assertTrue(events.stream().anyMatch(event -> event.stage() == NetworkLogEventStage.RESPONSE_HEADERS_END));
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

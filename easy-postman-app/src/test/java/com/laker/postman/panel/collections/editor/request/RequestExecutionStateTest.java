@@ -4,9 +4,12 @@ import com.laker.postman.http.runtime.transport.RealtimeConnectionHandle;
 import com.laker.postman.http.runtime.transport.RealtimeWebSocketConnection;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.EventListener;
 import okhttp3.Request;
 import okhttp3.Response;
 import okio.Timeout;
+import kotlin.jvm.functions.Function0;
+import kotlin.reflect.KClass;
 import org.testng.annotations.Test;
 
 import javax.swing.*;
@@ -190,6 +193,30 @@ public class RequestExecutionStateTest {
         @Override
         public Timeout timeout() {
             return Timeout.NONE;
+        }
+
+        @Override
+        public void addEventListener(EventListener eventListener) {
+        }
+
+        @Override
+        public <T> T tag(Class<? extends T> type) {
+            return null;
+        }
+
+        @Override
+        public <T> T tag(KClass<T> type) {
+            return null;
+        }
+
+        @Override
+        public <T> T tag(KClass<T> type, Function0<? extends T> defaultValue) {
+            return defaultValue == null ? null : defaultValue.invoke();
+        }
+
+        @Override
+        public <T> T tag(Class<T> type, Function0<? extends T> defaultValue) {
+            return defaultValue == null ? null : defaultValue.invoke();
         }
 
         @Override

@@ -2,6 +2,7 @@ package com.laker.postman.service;
 
 import com.laker.postman.http.runtime.model.HttpEventInfo;
 import com.laker.postman.http.runtime.model.HttpResponse;
+import com.laker.postman.http.runtime.model.HttpRouteAttempt;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.history.RequestHistoryItem;
 import com.laker.postman.request.model.HttpHeader;
@@ -359,10 +360,15 @@ public class HistoryPersistenceService {
             eventInfo.set("remoteAddress", response.httpEventInfo.getRemoteAddress());
             eventInfo.set("queueStart", response.httpEventInfo.getQueueStart());
             eventInfo.set("callStart", response.httpEventInfo.getCallStart());
+            eventInfo.set("dispatcherQueueStart", response.httpEventInfo.getDispatcherQueueStart());
+            eventInfo.set("dispatcherQueueEnd", response.httpEventInfo.getDispatcherQueueEnd());
             eventInfo.set("proxySelectStart", response.httpEventInfo.getProxySelectStart());
             eventInfo.set("proxySelectEnd", response.httpEventInfo.getProxySelectEnd());
             eventInfo.set("dnsStart", response.httpEventInfo.getDnsStart());
             eventInfo.set("dnsEnd", response.httpEventInfo.getDnsEnd());
+            eventInfo.set("dnsHost", response.httpEventInfo.getDnsHost());
+            eventInfo.set("dnsAddresses", response.httpEventInfo.getDnsAddresses());
+            eventInfo.set("dnsError", response.httpEventInfo.getDnsError());
             eventInfo.set("connectStart", response.httpEventInfo.getConnectStart());
             eventInfo.set("secureConnectStart", response.httpEventInfo.getSecureConnectStart());
             eventInfo.set("secureConnectEnd", response.httpEventInfo.getSecureConnectEnd());
@@ -382,7 +388,26 @@ public class HistoryPersistenceService {
             eventInfo.set("canceled", response.httpEventInfo.getCanceled());
             eventInfo.set("queueingCost", response.httpEventInfo.getQueueingCost());
             eventInfo.set("stalledCost", response.httpEventInfo.getStalledCost());
+            eventInfo.set("retryDecisionCount", response.httpEventInfo.getRetryDecisionCount());
+            eventInfo.set("retryCount", response.httpEventInfo.getRetryCount());
+            eventInfo.set("followUpDecisionCount", response.httpEventInfo.getFollowUpDecisionCount());
+            eventInfo.set("followUpCount", response.httpEventInfo.getFollowUpCount());
             eventInfo.set("protocol", response.httpEventInfo.getProtocol());
+            JSONArray routeAttempts = new JSONArray();
+            for (HttpRouteAttempt attempt : response.httpEventInfo.getRouteAttempts()) {
+                JSONObject routeAttempt = new JSONObject();
+                routeAttempt.set("address", attempt.address());
+                routeAttempt.set("addressFamily", attempt.addressFamily());
+                routeAttempt.set("startTime", attempt.startTime());
+                routeAttempt.set("endTime", attempt.endTime());
+                routeAttempt.set("durationMs", attempt.durationMs());
+                routeAttempt.set("connected", attempt.connected());
+                routeAttempt.set("canceled", attempt.canceled());
+                routeAttempt.set("protocol", attempt.protocol());
+                routeAttempt.set("error", attempt.error());
+                routeAttempts.add(routeAttempt);
+            }
+            eventInfo.set("routeAttempts", routeAttempts);
             eventInfo.set("tlsVersion", response.httpEventInfo.getTlsVersion());
             eventInfo.set("errorMessage", response.httpEventInfo.getErrorMessage());
             eventInfo.set("threadName", response.httpEventInfo.getThreadName());
@@ -487,10 +512,15 @@ public class HistoryPersistenceService {
             response.httpEventInfo.setRemoteAddress(eventInfoJson.getStr("remoteAddress"));
             response.httpEventInfo.setQueueStart(eventInfoJson.getLong("queueStart", 0L));
             response.httpEventInfo.setCallStart(eventInfoJson.getLong("callStart", 0L));
+            response.httpEventInfo.setDispatcherQueueStart(eventInfoJson.getLong("dispatcherQueueStart", 0L));
+            response.httpEventInfo.setDispatcherQueueEnd(eventInfoJson.getLong("dispatcherQueueEnd", 0L));
             response.httpEventInfo.setProxySelectStart(eventInfoJson.getLong("proxySelectStart", 0L));
             response.httpEventInfo.setProxySelectEnd(eventInfoJson.getLong("proxySelectEnd", 0L));
             response.httpEventInfo.setDnsStart(eventInfoJson.getLong("dnsStart", 0L));
             response.httpEventInfo.setDnsEnd(eventInfoJson.getLong("dnsEnd", 0L));
+            response.httpEventInfo.setDnsHost(eventInfoJson.getStr("dnsHost"));
+            response.httpEventInfo.replaceDnsAddresses(readStringList(eventInfoJson.getJSONArray("dnsAddresses")));
+            response.httpEventInfo.setDnsError(eventInfoJson.getStr("dnsError"));
             response.httpEventInfo.setConnectStart(eventInfoJson.getLong("connectStart", 0L));
             response.httpEventInfo.setSecureConnectStart(eventInfoJson.getLong("secureConnectStart", 0L));
             response.httpEventInfo.setSecureConnectEnd(eventInfoJson.getLong("secureConnectEnd", 0L));
@@ -510,6 +540,30 @@ public class HistoryPersistenceService {
             response.httpEventInfo.setCanceled(eventInfoJson.getLong("canceled", 0L));
             response.httpEventInfo.setQueueingCost(eventInfoJson.getLong("queueingCost", 0L));
             response.httpEventInfo.setStalledCost(eventInfoJson.getLong("stalledCost", 0L));
+            response.httpEventInfo.setRetryDecisionCount(eventInfoJson.getInt("retryDecisionCount", 0));
+            response.httpEventInfo.setRetryCount(eventInfoJson.getInt("retryCount", 0));
+            response.httpEventInfo.setFollowUpDecisionCount(eventInfoJson.getInt("followUpDecisionCount", 0));
+            response.httpEventInfo.setFollowUpCount(eventInfoJson.getInt("followUpCount", 0));
+
+            JSONArray routeAttempts = eventInfoJson.getJSONArray("routeAttempts");
+            if (routeAttempts != null) {
+                for (int i = 0; i < routeAttempts.size(); i++) {
+                    JSONObject routeAttempt = routeAttempts.getJSONObject(i);
+                    response.httpEventInfo.addRouteAttempt(new HttpRouteAttempt(
+                            routeAttempt.getStr("address"),
+                            routeAttempt.getStr("addressFamily"),
+                            routeAttempt.getLong("startTime", 0L),
+                            routeAttempt.getLong("endTime", 0L),
+                            routeAttempt.getLong("durationMs",
+                                    Math.max(0L, routeAttempt.getLong("endTime", 0L)
+                                            - routeAttempt.getLong("startTime", 0L))),
+                            routeAttempt.getBool("connected", false),
+                            routeAttempt.getBool("canceled", false),
+                            routeAttempt.getStr("protocol"),
+                            routeAttempt.getStr("error")
+                    ));
+                }
+            }
 
             String protocolStr = eventInfoJson.getStr("protocol");
             if (protocolStr != null && !protocolStr.isEmpty()) {
@@ -671,5 +725,19 @@ public class HistoryPersistenceService {
             ));
         }
         return urlencodedList;
+    }
+
+    private List<String> readStringList(JSONArray jsonArray) {
+        List<String> values = new ArrayList<>();
+        if (jsonArray == null) {
+            return values;
+        }
+        for (int i = 0; i < jsonArray.size(); i++) {
+            String value = jsonArray.getStr(i);
+            if (value != null && !value.isBlank()) {
+                values.add(value);
+            }
+        }
+        return values;
     }
 }

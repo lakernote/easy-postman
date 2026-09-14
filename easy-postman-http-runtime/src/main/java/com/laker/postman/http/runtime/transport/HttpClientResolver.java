@@ -4,6 +4,7 @@ import com.laker.postman.http.runtime.config.HttpRequestRuntimeSettingsResolver;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.model.HttpCapturePolicy;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
+import com.laker.postman.http.runtime.model.HttpExchangeKind;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.okhttp.DigestAuthenticator;
 import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
@@ -11,7 +12,9 @@ import com.laker.postman.http.runtime.okhttp.OkHttpExchangeEventListener;
 import com.laker.postman.http.runtime.ssl.SSLConfigurationUtil;
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.request.model.TransportAuth;
+import com.laker.postman.request.util.HttpUrlUtil;
 import okhttp3.CookieJar;
+import okhttp3.EventListener;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
 
@@ -25,17 +28,23 @@ public final class HttpClientResolver {
     static final HttpClientResolver DEFAULT = new HttpClientResolver();
 
     public OkHttpClient resolveClient(PreparedRequest request, HttpBaseClientProvider baseClientProvider) {
+        return resolveClient(request, baseClientProvider, HttpExchangeKind.HTTP);
+    }
+
+    OkHttpClient resolveClient(PreparedRequest request,
+                               HttpBaseClientProvider baseClientProvider,
+                               HttpExchangeKind exchangeKind) {
         OkHttpClient baseClient = baseClientProvider == null
                 ? resolveDefaultBaseClient(request)
                 : baseClientProvider.getBaseClient(request);
-        return buildDynamicClient(baseClient, request, request.requestTimeoutMs);
+        return buildDynamicClient(baseClient, request, request.requestTimeoutMs, exchangeKind);
     }
 
     OkHttpClient resolveDefaultBaseClient(PreparedRequest request) {
         String baseUri = extractBaseUri(request.url);
         boolean isolateSslConfiguration = shouldIsolateConnectionPool(request);
         return isolateSslConfiguration
-                ? OkHttpClientManager.createClientForSslMode(
+                ? OkHttpClientManager.getClientForSslMode(
                         baseUri,
                         request.followRedirects,
                         resolveSslVerificationMode(request),
@@ -51,7 +60,7 @@ public final class HttpClientResolver {
 
         URI uri;
         try {
-            uri = URI.create(preparedRequest.url);
+            uri = URI.create(HttpUrlUtil.normalizeIpv6Url(preparedRequest.url));
         } catch (Exception e) {
             return false;
         }
@@ -86,7 +95,8 @@ public final class HttpClientResolver {
 
     private OkHttpClient buildDynamicClient(OkHttpClient baseClient,
                                             PreparedRequest preparedRequest,
-                                            int timeoutMs) {
+                                            int timeoutMs,
+                                            HttpExchangeKind exchangeKind) {
         OkHttpClient.Builder builder = baseClient.newBuilder();
         HttpCapturePolicy capturePolicy = HttpCaptureProfiles.resolve(preparedRequest);
         boolean needEventListener = capturePolicy.collectMetrics()
@@ -106,7 +116,9 @@ public final class HttpClientResolver {
         applyWebSocketSettings(builder, preparedRequest);
 
         if (needEventListener) {
-            builder.eventListenerFactory(call -> new OkHttpExchangeEventListener(preparedRequest));
+            EventListener.Factory existingFactory = baseClient.eventListenerFactory();
+            builder.eventListenerFactory(call -> new OkHttpExchangeEventListener(preparedRequest, exchangeKind)
+                    .plus(existingFactory.create(call)));
         }
 
         if (timeoutMs > 0) {

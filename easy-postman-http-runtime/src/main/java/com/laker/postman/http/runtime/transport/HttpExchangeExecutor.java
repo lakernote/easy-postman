@@ -63,7 +63,7 @@ public final class HttpExchangeExecutor {
         try {
             okResponse = call.execute();
         } finally {
-            HttpExchangeTraceSupport.attachToResponse(httpResponse, queueStartMs);
+            HttpExchangeTraceSupport.attachToResponse(httpResponse, queueStartMs, request);
         }
         OkHttpResponseHandler.handleResponse(
                 okResponse,

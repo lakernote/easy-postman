@@ -19,12 +19,13 @@ import java.util.concurrent.TimeUnit;
 import static com.laker.postman.request.util.HttpUrlUtil.extractBaseUri;
 
 /**
- * OkHttpClient 管理器，按 baseUri（协议+host+port）分配连接池和 OkHttpClient
- * 连接池参数参考 Chrome：每 host 6 个连接，保活 90 秒
+ * OkHttpClient 管理器，按传输配置共享连接池和 OkHttpClient。
+ * OkHttp 的连接池会按 Address 隔离不同目标，Client 无需再按 host 重复创建；
+ * mTLS、代理和 SSL 模式仍通过缓存 key 隔离。
  */
 @Slf4j
 public class OkHttpClientManager {
-    // 每个 baseUri 一个连接池和 OkHttpClient
+    // 相同传输配置共享 Client，避免访问大量域名后无限累积 Dispatcher/ConnectionPool。
     private static final Map<String, OkHttpClient> clientMap = new ConcurrentHashMap<>();
     // 连接池参数
     private static final int MAX_IDLE_CONNECTIONS = 6;
@@ -74,25 +75,61 @@ public class OkHttpClientManager {
 
     public static OkHttpClient getClient(String baseUri, boolean followRedirects, HttpRequestProxyPolicy proxyPolicy) {
         HttpRequestProxyPolicy resolvedProxyPolicy = HttpRequestProxyPolicy.normalize(proxyPolicy);
-        // 将代理配置也作为客户端缓存key的一部分，确保代理设置变更时重新创建客户端
-        String proxyKey = getProxyConfigKey(baseUri, resolvedProxyPolicy);
-        String key = baseUri + "|" + followRedirects + "|" + proxyKey;
-
-        return clientMap.computeIfAbsent(key, k -> createClient(
+        return getOrCreateClient(
                 baseUri,
                 followRedirects,
                 resolveSslVerificationMode(baseUri, resolvedProxyPolicy),
                 resolvedProxyPolicy
-        ));
+        );
     }
 
+    /**
+     * @deprecated use {@link #getClientForSslMode(String, boolean, SSLConfigurationUtil.SSLVerificationMode, HttpRequestProxyPolicy)}.
+     */
+    @Deprecated
     public static OkHttpClient createClientForSslMode(String baseUri,
                                                       boolean followRedirects,
                                                       SSLConfigurationUtil.SSLVerificationMode sslMode,
                                                       HttpRequestProxyPolicy proxyPolicy) {
+        return getClientForSslMode(baseUri, followRedirects, sslMode, proxyPolicy);
+    }
+
+    public static OkHttpClient getClientForSslMode(String baseUri,
+                                                   boolean followRedirects,
+                                                   SSLConfigurationUtil.SSLVerificationMode sslMode,
+                                                   HttpRequestProxyPolicy proxyPolicy) {
         HttpRequestProxyPolicy resolvedProxyPolicy = HttpRequestProxyPolicy.normalize(proxyPolicy);
-        Dispatcher sharedDispatcher = getClient(baseUri, followRedirects, resolvedProxyPolicy).dispatcher();
-        return createClient(baseUri, followRedirects, sslMode, sharedDispatcher, resolvedProxyPolicy);
+        OkHttpClient baseClient = getClient(baseUri, followRedirects, resolvedProxyPolicy);
+        String key = buildClientProfileKey(baseUri, followRedirects, sslMode, resolvedProxyPolicy);
+        return clientMap.computeIfAbsent(key,
+                ignored -> createClient(
+                        baseUri,
+                        followRedirects,
+                        sslMode,
+                        baseClient.dispatcher(),
+                        resolvedProxyPolicy
+                ));
+    }
+
+    private static OkHttpClient getOrCreateClient(String baseUri,
+                                                  boolean followRedirects,
+                                                  SSLConfigurationUtil.SSLVerificationMode sslMode,
+                                                  HttpRequestProxyPolicy proxyPolicy) {
+        String key = buildClientProfileKey(baseUri, followRedirects, sslMode, proxyPolicy);
+        return clientMap.computeIfAbsent(key,
+                ignored -> createClient(baseUri, followRedirects, sslMode, proxyPolicy));
+    }
+
+    private static String buildClientProfileKey(String baseUri,
+                                                boolean followRedirects,
+                                                SSLConfigurationUtil.SSLVerificationMode sslMode,
+                                                HttpRequestProxyPolicy proxyPolicy) {
+        URI uri = tryParseUri(baseUri, "HTTP client cache key");
+        String transport = uri != null && isSecureScheme(uri.getScheme()) ? "secure" : "plain";
+        return transport
+                + "|redirects:" + followRedirects
+                + "|sslMode:" + sslMode
+                + "|" + getProxyConfigKey(baseUri, proxyPolicy);
     }
 
     /**
@@ -333,9 +370,14 @@ public class OkHttpClientManager {
                         TimeUnit.SECONDS
                 ))
                 .retryOnConnectionFailure(true)
+                // Prefer IPv6 on dual-stack hosts while quickly falling back to IPv4
+                // when the IPv6 path is unavailable (Happy Eyeballs / RFC 8305).
+                .fastFallback(true)
                 .followRedirects(followRedirects)
                 .cache(null)
-                .pingInterval(30, TimeUnit.SECONDS);
+                // Ordinary HTTP/2 calls should not keep idle connections alive forever.
+                // Realtime requests apply their own ping policy in HttpClientResolver.
+                .pingInterval(0, TimeUnit.SECONDS);
 
         builder.cookieJar(cookieJar == null ? GLOBAL_COOKIE_JAR : cookieJar);
         configureProxy(builder, baseUri, proxyPolicy);

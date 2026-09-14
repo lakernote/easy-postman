@@ -54,6 +54,7 @@ import java.net.URL;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1090,11 +1091,20 @@ public class DefaultHttpTransportIntegrationTest {
         PreparedRequest request = createRequest("GET", serverUrl("/strict-secure-ping"));
         request.sslVerificationEnabled = true;
 
-        SSLHandshakeException exception = expectThrows(SSLHandshakeException.class,
+        Exception exception = expectThrows(Exception.class,
                 () -> httpTransport.execute(request, HttpExchangeOptions.defaults()));
 
-        assertNotNull(exception.getMessage());
-        assertFalse(exception.getMessage().isBlank());
+        Throwable handshakeFailure = exception instanceof SSLHandshakeException
+                ? exception
+                : Arrays.stream(exception.getSuppressed())
+                .filter(SSLHandshakeException.class::isInstance)
+                .findFirst()
+                .orElse(null);
+        assertNotNull(handshakeFailure,
+                "Strict SSL failure should remain visible when Happy Eyeballs aggregates address failures: "
+                        + exception);
+        assertNotNull(handshakeFailure.getMessage());
+        assertFalse(handshakeFailure.getMessage().isBlank());
         assertEquals(server.getRequestCount(), 0);
     }
 

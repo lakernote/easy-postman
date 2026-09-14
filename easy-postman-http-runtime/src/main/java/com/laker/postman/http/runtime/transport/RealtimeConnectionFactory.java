@@ -2,6 +2,7 @@ package com.laker.postman.http.runtime.transport;
 
 import com.laker.postman.http.runtime.cookie.HttpCookieStore;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
+import com.laker.postman.http.runtime.model.HttpExchangeKind;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.observation.HttpLifecycleLogSink;
 import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
@@ -16,6 +17,7 @@ import okhttp3.sse.EventSourceListener;
 import okhttp3.sse.EventSources;
 
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class RealtimeConnectionFactory {
     private final HttpClientResolver clientResolver;
@@ -28,22 +30,27 @@ public final class RealtimeConnectionFactory {
                                                       EventSourceListener listener,
                                                       RealtimeConnectionOptions options) {
         RealtimeConnectionOptions resolvedOptions = options == null ? RealtimeConnectionOptions.defaults() : options;
-        return OkHttpRealtimeConnectionHandles.sse(openSse(
+        AtomicBoolean cancellationRequested = new AtomicBoolean();
+        EventSource eventSource = openSse(
                 request,
                 listener,
-                resolvedOptions.getBaseClientProvider()
-        ));
+                resolvedOptions.getBaseClientProvider(),
+                cancellationRequested
+        );
+        return OkHttpRealtimeConnectionHandles.sse(eventSource, cancellationRequested);
     }
 
     private EventSource openSse(PreparedRequest request,
                                 EventSourceListener listener,
-                                HttpBaseClientProvider baseClientProvider) {
-        OkHttpClient customClient = clientResolver.resolveClient(request, baseClientProvider);
+                                HttpBaseClientProvider baseClientProvider,
+                                AtomicBoolean cancellationRequested) {
+        OkHttpClient customClient = clientResolver.resolveClient(
+                request, baseClientProvider, HttpExchangeKind.ASYNC_SSE);
         Request okRequest = PreparedOkHttpRequestFactory.build(request);
-        logSseCallStart(request, okRequest);
         EventSourceListener wrappedListener = wrapSseCookieChangeListener(listener, request);
         if (NetworkLogSupport.isEnabled(request)) {
-            wrappedListener = new SseNetworkLogEventSourceListener(wrappedListener, request);
+            wrappedListener = new SseNetworkLogEventSourceListener(
+                    wrappedListener, request, cancellationRequested::get);
         }
         return EventSources.createFactory(customClient)
                 .newEventSource(okRequest, wrappedListener);
@@ -65,9 +72,10 @@ public final class RealtimeConnectionFactory {
                                     WebSocketListener listener,
                                     HttpBaseClientProvider baseClientProvider,
                                     boolean lifecycleLoggingEnabled) {
-        OkHttpClient customClient = clientResolver.resolveClient(request, baseClientProvider);
+        OkHttpClient customClient = clientResolver.resolveClient(
+                request, baseClientProvider, HttpExchangeKind.WEBSOCKET);
         Request okRequest = PreparedOkHttpRequestFactory.build(request);
-        logRealtimeCallStart(request, okRequest);
+        logWebSocketCallStart(request, okRequest);
         WebSocketListener snapshotListener = NetworkLogSupport.isEnabled(request)
                 ? new WebSocketNetworkLogListener(listener, request)
                 : listener;
@@ -77,6 +85,33 @@ public final class RealtimeConnectionFactory {
                 lifecycleLoggingEnabled,
                 request != null ? request.lifecycleLogSink : HttpLifecycleLogSink.noop()
         ));
+    }
+
+    private void logWebSocketCallStart(PreparedRequest request, Request okRequest) {
+        if (okRequest == null || !isWebSocketUrl(request != null ? request.url : null)) {
+            return;
+        }
+        String websocketUrl = valueOrDash(request.url);
+        String scheme = websocketUrl.toLowerCase(Locale.ROOT).startsWith("wss://") ? "wss://" : "ws://";
+        String flow = scheme.equals("wss://")
+                ? "TLS + HTTP/1.1 GET + Upgrade: websocket"
+                : "HTTP/1.1 GET + Upgrade: websocket";
+        NetworkLogSupport.append(request, NetworkLogEventStage.CALL_START,
+                "\nWebSocket URL: " + websocketUrl + "\n"
+                        + "Handshake Request: " + okRequest.method() + " " + okRequest.url() + "\n"
+                        + "Upgrade Flow: " + scheme + " -> " + flow + "\n");
+    }
+
+    private boolean isWebSocketUrl(String url) {
+        if (url == null) {
+            return false;
+        }
+        String lower = url.toLowerCase(Locale.ROOT);
+        return lower.startsWith("ws://") || lower.startsWith("wss://");
+    }
+
+    private String valueOrDash(String value) {
+        return value == null || value.isBlank() ? "-" : value;
     }
 
     WebSocketListener wrapWebSocketListener(WebSocketListener listener, boolean lifecycleLoggingEnabled) {
@@ -91,74 +126,6 @@ public final class RealtimeConnectionFactory {
         return lifecycleLoggingEnabled
                 ? new WebSocketLifecycleLogListener(resolvedListener, lifecycleLogSink)
                 : resolvedListener;
-    }
-
-    private void logRealtimeCallStart(PreparedRequest request, Request okRequest) {
-        if (okRequest == null) {
-            return;
-        }
-        if (isWebSocketRequest(request)) {
-            NetworkLogSupport.append(request, NetworkLogEventStage.CALL_START,
-                    formatWebSocketCallStart(request, okRequest));
-            return;
-        }
-        NetworkLogSupport.append(request, NetworkLogEventStage.CALL_START,
-                okRequest.method() + " " + okRequest.url());
-    }
-
-    private void logSseCallStart(PreparedRequest request, Request okRequest) {
-        if (okRequest == null) {
-            return;
-        }
-        String sseUrl = valueOrDash(request != null ? request.url : null);
-        StringBuilder sb = new StringBuilder("\n");
-        sb.append("SSE URL: ").append(sseUrl).append("\n");
-        sb.append("Stream Request: ").append(okRequest.method()).append(" ").append(okRequest.url()).append("\n");
-        sb.append("Stream Flow: HTTP ").append(okRequest.method())
-                .append(" + text/event-stream response body stays open\n");
-        NetworkLogSupport.append(request, NetworkLogEventStage.CALL_START, sb.toString());
-    }
-
-    private String formatWebSocketCallStart(PreparedRequest request, Request okRequest) {
-        String websocketUrl = valueOrDash(request != null ? request.url : null);
-        StringBuilder sb = new StringBuilder("\n");
-        sb.append("WebSocket URL: ").append(websocketUrl).append("\n");
-        sb.append("Handshake Request: ").append(okRequest.method()).append(" ").append(okRequest.url()).append("\n");
-        sb.append("Upgrade Flow: ").append(webSocketSchemeLabel(websocketUrl))
-                .append(" -> ")
-                .append(webSocketUpgradeFlow(websocketUrl))
-                .append("\n");
-        return sb.toString();
-    }
-
-    private boolean isWebSocketRequest(PreparedRequest request) {
-        return request != null && isWebSocketUrl(request.url);
-    }
-
-    private boolean isWebSocketUrl(String url) {
-        if (url == null) {
-            return false;
-        }
-        String lower = url.toLowerCase(Locale.ROOT);
-        return lower.startsWith("ws://") || lower.startsWith("wss://");
-    }
-
-    private String webSocketSchemeLabel(String url) {
-        if (url != null && url.toLowerCase(Locale.ROOT).startsWith("wss://")) {
-            return "wss://";
-        }
-        return "ws://";
-    }
-
-    private String webSocketUpgradeFlow(String url) {
-        if (url != null && url.toLowerCase(Locale.ROOT).startsWith("wss://")) {
-            return "TLS + HTTP/1.1 GET + Upgrade: websocket";
-        }
-        return "HTTP/1.1 GET + Upgrade: websocket";
-    }
-
-    private String valueOrDash(String value) {
-        return value == null || value.isBlank() ? "-" : value;
     }
 
     private EventSourceListener wrapSseCookieChangeListener(EventSourceListener listener,

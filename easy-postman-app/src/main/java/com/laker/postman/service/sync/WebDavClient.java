@@ -1,5 +1,6 @@
 package com.laker.postman.service.sync;
 
+import com.laker.postman.request.util.HttpUrlUtil;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.Credentials;
 import okhttp3.HttpUrl;
@@ -40,11 +41,16 @@ public class WebDavClient {
     private final String password;
 
     public WebDavClient(String serverUrl, String remoteDirectory, String username, String password) {
-        this(new OkHttpClient(), serverUrl, remoteDirectory, username, password);
+        // Keep this standalone constructor IPv6-capable too. The normal sync
+        // path injects the centrally configured runtime client, but this
+        // public convenience path must not regress to a plain OkHttp client.
+        this(new OkHttpClient.Builder().fastFallback(true).build(),
+                serverUrl, remoteDirectory, username, password);
     }
 
     WebDavClient(OkHttpClient client, String serverUrl, String remoteDirectory, String username, String password) {
-        HttpUrl parsedUrl = HttpUrl.parse(serverUrl == null ? "" : serverUrl.trim());
+        String normalizedServerUrl = HttpUrlUtil.normalizeIpv6Url(serverUrl == null ? "" : serverUrl.trim());
+        HttpUrl parsedUrl = HttpUrl.parse(normalizedServerUrl);
         if (parsedUrl == null) {
             throw new IllegalArgumentException("Invalid WebDAV server URL");
         }

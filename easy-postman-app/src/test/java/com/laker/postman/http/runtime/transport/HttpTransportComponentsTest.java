@@ -106,7 +106,7 @@ public class HttpTransportComponentsTest {
     }
 
     @Test
-    public void shouldNotBindExchangeTraceToThreadLocalBeforeCallStart() {
+    public void shouldBindExchangeTraceToPreparedRequestWithoutThreadLocalState() {
         PreparedRequest request = new PreparedRequest();
         request.collectMetricsInfo = true;
         request.collectEventInfo = true;
@@ -114,12 +114,11 @@ public class HttpTransportComponentsTest {
 
         new OkHttpExchangeEventListener(request);
 
-        assertEquals(OkHttpExchangeEventListener.getAndRemove(), null);
+        assertTrue(request.exchangeEventInfo != null);
     }
 
     @Test
-    public void shouldFallbackToCallbackThreadWhenRealtimeTraceThreadIsMissing() {
-        OkHttpExchangeEventListener.getAndRemove();
+    public void shouldFallbackToCallbackThreadWhenTraceThreadIsMissing() {
         PreparedRequest request = new PreparedRequest();
         request.exchangeEventInfo = new HttpEventInfo();
         HttpResponse response = new HttpResponse();

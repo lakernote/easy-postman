@@ -9,27 +9,31 @@ import okhttp3.Response;
 import okhttp3.sse.EventSource;
 import okhttp3.sse.EventSourceListener;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * SSE 网络日志装饰器：只记录握手响应和生命周期，不改变业务回调语义。
  */
 final class SseNetworkLogEventSourceListener extends EventSourceListener {
     private final EventSourceListener delegate;
     private final PreparedRequest preparedRequest;
+    private final BooleanSupplier cancellationRequested;
     private boolean requestSnapshotLogged;
     private boolean responseSnapshotLogged;
-    private boolean streamOpened;
     private boolean terminalLogged;
 
-    SseNetworkLogEventSourceListener(EventSourceListener delegate, PreparedRequest preparedRequest) {
+    SseNetworkLogEventSourceListener(EventSourceListener delegate,
+                                     PreparedRequest preparedRequest,
+                                     BooleanSupplier cancellationRequested) {
         this.delegate = delegate == null ? new EventSourceListener() {
         } : delegate;
         this.preparedRequest = preparedRequest;
+        this.cancellationRequested = cancellationRequested == null ? () -> false : cancellationRequested;
     }
 
     @Override
     public void onOpen(EventSource eventSource, Response response) {
         logResponseSnapshot(response);
-        streamOpened = true;
         log(NetworkLogEventStage.RESPONSE_BODY_START, "SSE stream opened");
         delegate.onOpen(eventSource, response);
     }
@@ -48,14 +52,13 @@ final class SseNetworkLogEventSourceListener extends EventSourceListener {
     @Override
     public void onFailure(EventSource eventSource, Throwable t, Response response) {
         logResponseSnapshot(response);
-        if (streamOpened && isSocketClosed(t)) {
-            logStreamClosed();
-            delegate.onFailure(eventSource, t, response);
-            return;
-        }
-        if (t != null) {
+        if (!terminalLogged) {
             terminalLogged = true;
-            log(NetworkLogEventStage.CALL_FAILED, t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage());
+            if (cancellationRequested.getAsBoolean()) {
+                log(NetworkLogEventStage.CANCELED, terminalMessage(t, "SSE stream canceled"));
+            } else {
+                log(NetworkLogEventStage.CALL_FAILED, terminalMessage(t, "SSE stream failed"));
+            }
         }
         delegate.onFailure(eventSource, t, response);
     }
@@ -114,11 +117,11 @@ final class SseNetworkLogEventSourceListener extends EventSourceListener {
         log(NetworkLogEventStage.CALL_END, "SSE stream closed");
     }
 
-    private boolean isSocketClosed(Throwable t) {
-        if (t == null || t.getMessage() == null) {
-            return false;
+    private String terminalMessage(Throwable throwable, String fallback) {
+        if (throwable == null || throwable.getMessage() == null || throwable.getMessage().isBlank()) {
+            return fallback;
         }
-        return "Socket closed".equalsIgnoreCase(t.getMessage());
+        return throwable.getMessage();
     }
 
     private void log(NetworkLogEventStage stage, String message) {

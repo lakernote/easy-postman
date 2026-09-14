@@ -11,10 +11,17 @@ public class TimingCalculator {
     }
 
     public long getTotal() {
-        return calculateDuration(info.getCallStart(), info.getCallEnd());
+        return calculateDuration(info.getCallStart(), terminalTime());
     }
 
     public long getQueueing() {
+        long dispatcherQueueing = calculateDuration(
+                info.getDispatcherQueueStart(),
+                info.getDispatcherQueueEnd()
+        );
+        if (dispatcherQueueing >= 0) {
+            return dispatcherQueueing;
+        }
         return info.getQueueingCost() > 0 ? info.getQueueingCost() :
                 calculateDuration(info.getQueueStart(), info.getCallStart());
     }
@@ -86,6 +93,10 @@ public class TimingCalculator {
         return info.getConnectStart() <= 0 || info.getConnectionAcquired() < info.getConnectStart();
     }
 
+    private long terminalTime() {
+        return Math.max(info.getCallEnd(), Math.max(info.getCallFailed(), info.getCanceled()));
+    }
+
     private long calculateDuration(long start, long end) {
         if (start <= 0 || end <= 0 || end < start) {
             return -1;
@@ -107,6 +118,7 @@ public class TimingCalculator {
             return -1;
         }
         long earliest = Long.MAX_VALUE;
+        earliest = minPositiveAtOrAfter(earliest, callStart, info.getDispatcherQueueStart());
         earliest = minPositiveAtOrAfter(earliest, callStart, info.getProxySelectStart());
         earliest = minPositiveAtOrAfter(earliest, callStart, info.getDnsStart());
         earliest = minPositiveAtOrAfter(earliest, callStart, info.getConnectStart());

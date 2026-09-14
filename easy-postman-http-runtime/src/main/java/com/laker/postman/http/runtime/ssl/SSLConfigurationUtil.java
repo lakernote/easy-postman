@@ -3,6 +3,7 @@ package com.laker.postman.http.runtime.ssl;
 import com.laker.postman.certificate.TrustedCertificateEntry;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.observation.HttpLifecycleLogSink;
+import com.laker.postman.request.util.HttpUrlUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
@@ -107,6 +108,7 @@ public class SSLConfigurationUtil {
                                     int port,
                                     HttpLifecycleLogSink logSink) {
         try {
+            host = HttpUrlUtil.normalizeHost(host);
             // 查找并加载匹配的客户端证书
             KeyManager[] keyManagers = loadClientCertificate(host, port, logSink);
 
@@ -175,6 +177,7 @@ public class SSLConfigurationUtil {
     }
 
     public static String clientCertificateCacheKey(String host, int port) {
+        host = HttpUrlUtil.normalizeHost(host);
         if (host == null || host.isBlank()) {
             return "clientCert:none";
         }

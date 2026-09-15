@@ -68,28 +68,28 @@
         <miglayout.version>11.4.3</miglayout.version>
         <hutool.version>5.8.47</hutool.version>
         <logback-classic.version>1.6.3</logback-classic.version>
-        <jfreechart.version>1.5.5</jfreechart.version>
+        <jfreechart.version>1.5.6</jfreechart.version>
         <okhttp.version>5.5.0</okhttp.version>
         <kafka.version>3.9.2</kafka.version>
         <polyglot.version>24.2.1</polyglot.version>
-        <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
+        <org.eclipse.jgit.version>7.8.0.202609011348-r</org.eclipse.jgit.version>
         <!-- Keep Jackson aligned with the official MCP Java SDK JSON provider. -->
-        <jackson.version>3.1.4</jackson.version>
+        <jackson.version>3.2.2</jackson.version>
         <mcp.version>2.0.1</mcp.version>
         <lombok.version>1.18.48</lombok.version>
         <twelvemonkeys.version>3.15.0</twelvemonkeys.version>
         <!-- Keep the Kotlin runtime aligned with OkHttp 5.5.0. -->
-        <kotlin.version>2.1.21</kotlin.version>
+        <kotlin.version>2.4.20</kotlin.version>
         <rsyntaxtextarea.version>3.5.4</rsyntaxtextarea.version>
         <autocomplete.version>3.3.2</autocomplete.version>
-        <slf4j.version>2.0.17</slf4j.version>
+        <slf4j.version>2.0.19</slf4j.version>
         <testng.version>7.12.0</testng.version>
         <jedis.version>5.2.0</jedis.version>
         <cfr.version>0.152</cfr.version>
 
-        <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
-        <maven.jar.plugin.version>3.4.2</maven.jar.plugin.version>
-        <maven.resources.plugin.version>3.4.0</maven.resources.plugin.version>
+        <maven.compiler.plugin.version>3.16.0</maven.compiler.plugin.version>
+        <maven.jar.plugin.version>3.5.1</maven.jar.plugin.version>
+        <maven.resources.plugin.version>3.5.0</maven.resources.plugin.version>
         <maven.shade.plugin.version>3.6.2</maven.shade.plugin.version>
     </properties>
 

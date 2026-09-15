@@ -110,6 +110,22 @@ if (Number(input.amount) === 0.5) {
 
 ---
 
+## 🤖 MCP 与 AI 客户端
+
+- ✅ 内置标准 MCP stdio Server，可连接 Codex、Claude Desktop、Claude Code、Cursor 等本地客户端
+- ✅ 原生安装包和 Windows 便携版内置 `EasyPostmanMCP` 与 JRE，不需要另装 Java 或单独下载 MCP
+- ✅ 列出已授权工作区、集合、环境和已保存请求；环境列表不返回变量值
+- ✅ 按每次 Tool 调用选择 `workspaceId` 和 `environmentId`，不修改桌面端当前选择
+- ✅ 执行单个已保存 HTTP 请求或整个顶层集合，复用变量继承、前后置脚本、断言、Cookie、TLS 和 HTTP 执行链
+- ✅ 支持一次性 `environmentOverrides`，只在内存中生效，不写回工作区
+- ✅ MCP 进程与桌面应用可同时运行；一个连接内复用同一进程，不会为每个 API 调用重复启动
+- ✅ 响应体和明细有上限，常见认证数据与错误路径会脱敏，stdout 只输出 MCP JSON-RPC
+- 🔒 MCP 可发起真实外部请求并把响应返回客户端，仅应授权可信客户端和必要工作区
+
+安装与完整边界见 [MCP Server 文档](MCP_SERVER_DESIGN_zh.md)。
+
+---
+
 ## 🌍 环境管理
 
 - ✅ 多环境快速切换（开发/测试/生产）
@@ -256,7 +272,8 @@ if (Number(input.amount) === 0.5) {
 
 ## 🔒 隐私与安全
 
-- ✅ **100% 本地存储**：无云同步，数据完全私密
+- ✅ **默认本地存储**：不启用 Git 同步或 MCP 时，工作区数据不会主动上传
+- 🔒 **连接由用户控制**：Git 远程、被测 API 和 MCP 客户端都可能接收用户显式发送的数据
 - ✅ **无遥测**：无跟踪，无分析
 - ✅ **离线优先**：完全离线工作
 - ✅ **开源**：代码透明可审查

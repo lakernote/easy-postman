@@ -4,11 +4,13 @@
     <define name="LOG_HOME" class="com.laker.postman.logging.LogHomePropertyDefiner"/>
     <!-- 支持通过系统属性覆盖日志级别，默认为 INFO -->
     <property name="LOG_LEVEL" value="${LOG_LEVEL:-INFO}"/>
-    <!-- 控制台日志可通过 -DCONSOLE_LOG_LEVEL=ERROR 手动收敛；默认保持 INFO，方便 headless 排查。 -->
+    <!-- MCP 模式会在日志初始化前将这些级别默认设为 OFF；可用 -D 参数显式开启诊断。 -->
     <property name="CONSOLE_LOG_LEVEL" value="${CONSOLE_LOG_LEVEL:-INFO}"/>
+    <property name="HTTP_LOG_LEVEL" value="${HTTP_LOG_LEVEL:-DEBUG}"/>
 
-    <!-- 控制台输出配置 - 将日志信息输出到控制台 -->
+    <!-- 控制台日志统一写 stderr，避免污染 CLI/MCP 在 stdout 上的结构化输出。 -->
     <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
         <!-- 立即刷新输出，确保实时显示 -->
         <immediateFlush>true</immediateFlush>
         <!-- 日志输出格式编码器 -->
@@ -114,7 +116,7 @@
 
     <!-- 特定包的日志配置 - HTTP 客户端日志 -->
     <!-- 专门配置 okhttp3 网络库的日志记录行为 -->
-    <logger name="okhttp3" level="DEBUG" additivity="false">
+    <logger name="okhttp3" level="${HTTP_LOG_LEVEL}" additivity="false">
         <!-- name: 指定 logger 名称，匹配 okhttp3.* 包下的所有类 -->
         <!-- level: 设置为 DEBUG 级别，记录详细的HTTP请求/响应信息 -->
         <!-- additivity: 设为 false，阻止日志向父 logger 传播，避免重复记录 -->

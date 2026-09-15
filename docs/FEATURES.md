@@ -110,6 +110,22 @@ if (Number(input.amount) === 0.5) {
 
 ---
 
+## 🤖 MCP and AI Clients
+
+- ✅ Built-in standard MCP stdio Server for local clients such as Codex, Claude Desktop, Claude Code, and Cursor
+- ✅ Native installers and the Windows portable package bundle `EasyPostmanMCP` with a JRE; no separate Java or MCP download is required
+- ✅ List authorized workspaces, collections, environments, and saved requests without exposing environment values
+- ✅ Select `workspaceId` and `environmentId` per tool call without changing the desktop app's current selection
+- ✅ Run one saved HTTP request or a top-level collection through the existing inheritance, scripts, assertions, cookies, TLS, and HTTP execution pipeline
+- ✅ Apply one-time `environmentOverrides` in memory without modifying workspace files
+- ✅ Run alongside the desktop app and reuse one MCP process for the connection instead of restarting for every API call
+- ✅ Bound response bodies and details, redact common credentials and error paths, and reserve stdout for MCP JSON-RPC
+- 🔒 MCP can make real external requests and return API responses to its client; authorize only trusted clients and required workspaces
+
+See the [MCP Server guide](MCP_SERVER_DESIGN_zh.md) for installation and complete boundaries.
+
+---
+
 ## 🌍 Environment Management
 
 - ✅ Quick environment switching (dev/test/prod)
@@ -256,7 +272,8 @@ if (Number(input.amount) === 0.5) {
 
 ## 🔒 Privacy & Security
 
-- ✅ **100% Local Storage**: No cloud sync, your data stays private
+- ✅ **Local Storage by Default**: Workspace data is not uploaded unless Git sync or MCP is explicitly configured
+- 🔒 **User-Controlled Connections**: Git remotes, target APIs, and MCP clients can receive data that the user explicitly sends
 - ✅ **No Telemetry**: No tracking, no analytics
 - ✅ **Offline First**: Works completely offline
 - ✅ **Open Source**: Code is transparent and auditable

@@ -191,6 +191,7 @@ jobs:
             '--input', 'target\dist-input',
             '--main-jar', $jarName,
             '--main-class', 'com.laker.postman.App',
+            '--add-launcher', 'EasyPostmanMCP=build\easy-postman-mcp-launcher.properties',
             '--runtime-image', 'target\runtime',
             '--dest', 'target',
             '--icon', 'assets\win\EasyPostman.ico',
@@ -216,6 +217,10 @@ jobs:
           
           # 执行 jpackage
           & jpackage @jpackageArgs
+
+          if (-not (Test-Path "target\EasyPostman\EasyPostmanMCP.exe")) {
+            throw "MCP launcher was not created"
+          }
 
       - name: Package portable version（打包绿色版为 ZIP）
         shell: pwsh
@@ -339,6 +344,7 @@ jobs:
             '--input', 'target\dist-input',
             '--main-jar', $jarName,
             '--main-class', 'com.laker.postman.App',
+            '--add-launcher', 'EasyPostmanMCP=build\easy-postman-mcp-launcher.properties',
             '--runtime-image', 'target\runtime',
             '--dest', 'target',
             '--icon', 'assets\win\EasyPostman.ico',
@@ -364,6 +370,10 @@ jobs:
           
           # 执行 jpackage
           & jpackage @jpackageArgs
+
+          if (-not (Test-Path "target\EasyPostman\EasyPostmanMCP.exe")) {
+            throw "MCP launcher was not created"
+          }
           
           Write-Host "✅ App image created at: target\EasyPostman"
 
@@ -500,6 +510,7 @@ jobs:
             --input target/dist-input
             --main-jar "easy-postman.jar"
             --main-class com.laker.postman.App
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties
             --runtime-image target/runtime
             --type dmg
             --name "EasyPostman"
@@ -601,6 +612,7 @@ jobs:
             --input target/dist-input
             --main-jar "easy-postman.jar"
             --main-class com.laker.postman.App
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties
             --runtime-image target/runtime
             --type dmg
             --name "EasyPostman"
@@ -722,6 +734,7 @@ jobs:
             --input target/dist-input
             --main-jar "easy-postman.jar"
             --main-class com.laker.postman.App
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties
             --runtime-image target/runtime
             --type deb
             --name "EasyPostman"
@@ -837,6 +850,7 @@ jobs:
             --input target/dist-input
             --main-jar "easy-postman.jar"
             --main-class com.laker.postman.App
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties
             --runtime-image target/runtime
             --type deb
             --name "EasyPostman"
@@ -956,6 +970,7 @@ jobs:
             --input target/dist-input
             --main-jar "easy-postman.jar"
             --main-class com.laker.postman.App
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties
             --runtime-image target/runtime
             --type rpm
             --name "EasyPostman"
@@ -1049,6 +1064,7 @@ jobs:
             --input target/dist-input
             --main-jar "easy-postman.jar"
             --main-class com.laker.postman.App
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties
             --runtime-image target/runtime
             --type rpm
             --name "EasyPostman"

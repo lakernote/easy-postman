@@ -34,7 +34,8 @@ public class AppCommandRouterTest {
                 {new String[]{"performance", "master", "run", "--help"}},
                 {new String[]{"collection", "run", "--help"}},
                 {new String[]{"functional", "run", "--help"}},
-                {new String[]{"mock", "run", "--help"}}
+                {new String[]{"mock", "run", "--help"}},
+                {new String[]{"mcp", "serve", "--help"}}
         };
     }
 
@@ -101,6 +102,21 @@ public class AppCommandRouterTest {
         assertTrue(exitCode.isPresent());
         assertEquals(exitCode.getAsInt(), 0);
         assertTrue(stdout.toString().contains("mock run <workspace-directory>"));
+    }
+
+    @Test
+    public void shouldRouteMcpCommandsBeforeSwingStartup() {
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+
+        OptionalInt exitCode = new AppCommandRouter().route(
+                new String[]{"mcp", "serve", "--help"},
+                new PrintStream(stdout),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+
+        assertTrue(exitCode.isPresent());
+        assertEquals(exitCode.getAsInt(), 0);
+        assertTrue(stdout.toString().contains("mcp serve [workspace-directory]"));
     }
 
     @Test

@@ -49,16 +49,20 @@ mvn clean package -DskipTests
 ```
 
 This will generate:
-- `target/easy-postman-{version}.jar` - Executable JAR file
+- `easy-postman-app/target/easy-postman-{version}.jar` - Main executable JAR
+- `easy-postman-mcp/target/easy-postman-mcp-{version}.jar` - MCP protocol module; it is merged into the main release JAR and is not distributed separately
 
 ### 3. Run the Application
 
 ```bash
 # Run directly
-java -jar target/easy-postman-*.jar
+java -jar easy-postman-app/target/easy-postman-*.jar
 
 # Or with custom JVM options
-java -Xms256m -Xmx2g -jar target/easy-postman-*.jar
+java -Xms256m -Xmx2g -jar easy-postman-app/target/easy-postman-*.jar
+
+# Verify the MCP Server included in the main JAR
+java -jar easy-postman-app/target/easy-postman-*.jar mcp serve --help
 ```
 
 ---
@@ -82,18 +86,25 @@ chmod +x build/mac.sh
 ./build/mac.sh
 ```
 
-**Output**: `target/EasyPostman-{version}-macos-{arch}.dmg`
+**Output**: `dist/EasyPostman-{version}-macos-{arch}.dmg`
 - For Apple Silicon (M1/M2/M3/M4): `macos-arm64.dmg`
 - For Intel: `macos-x86_64.dmg`
+- The installed app contains both `Contents/MacOS/EasyPostman` and `Contents/MacOS/EasyPostmanMCP`, sharing the main JAR and bundled JRE
 
 #### Manual Build
 
 ```bash
+# Prepare jpackage input with the fixed JAR name used inside packages
+mkdir -p target/dist-input
+cp easy-postman-app/target/easy-postman-{version}.jar target/dist-input/easy-postman.jar
+
 # For Apple Silicon
 jpackage \
-  --input target \
+  --input target/dist-input \
   --name EasyPostman \
-  --main-jar easy-postman-{version}.jar \
+  --main-jar easy-postman.jar \
+  --main-class com.laker.postman.App \
+  --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
   --type dmg \
   --icon assets/mac/EasyPostman.icns \
   --app-version {version} \
@@ -102,9 +113,11 @@ jpackage \
 
 # For Intel
 jpackage \
-  --input target \
+  --input target/dist-input \
   --name EasyPostman \
-  --main-jar easy-postman-{version}.jar \
+  --main-jar easy-postman.jar \
+  --main-class com.laker.postman.App \
+  --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
   --type dmg \
   --icon assets/mac/EasyPostman.icns \
   --app-version {version} \
@@ -131,26 +144,32 @@ build\win-exe.bat
 ```
 
 **Output**:
-- `target/EasyPostman-{version}-windows-x64.exe` - Installer
-- `target/EasyPostman-{version}-windows-x64-portable.zip` - Portable version
+- `dist/EasyPostman-{version}-windows-x64.exe` - Installer
+- `dist/EasyPostman-{version}-windows-x64-portable.zip` - Portable version
+- Both contain `EasyPostman.exe`, `EasyPostmanMCP.exe`, `app/`, and `runtime/`; after extracting the portable ZIP, MCP works without a separate Java installation
 
 #### Manual Build
 
 ```batch
-# Build installer
+rem Prepare jpackage input
+if not exist target\dist-input mkdir target\dist-input
+copy easy-postman-app\target\easy-postman-{version}.jar target\dist-input\easy-postman.jar
+
+rem Create an app image with both launchers and the bundled JRE
 jpackage ^
-  --input target ^
+  --type app-image ^
+  --input target\dist-input ^
   --name EasyPostman ^
-  --main-jar easy-postman-{version}.jar ^
-  --type exe ^
+  --main-jar easy-postman.jar ^
+  --main-class com.laker.postman.App ^
+  --add-launcher EasyPostmanMCP=build\easy-postman-mcp-launcher.properties ^
+  --dest target ^
   --icon assets\win\EasyPostman.ico ^
   --app-version {version} ^
-  --vendor "laker" ^
-  --win-dir-chooser ^
-  --win-menu ^
-  --win-shortcut
+  --vendor "laker"
 
-# Create portable ZIP
+rem Create a portable ZIP; run build\win-exe.bat for the production EXE installer
+echo This is a portable version>target\EasyPostman\.portable
 mkdir target\portable
 xcopy target\EasyPostman target\portable\EasyPostman\ /E /I
 cd target\portable
@@ -179,13 +198,20 @@ chmod +x build/linux-deb.sh
 
 **Output**: a DEB file under `dist/` for the current build machine architecture, for example `dist/*.deb`
 
+After installation, `/opt/easypostman/bin/EasyPostman` and `/opt/easypostman/bin/EasyPostmanMCP` share the bundled JRE.
+
 #### Manual Build
 
 ```bash
+mkdir -p target/dist-input
+cp easy-postman-app/target/easy-postman-{version}.jar target/dist-input/easy-postman.jar
+
 jpackage \
-  --input target \
+  --input target/dist-input \
   --name easypostman \
-  --main-jar easy-postman-{version}.jar \
+  --main-jar easy-postman.jar \
+  --main-class com.laker.postman.App \
+  --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
   --type deb \
   --icon assets/linux/EasyPostman.png \
   --app-version {version} \

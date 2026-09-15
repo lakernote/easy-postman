@@ -38,9 +38,17 @@ public class WorkspaceRunExecutor {
     public WorkspaceRunReport execute(WorkspaceRunOptions options,
                                       WorkspaceRunPlanner planner,
                                       PrintStream out) throws Exception {
+        return execute(options, planner, out, WorkspaceRunObserver.NO_OP);
+    }
+
+    public WorkspaceRunReport execute(WorkspaceRunOptions options,
+                                      WorkspaceRunPlanner planner,
+                                      PrintStream out,
+                                      WorkspaceRunObserver observer) throws Exception {
         if (planner == null) {
             throw new IllegalArgumentException("Workspace run planner is required");
         }
+        WorkspaceRunObserver completionObserver = observer == null ? WorkspaceRunObserver.NO_OP : observer;
         WorkspaceRunWorkspace workspace = WorkspaceRunWorkspaceResolver.resolve(options.getWorkspace());
         Path collectionPath = requireFile(workspace.collectionsFile(), "EasyPostman collections file");
         Path workingDirectory = resolveWorkingDirectory(options, workspace.directory());
@@ -62,7 +70,12 @@ public class WorkspaceRunExecutor {
                 : iterationDataPath.toString();
         int iterationCount = resolveIterationCount(options.getIterationCount(), dataRows);
         Environment environment = loadEnvironment(workspace.environmentsFile(), options.getEnvironment());
+        options.getEnvironmentOverrides().forEach(environment::set);
         Environment globals = loadGlobals(Path.of(ConfigPathConstants.GLOBAL_VARIABLES));
+        Path uploadFileRoot = resolveUploadFileRoot(options.getUploadFileRoot());
+        int maxRequestReportEntries = options.getMaxRequestReportEntries() == null
+                ? Integer.MAX_VALUE
+                : options.getMaxRequestReportEntries();
 
         if (out != null) {
             out.printf("Workspace: %s (%s)%n", workspace.name(), workspace.directory());
@@ -114,14 +127,17 @@ public class WorkspaceRunExecutor {
                             () -> environment,
                             requestScope,
                             scriptOutput(out),
-                            request -> resolveFilePaths(request, workingDirectory)
+                            request -> resolveFilePaths(request, workingDirectory, uploadFileRoot)
                     );
                     WorkspaceRunReport.RequestResult requestReport = toRequestReport(
                             iteration + 1,
                             selected,
                             result
                     );
-                    requestReports.add(requestReport);
+                    completionObserver.onRequestCompleted(iteration + 1, selected, result, requestReport);
+                    if (requestReports.size() < maxRequestReportEntries) {
+                        requestReports.add(requestReport);
+                    }
                     if (requestReport.passed()) {
                         passedRequests++;
                     } else {
@@ -157,7 +173,7 @@ public class WorkspaceRunExecutor {
                 endTimeMs,
                 Math.max(0L, endTimeMs - startTimeMs),
                 startedIterations,
-                requestReports.size(),
+                passedRequests + failedRequests,
                 passedRequests,
                 failedRequests,
                 passedTests + failedTests,
@@ -335,19 +351,39 @@ public class WorkspaceRunExecutor {
         return workingDirectory;
     }
 
-    private static void resolveFilePaths(PreparedRequest request, Path workingDirectory) {
+    private static Path resolveUploadFileRoot(Path configuredRoot) {
+        if (configuredRoot == null) {
+            return null;
+        }
+        try {
+            Path realRoot = configuredRoot.toRealPath();
+            if (!Files.isDirectory(realRoot)) {
+                throw new IllegalArgumentException("Upload file root is not a directory: " + configuredRoot);
+            }
+            return realRoot;
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(
+                    "Unable to resolve upload file root: " + configuredRoot + ": " + describe(exception),
+                    exception
+            );
+        }
+    }
+
+    private static void resolveFilePaths(PreparedRequest request,
+                                         Path workingDirectory,
+                                         Path uploadFileRoot) {
         if (request == null) {
             return;
         }
         if (RequestBodyTypes.BODY_TYPE_BINARY.equals(request.bodyType)) {
             request.body = resolveFilePath(request.body, workingDirectory);
-            validateUploadFile(request.body);
+            validateUploadFile(request.body, uploadFileRoot);
         }
         if (request.formDataList != null) {
             for (HttpFormData part : request.formDataList) {
                 if (part != null && part.isEnabled() && part.isFile()) {
                     part.setValue(resolveFilePath(part.getValue(), workingDirectory));
-                    validateUploadFile(part.getValue());
+                    validateUploadFile(part.getValue(), uploadFileRoot);
                 }
             }
         }
@@ -363,7 +399,7 @@ public class WorkspaceRunExecutor {
                 .toString();
     }
 
-    private static void validateUploadFile(String value) {
+    private static void validateUploadFile(String value, Path uploadFileRoot) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Upload file path is required");
         }
@@ -373,6 +409,23 @@ public class WorkspaceRunExecutor {
         Path path = Path.of(value);
         if (!Files.isRegularFile(path) || !Files.isReadable(path)) {
             throw new IllegalArgumentException("Upload file does not exist or is not readable: " + path);
+        }
+        if (uploadFileRoot != null) {
+            try {
+                Path realFile = path.toRealPath();
+                if (!realFile.startsWith(uploadFileRoot)) {
+                    throw new IllegalArgumentException(
+                            "Upload file is outside the authorized workspace: " + path
+                    );
+                }
+            } catch (IllegalArgumentException exception) {
+                throw exception;
+            } catch (Exception exception) {
+                throw new IllegalArgumentException(
+                        "Unable to validate upload file: " + path + ": " + describe(exception),
+                        exception
+                );
+            }
         }
     }
 

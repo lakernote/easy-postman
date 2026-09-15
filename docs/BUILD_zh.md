@@ -59,6 +59,7 @@ mvn clean package -DskipTests
 
 这将生成：
 - `easy-postman-app/target/easy-postman-{版本号}.jar` - 主程序可执行 JAR
+- `easy-postman-mcp/target/easy-postman-mcp-{版本号}.jar` - MCP 协议模块；发布时会合并进主程序 JAR，不需要单独分发
 - `easy-postman-plugins/plugin-*/target/easy-postman-{版本号}-plugin-*.jar` - 插件 JAR
 
 ### 3. 运行应用
@@ -69,6 +70,9 @@ java -jar easy-postman-app/target/easy-postman-*.jar
 
 # 或使用自定义 JVM 选项
 java -Xms256m -Xmx2g -jar easy-postman-app/target/easy-postman-*.jar
+
+# 验证主 JAR 内置的 MCP Server
+java -jar easy-postman-app/target/easy-postman-*.jar mcp serve --help
 ```
 
 ### 插件本地构建
@@ -111,15 +115,22 @@ chmod +x build/mac.sh
 **输出**: `dist/EasyPostman-{版本号}-macos-{架构}.dmg`
 - Apple Silicon (M1/M2/M3/M4): `macos-arm64.dmg`
 - Intel: `macos-x86_64.dmg`
+- 安装后的 `.app` 同时包含 `Contents/MacOS/EasyPostman` 和 `Contents/MacOS/EasyPostmanMCP`，二者共享主 JAR 与内置 JRE
 
 #### 手动构建
 
 ```bash
+# 准备 jpackage 输入；安装包内部统一使用固定 JAR 名
+mkdir -p target/dist-input
+cp easy-postman-app/target/easy-postman-{版本号}.jar target/dist-input/easy-postman.jar
+
 # Apple Silicon
 jpackage \
-  --input target \
+  --input target/dist-input \
   --name EasyPostman \
-  --main-jar easy-postman-{版本号}.jar \
+  --main-jar easy-postman.jar \
+  --main-class com.laker.postman.App \
+  --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
   --type dmg \
   --icon assets/mac/EasyPostman.icns \
   --app-version {版本号} \
@@ -128,9 +139,11 @@ jpackage \
 
 # Intel
 jpackage \
-  --input target \
+  --input target/dist-input \
   --name EasyPostman \
-  --main-jar easy-postman-{版本号}.jar \
+  --main-jar easy-postman.jar \
+  --main-class com.laker.postman.App \
+  --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
   --type dmg \
   --icon assets/mac/EasyPostman.icns \
   --app-version {版本号} \
@@ -159,24 +172,30 @@ build\win-exe.bat
 **输出**:
 - `dist/EasyPostman-{版本号}-windows-x64.exe` - 安装程序
 - `dist/EasyPostman-{版本号}-windows-x64-portable.zip` - 便携版
+- 安装目录和便携版 ZIP 都包含 `EasyPostman.exe`、`EasyPostmanMCP.exe`、`app/` 与 `runtime/`；便携版完整解压后即可使用 MCP，不需要 Java
 
 #### 手动构建
 
 ```batch
-# 构建安装程序
+rem 准备 jpackage 输入
+if not exist target\dist-input mkdir target\dist-input
+copy easy-postman-app\target\easy-postman-{版本号}.jar target\dist-input\easy-postman.jar
+
+rem 创建包含两个启动器和内置 JRE 的应用目录
 jpackage ^
-  --input target ^
+  --type app-image ^
+  --input target\dist-input ^
   --name EasyPostman ^
-  --main-jar easy-postman-{版本号}.jar ^
-  --type exe ^
+  --main-jar easy-postman.jar ^
+  --main-class com.laker.postman.App ^
+  --add-launcher EasyPostmanMCP=build\easy-postman-mcp-launcher.properties ^
+  --dest target ^
   --icon assets\win\EasyPostman.ico ^
   --app-version {版本号} ^
-  --vendor "laker" ^
-  --win-dir-chooser ^
-  --win-menu ^
-  --win-shortcut
+  --vendor "laker"
 
-# 创建便携版 ZIP
+rem 创建便携版 ZIP；正式 EXE 安装器请直接运行 build\win-exe.bat
+echo This is a portable version>target\EasyPostman\.portable
 mkdir target\portable
 xcopy target\EasyPostman target\portable\EasyPostman\ /E /I
 cd target\portable
@@ -205,13 +224,20 @@ chmod +x build/linux-deb.sh
 
 **输出**: `dist/` 目录下生成与当前打包机器架构对应的 DEB 文件，例如 `dist/*.deb`
 
+安装后桌面启动器和 MCP 启动器分别位于 `/opt/easypostman/bin/EasyPostman` 与 `/opt/easypostman/bin/EasyPostmanMCP`，共享内置 JRE。
+
 #### 手动构建
 
 ```bash
+mkdir -p target/dist-input
+cp easy-postman-app/target/easy-postman-{版本号}.jar target/dist-input/easy-postman.jar
+
 jpackage \
-  --input target \
+  --input target/dist-input \
   --name easypostman \
-  --main-jar easy-postman-{版本号}.jar \
+  --main-jar easy-postman.jar \
+  --main-class com.laker.postman.App \
+  --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
   --type deb \
   --icon assets/linux/EasyPostman.png \
   --app-version {版本号} \

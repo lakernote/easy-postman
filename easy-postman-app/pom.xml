@@ -67,6 +67,11 @@
         </dependency>
         <dependency>
             <groupId>com.laker.tools</groupId>
+            <artifactId>easy-postman-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.laker.tools</groupId>
             <artifactId>easy-postman-plugin-manager</artifactId>
             <version>${project.version}</version>
         </dependency>

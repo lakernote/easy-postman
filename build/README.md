@@ -16,6 +16,22 @@
 - 打包脚本再复制成固定名：
   `easy-postman.jar`
 - `jpackage` 和安装包内部始终引用固定文件名
+- `jpackage` 通过 `easy-postman-mcp-launcher.properties` 额外生成 `EasyPostmanMCP`；它与桌面启动器共享主 JAR 和内置 JRE，Windows 版本使用 console launcher
+
+Windows `app-image` 和便携版 ZIP 的核心结构是：
+
+```text
+EasyPostman/
+├── EasyPostman.exe
+├── EasyPostmanMCP.exe
+├── app/
+├── runtime/
+└── .portable        # 仅便携版存在
+```
+
+便携版是完整 `app-image` 加 `.portable` 标记，不需要另装 Java。`EasyPostmanMCP.exe` 依赖同目录中的 `app/` 和 `runtime/`，不能单独发布或拷贝。
+
+打包后可先执行 `EasyPostmanMCP.exe --help` 验证 MCP 启动器和内置 JRE，再打开 `EasyPostman.exe` 验证桌面端。
 
 这样做的好处：
 

@@ -132,6 +132,7 @@ jpackage ^
     --input %DIST_INPUT_DIR% ^
     --main-jar %JAR_NAME% ^
     --main-class %MAIN_CLASS% ^
+    --add-launcher EasyPostmanMCP=build\easy-postman-mcp-launcher.properties ^
     --runtime-image target\runtime ^
     --dest target ^
     --icon %ICON_FILE% ^
@@ -163,6 +164,11 @@ if errorlevel 1 (
 
 if not exist "target\%APP_NAME%\%APP_NAME%.exe" (
     echo ERROR: App image not created properly
+    pause
+    exit /b 1
+)
+if not exist "target\%APP_NAME%\EasyPostmanMCP.exe" (
+    echo ERROR: MCP launcher was not created
     pause
     exit /b 1
 )

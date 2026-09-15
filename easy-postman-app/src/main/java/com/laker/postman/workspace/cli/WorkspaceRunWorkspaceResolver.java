@@ -7,9 +7,9 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 
 @UtilityClass
-class WorkspaceRunWorkspaceResolver {
+public class WorkspaceRunWorkspaceResolver {
 
-    WorkspaceRunWorkspace resolve(String selector) {
+    public WorkspaceRunWorkspace resolve(String selector) {
         if (selector == null || selector.isBlank()) {
             throw new IllegalArgumentException("Workspace directory is required");
         }

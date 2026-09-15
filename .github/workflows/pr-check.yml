@@ -182,6 +182,7 @@ jobs:
             --input target\dist-input `
             --main-jar $jarName `
             --main-class com.laker.postman.App `
+            --add-launcher EasyPostmanMCP=build\easy-postman-mcp-launcher.properties `
             --runtime-image target\runtime `
             --dest target `
             --icon assets\win\EasyPostman.ico `
@@ -265,6 +266,7 @@ jobs:
           Write-Host "🔍 Verifying Windows package..."
           $appDir = "target\EasyPostman"
           $exeFile = "$appDir\EasyPostman.exe"
+          $mcpExeFile = "$appDir\EasyPostmanMCP.exe"
           
           if (-not (Test-Path $exeFile)) {
             Write-Host "❌ Executable not found: $exeFile"
@@ -273,6 +275,17 @@ jobs:
           
           $fileSize = (Get-Item $exeFile).Length / 1KB
           Write-Host "✅ Executable exists: $exeFile ($([math]::Round($fileSize, 2)) KB)"
+
+          if (-not (Test-Path $mcpExeFile)) {
+            Write-Host "❌ MCP executable not found: $mcpExeFile"
+            exit 1
+          }
+          & $mcpExeFile --help
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ MCP launcher smoke test failed with exit code: $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host "✅ MCP executable exists and accepts --help"
           
           # 检查运行时目录
           $runtimeDir = "$appDir\runtime"
@@ -355,6 +368,7 @@ jobs:
             --input target/dist-input \
             --main-jar "${JAR_NAME}" \
             --main-class com.laker.postman.App \
+            --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
             --runtime-image target/runtime \
             --dest target \
             --icon assets/mac/EasyPostman.icns \
@@ -390,6 +404,14 @@ jobs:
             echo "❌ Executable not found"
             exit 1
           fi
+
+          MCP_EXE_PATH="$APP_PATH/Contents/MacOS/EasyPostmanMCP"
+          if [ ! -x "$MCP_EXE_PATH" ]; then
+            echo "❌ MCP executable not found: $MCP_EXE_PATH"
+            exit 1
+          fi
+          "$MCP_EXE_PATH" --help
+          echo "✅ MCP executable exists and accepts --help"
           
           # 检查 Info.plist
           PLIST_PATH="$APP_PATH/Contents/Info.plist"

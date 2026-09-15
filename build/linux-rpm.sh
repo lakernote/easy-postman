@@ -101,6 +101,7 @@ jpackage \
     --input ${DIST_INPUT_DIR} \
     --main-jar ${JAR_NAME} \
     --main-class ${MAIN_CLASS} \
+    --add-launcher EasyPostmanMCP=build/easy-postman-mcp-launcher.properties \
     --runtime-image target/runtime \
     --type rpm \
     --name "${APP_NAME}" \

@@ -21,8 +21,9 @@
         8. easy-postman-performance-core：压测计划、运行态 plan.json、运行编排、统计等无 UI/无传输实现的核心能力
         9. easy-postman-ui：宿主和插件共享的 UI 基础组件、样式和视觉工具
         10. easy-postman-plugin-runtime：插件扫描、加载、启停、状态持久化
-        11. easy-postman-plugins：官方插件聚合目录，每个 plugin-* 独立打包发布
-        12. easy-postman-app：宿主应用，只保留组合入口、具体页面和插件宿主访问点
+        11. easy-postman-mcp：MCP stdio 协议、tool schema 和宿主 backend 契约
+        12. easy-postman-plugins：官方插件聚合目录，每个 plugin-* 独立打包发布
+        13. easy-postman-app：宿主应用，只保留组合入口、具体页面和插件宿主访问点
      -->
     <modules>
         <module>easy-postman-foundation</module>
@@ -35,6 +36,7 @@
         <module>easy-postman-performance-core</module>
         <module>easy-postman-ui</module>
         <module>easy-postman-plugin-runtime</module>
+        <module>easy-postman-mcp</module>
         <module>easy-postman-plugins</module>
         <module>easy-postman-app</module>
     </modules>
@@ -46,7 +48,7 @@
             plugin-* 不跟随这里自动升级，而是在各自 pom.xml 里单独维护版本，
             这样后续可以按“哪个插件改了就只发哪个插件”的节奏独立发版。
          -->
-        <revision>6.1.1</revision>
+        <revision>6.2.0</revision>
         <!--
             插件平台兼容版本。
             它表达的是“插件 SPI / 运行时装配边界”，不等同于宿主 revision。
@@ -71,7 +73,9 @@
         <kafka.version>3.9.2</kafka.version>
         <polyglot.version>24.2.1</polyglot.version>
         <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
-        <jackson.version>3.0.2</jackson.version>
+        <!-- Keep Jackson aligned with the official MCP Java SDK JSON provider. -->
+        <jackson.version>3.1.4</jackson.version>
+        <mcp.version>2.0.1</mcp.version>
         <lombok.version>1.18.42</lombok.version>
         <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
         <!-- Keep the Kotlin runtime aligned with OkHttp 5.5.0. -->
@@ -114,6 +118,11 @@
                 <groupId>tools.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp</artifactId>
+                <version>${mcp.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>

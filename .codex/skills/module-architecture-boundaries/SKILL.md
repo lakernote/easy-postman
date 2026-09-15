@@ -41,15 +41,17 @@ Read `docs/ARCHITECTURE_MODULES_zh.md` first when the task is about module place
 
 9. Put performance domain core contracts in `easy-postman-performance-core`: editable plan data, executable `plan.json`, runtime contracts, stats/report snapshots, worker assignments, and asset references. Keep concrete GUI/headless execution adapters in `easy-postman-app` until the app execution semantics can be extracted without pulling in Swing, workspace services, or app-only state.
 
-10. Put host platform framework capabilities in `easy-postman-platform` when they can be separated from concrete app UI.
+10. Put MCP protocol mechanics in `easy-postman-mcp`: official SDK integration, observable stdio lifecycle, tool schemas/annotations, structured result mapping, and the minimal `EasyPostmanMcpBackend` contract. It may depend on foundation and the MCP SDK, but must not depend on app, Swing, workspace storage, scripts, or concrete request execution. Keep `mcp serve` CLI composition, workspace authorization, environment loading, upload-file constraints, Cookie call isolation, redaction, result-detail limits, and the backend implementation in app.
+
+11. Put host platform framework capabilities in `easy-postman-platform` when they can be separated from concrete app UI.
    Current examples: the custom IOC container under `com.laker.postman.ioc`, and update discovery core under `com.laker.postman.platform.update` (version comparison, update source selection, asset resolution, changelog fetching/formatting, update result models).
    Future examples: startup orchestration, welcome/help, settings center, and theme/font application orchestration.
 
-11. Keep concrete host UI and composition in `easy-postman-app`.
+12. Keep concrete host UI and composition in `easy-postman-app`.
    Examples: `App`, `MainFrame`, menus, app-only panels, settings pages, update dialogs, update download/install/exit flow, welcome/help pages, and concrete startup wiring that still depends on app UI.
    Do not recreate a generic app model package for HTTP runtime exchange snapshots. Domain-specific app models should live with their owner package, such as `functional.model`, `script.model`, `stream`, `snippet`, `history`, `certificate`, `variable`, `environment`, or `service.curl`.
 
-12. Keep HTTP request preparation adapters separated from HTTP transport runtime.
+13. Keep HTTP request preparation adapters separated from HTTP transport runtime.
    Request preparation, validation, collection inheritance, variable resolution, scripts, and default request factories may stay in `easy-postman-app/http.request` while they still depend on app services. URL/query helpers belong in request-core. Transport execution belongs in `easy-postman-http-runtime`. Swing implementations belong in UI adapters such as `com.laker.postman.panel.http.runtime`, and app-specific runtime bootstrap belongs under `com.laker.postman.http.runtime.app`.
 
 ## Plugin Compatibility Boundary
@@ -114,6 +116,7 @@ If preserving compatibility is the goal instead, keep a binary-compatible facade
 - Do not make shared UI components depend on app-owned message bundles, icons, editor themes, or other app resources.
 - Do not duplicate generic short labels in `ui-messages*` or plugin message bundles when `CommonMessageKeys` already owns them.
 - Do not make plugins depend on `easy-postman-app`.
+- Do not make `easy-postman-mcp` depend on `easy-postman-app`, Swing, workspace persistence, scripts, or concrete HTTP execution.
 - Do not introduce new app-local color/font/button conventions before checking `easy-postman-ui`.
 - Do not duplicate same-named `icons/*.svg` resources between `easy-postman-app` and `easy-postman-ui`; shared control icons belong in `ui`, app/domain icons stay with their owning app/plugin module. If a plugin references an icon, it must be plugin-owned or UI-owned.
 

@@ -20,6 +20,8 @@ import java.util.Optional;
 final class SystemProxyService {
     static final String RECOVERY_STORAGE_FILE = "system-proxy-recovery.json";
     private static final String NETWORKSETUP = "/usr/sbin/networksetup";
+    private static final String INVALID_PARAMETERS_MARKER = "the parameters were not valid";
+    private static final String USAGE_MARKER = "usage:";
     private static final String REG = "reg";
     private static final String CMD = "cmd";
     private static final String POWERSHELL = "powershell";
@@ -492,8 +494,8 @@ final class SystemProxyService {
     private void applyProxy(String service, String host, int port, List<String> originalBypassDomains) throws Exception {
         runCommand(NETWORKSETUP, "-setproxyautodiscovery", service, "off");
         runCommand(NETWORKSETUP, "-setautoproxystate", service, "off");
-        runCommand(NETWORKSETUP, "-setwebproxy", service, host, String.valueOf(port));
-        runCommand(NETWORKSETUP, "-setsecurewebproxy", service, host, String.valueOf(port));
+        setProxyEndpoint(service, false, host, port);
+        setProxyEndpoint(service, true, host, port);
 
         LinkedHashSet<String> bypassDomains = new LinkedHashSet<>(originalBypassDomains);
         bypassDomains.addAll(REQUIRED_BYPASS_DOMAINS);
@@ -531,13 +533,7 @@ final class SystemProxyService {
 
     private void restoreProxy(String service, boolean secure, ProxyEndpoint endpoint) throws Exception {
         if (endpoint.server() != null && !endpoint.server().isBlank() && endpoint.port() > 0) {
-            runCommand(
-                    NETWORKSETUP,
-                    secure ? "-setsecurewebproxy" : "-setwebproxy",
-                    service,
-                    endpoint.server(),
-                    String.valueOf(endpoint.port())
-            );
+            setProxyEndpoint(service, secure, endpoint.server(), endpoint.port());
         }
         runCommand(
                 NETWORKSETUP,
@@ -621,6 +617,59 @@ final class SystemProxyService {
             command.addAll(domains);
         }
         runCommand(command);
+    }
+
+    /**
+     * macOS documents the authenticated/username/password arguments for these
+     * commands, but some older releases accepted the shorter three-argument
+     * form. Prefer the documented form and retain a narrowly-scoped fallback
+     * for those older releases.
+     */
+    private void setProxyEndpoint(String service, boolean secure, String host, int port) throws Exception {
+        String operation = secure ? "-setsecurewebproxy" : "-setwebproxy";
+        List<String> documentedCommand = List.of(
+                NETWORKSETUP,
+                operation,
+                service,
+                host,
+                String.valueOf(port),
+                "off",
+                "",
+                ""
+        );
+        CommandResult documentedResult = runCommandAllowFailure(documentedCommand);
+        if (documentedResult.exitCode() == 0) {
+            return;
+        }
+
+        if (!isParameterValidationFailure(documentedResult)) {
+            throw commandFailure(documentedCommand, documentedResult);
+        }
+
+        List<String> legacyCommand = List.of(
+                NETWORKSETUP,
+                operation,
+                service,
+                host,
+                String.valueOf(port)
+        );
+        log.warn("macOS networksetup rejected documented proxy arguments; trying legacy form: "
+                        + "command={}, exitCode={}, output={}",
+                formatCommand(documentedCommand),
+                documentedResult.exitCode(),
+                formatOutput(documentedResult));
+        CommandResult legacyResult = runCommandAllowFailure(legacyCommand);
+        if (legacyResult.exitCode() == 0) {
+            log.info("Using legacy macOS networksetup proxy argument form for service {}", service);
+            return;
+        }
+
+        throw commandFailure(legacyCommand, legacyResult);
+    }
+
+    private boolean isParameterValidationFailure(CommandResult result) {
+        String output = String.join(System.lineSeparator(), result.lines()).toLowerCase(Locale.ROOT);
+        return output.contains(INVALID_PARAMETERS_MARKER) || output.contains(USAGE_MARKER);
     }
 
     private boolean parseEnabled(List<String> lines) {
@@ -843,9 +892,41 @@ final class SystemProxyService {
     private CommandResult runCommand(List<String> command) throws Exception {
         CommandResult result = runCommandAllowFailure(command);
         if (result.exitCode() != 0) {
-            throw new IllegalStateException(String.join(System.lineSeparator(), result.lines()));
+            throw commandFailure(command, result);
         }
         return result;
+    }
+
+    private IllegalStateException commandFailure(List<String> command, CommandResult result) {
+        IllegalStateException failure = new IllegalStateException(
+                "Command failed with exit code " + result.exitCode() + ": " + formatOutput(result)
+        );
+        log.error("External command failed: command={}, exitCode={}, output={}",
+                formatCommand(command), result.exitCode(), formatOutput(result), failure);
+        return failure;
+    }
+
+    private String formatCommand(List<String> command) {
+        return command.stream()
+                .map(this::formatCommandArgument)
+                .reduce((left, right) -> left + " " + right)
+                .orElse("");
+    }
+
+    private String formatCommandArgument(String argument) {
+        if (argument == null) {
+            return "<null>";
+        }
+        String value = argument.length() > 240 ? argument.substring(0, 240) + "..." : argument;
+        return '"' + value.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
+    }
+
+    private String formatOutput(CommandResult result) {
+        if (result.lines() == null || result.lines().isEmpty()) {
+            return "<no output>";
+        }
+        String output = String.join(" | ", result.lines()).trim();
+        return output.length() > 2_000 ? output.substring(0, 2_000) + "..." : output;
     }
 
     private CommandResult runCommandAllowFailure(List<String> command) throws Exception {

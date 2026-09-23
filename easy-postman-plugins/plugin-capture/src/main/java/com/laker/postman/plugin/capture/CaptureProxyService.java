@@ -7,7 +7,9 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 final class CaptureProxyService {
     private final CaptureSessionStore sessionStore = new CaptureSessionStore();
     private final SystemProxyService systemProxyService = new SystemProxyService();
@@ -56,7 +58,15 @@ final class CaptureProxyService {
                 systemProxyService.enable(listenHost, listenPort);
             }
         } catch (Exception ex) {
-            stop();
+            log.error("Failed to start capture proxy at {}:{} (syncSystemProxy={})",
+                    listenHost, listenPort, syncSystemProxy, ex);
+            try {
+                stop();
+            } catch (RuntimeException cleanupError) {
+                ex.addSuppressed(cleanupError);
+                log.error("Failed to clean up capture proxy after startup failure at {}:{}",
+                        listenHost, listenPort, cleanupError);
+            }
             throw ex;
         }
     }
@@ -68,6 +78,7 @@ final class CaptureProxyService {
                 systemProxyService.disable();
             }
         } catch (Exception ex) {
+            log.error("Failed to restore system proxy while stopping capture proxy", ex);
             restoreError = new IllegalStateException("Failed to restore system proxy: " + ex.getMessage(), ex);
         } finally {
             syncSystemProxy = false;

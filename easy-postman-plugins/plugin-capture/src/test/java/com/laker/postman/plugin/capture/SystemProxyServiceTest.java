@@ -178,6 +178,36 @@ public class SystemProxyServiceTest {
                 "Recovery should not restore a snapshot after the user changes the system proxy");
     }
 
+    @Test
+    public void shouldUseDocumentedMacProxyArguments() throws Exception {
+        MacNetworkSetupCommandRunner runner = new MacNetworkSetupCommandRunner(false);
+        SystemProxyService service = new SystemProxyService(runner, "macOS 26", false);
+
+        service.enable("127.0.0.1", 8888);
+
+        assertTrue(runner.commands().contains(List.of(
+                "/usr/sbin/networksetup", "-setwebproxy", "Wi-Fi", "127.0.0.1", "8888", "off", "", ""
+        )));
+        assertTrue(runner.commands().contains(List.of(
+                "/usr/sbin/networksetup", "-setsecurewebproxy", "Wi-Fi", "127.0.0.1", "8888", "off", "", ""
+        )));
+    }
+
+    @Test
+    public void shouldFallbackToLegacyMacProxyArgumentsWhenNeeded() throws Exception {
+        MacNetworkSetupCommandRunner runner = new MacNetworkSetupCommandRunner(true);
+        SystemProxyService service = new SystemProxyService(runner, "macOS 12", false);
+
+        service.enable("127.0.0.1", 8888);
+
+        assertTrue(runner.commands().contains(List.of(
+                "/usr/sbin/networksetup", "-setwebproxy", "Wi-Fi", "127.0.0.1", "8888"
+        )));
+        assertTrue(runner.commands().contains(List.of(
+                "/usr/sbin/networksetup", "-setsecurewebproxy", "Wi-Fi", "127.0.0.1", "8888"
+        )));
+    }
+
     private static boolean readBooleanField(Object target, String fieldName) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -292,6 +322,49 @@ public class SystemProxyServiceTest {
         private String valueAfter(List<String> command, String flag) {
             int index = command.indexOf(flag);
             return index >= 0 && index + 1 < command.size() ? command.get(index + 1) : "";
+        }
+    }
+
+    private static final class MacNetworkSetupCommandRunner implements SystemProxyService.CommandRunner {
+        private final List<List<String>> commands = new ArrayList<>();
+        private final boolean rejectDocumentedProxyArguments;
+
+        private MacNetworkSetupCommandRunner(boolean rejectDocumentedProxyArguments) {
+            this.rejectDocumentedProxyArguments = rejectDocumentedProxyArguments;
+        }
+
+        private List<List<String>> commands() {
+            return commands;
+        }
+
+        @Override
+        public SystemProxyService.CommandResult run(List<String> command) {
+            commands.add(command);
+            String operation = command.size() > 1 ? command.get(1) : "";
+            if ("-listallnetworkservices".equals(operation)) {
+                return new SystemProxyService.CommandResult(0, List.of(
+                        "An asterisk (*) denotes that a network service is disabled.", "Wi-Fi"
+                ));
+            }
+            if ("-getwebproxy".equals(operation) || "-getsecurewebproxy".equals(operation)) {
+                return new SystemProxyService.CommandResult(0, List.of("Enabled: No", "Server: ", "Port: 0"));
+            }
+            if ("-getproxyautodiscovery".equals(operation)) {
+                return new SystemProxyService.CommandResult(0, List.of("Auto Proxy Discovery: Off"));
+            }
+            if ("-getautoproxyurl".equals(operation)) {
+                return new SystemProxyService.CommandResult(0, List.of("Enabled: No", "URL: "));
+            }
+            if ("-getproxybypassdomains".equals(operation)) {
+                return new SystemProxyService.CommandResult(0, List.of(
+                        "There aren't any bypass domains set on Wi-Fi."
+                ));
+            }
+            if (("-setwebproxy".equals(operation) || "-setsecurewebproxy".equals(operation))
+                    && rejectDocumentedProxyArguments && command.size() == 8) {
+                return new SystemProxyService.CommandResult(1, List.of("** Error: The parameters were not valid."));
+            }
+            return new SystemProxyService.CommandResult(0, List.of());
         }
     }
 }

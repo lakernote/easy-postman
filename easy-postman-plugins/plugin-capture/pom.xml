@@ -11,7 +11,7 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <version>6.0.13</version>
+    <version>6.0.14</version>
     <artifactId>easy-postman-plugin-capture</artifactId>
     <packaging>jar</packaging>
 

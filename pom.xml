@@ -70,7 +70,7 @@
         <logback-classic.version>1.6.3</logback-classic.version>
         <jfreechart.version>1.5.5</jfreechart.version>
         <okhttp.version>5.5.0</okhttp.version>
-        <kafka.version>3.9.2</kafka.version>
+        <kafka.version>4.3.1</kafka.version>
         <polyglot.version>24.2.1</polyglot.version>
         <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
         <!-- Keep Jackson aligned with the official MCP Java SDK JSON provider. -->

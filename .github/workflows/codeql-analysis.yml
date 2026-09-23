@@ -41,7 +41,7 @@ jobs:
 
       # 第二步：初始化 CodeQL 分析环境
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
         with:
           # 指定要分析的编程语言
           languages: java
@@ -54,11 +54,11 @@ jobs:
       # 第三步：自动构建项目（CodeQL 需要编译后的代码进行分析）
       # 对于 Java/Maven 项目，会自动执行 mvn compile
       - name: Autobuild
-        uses: github/codeql-action/autobuild@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+        uses: github/codeql-action/autobuild@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
 
       # 第四步：执行 CodeQL 安全分析
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
         with:
           # 分析类别标识（用于在 Security 标签页中区分不同类型的扫描）
           category: "security"

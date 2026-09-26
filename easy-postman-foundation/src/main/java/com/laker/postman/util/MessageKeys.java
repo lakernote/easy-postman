@@ -1575,6 +1575,9 @@ public final class MessageKeys {
     public static final String SETTINGS_GIT_DIFF_LARGE_FILE_THRESHOLD_TOOLTIP = "settings.git.diff.large_file_threshold.tooltip";
     public static final String SETTINGS_GENERAL_AUTO_FORMAT_RESPONSE = "settings.general.auto_format_response";
     public static final String SETTINGS_GENERAL_AUTO_FORMAT_RESPONSE_TOOLTIP = "settings.general.auto_format_response.tooltip";
+    public static final String RESPONSE_BODY_AUTO_SORT_JSON_KEYS = "response.body.auto_sort_json_keys";
+    public static final String RESPONSE_BODY_AUTO_SORT_JSON_KEYS_TOOLTIP = "response.body.auto_sort_json_keys.tooltip";
+    public static final String RESPONSE_BODY_SKIP_AUTO_PROCESSING_LARGE = "response.body.skip_auto_processing_large";
     public static final String SETTINGS_GENERAL_STARTUP_SPLASH = "settings.general.startup_splash";
     public static final String SETTINGS_GENERAL_STARTUP_SPLASH_TOOLTIP = "settings.general.startup_splash.tooltip";
     public static final String SETTINGS_GENERAL_SIDEBAR_EXPANDED = "settings.general.sidebar_expanded";

@@ -42,6 +42,7 @@ class SplashStartupWorker extends SwingWorker<MainFrame, String> {
     protected void done() {
         try {
             if (splashWindow.isDisposed()) {
+                log.warn("Splash startup worker completed after the splash window was disposed; main frame will not be shown");
                 return;
             }
 

@@ -4,6 +4,7 @@ import com.formdev.flatlaf.FlatClientProperties;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.common.themes.SimpleThemeManager;
+import lombok.extern.slf4j.Slf4j;
 import lombok.experimental.UtilityClass;
 
 import javax.swing.JComponent;
@@ -17,6 +18,7 @@ import java.awt.Container;
  * 主窗口平台标题栏和背景外观适配。
  */
 @UtilityClass
+@Slf4j
 class MainWindowChrome {
 
     static void applyInitialDecorations(JFrame frame) {
@@ -62,6 +64,7 @@ class MainWindowChrome {
             return;
         }
 
+        log.info("Enabling FlatLaf custom window decorations on Windows");
         rootPane.putClientProperty(FlatClientProperties.USE_WINDOW_DECORATIONS, Boolean.TRUE);
         rootPane.putClientProperty(FlatClientProperties.MENU_BAR_EMBEDDED, Boolean.TRUE);
         rootPane.putClientProperty(FlatClientProperties.TITLE_BAR_SHOW_TITLE, Boolean.FALSE);

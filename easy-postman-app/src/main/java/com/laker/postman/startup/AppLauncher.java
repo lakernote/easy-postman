@@ -24,6 +24,11 @@ public class AppLauncher {
     public static final int GUI_STARTED = Integer.MIN_VALUE;
     private static volatile SingleInstanceCoordinator singleInstanceCoordinator;
     private static volatile boolean skipHostRuntimeShutdown;
+    private static volatile String startupCheckpoint = "launcher initialized";
+
+    static void markStartupCheckpoint(String checkpoint) {
+        startupCheckpoint = checkpoint;
+    }
 
     public int launch(String[] args) {
         configureBaseRuntimeEnvironment();
@@ -32,6 +37,14 @@ public class AppLauncher {
         if (commandExitCode.isPresent()) {
             return commandExitCode.getAsInt();
         }
+        markStartupCheckpoint("GUI launch selected");
+        log.info("Starting GUI launch sequence: os={} {}, arch={}, java={} ({}), headless={}",
+                System.getProperty("os.name"),
+                System.getProperty("os.version"),
+                System.getProperty("os.arch"),
+                System.getProperty("java.version"),
+                System.getProperty("java.vendor"),
+                java.awt.GraphicsEnvironment.isHeadless());
         OptionalInt singleInstanceExitCode = coordinateGuiInstance();
         if (singleInstanceExitCode.isPresent()) {
             return singleInstanceExitCode.getAsInt();
@@ -43,6 +56,7 @@ public class AppLauncher {
     }
 
     private OptionalInt coordinateGuiInstance() {
+        markStartupCheckpoint("coordinating GUI instance");
         SingleInstanceCoordinator.LaunchResult result;
         try {
             result = SingleInstanceCoordinator.acquireOrNotify(
@@ -57,6 +71,8 @@ public class AppLauncher {
 
         if (result.isPrimary()) {
             singleInstanceCoordinator = result.coordinator();
+            markStartupCheckpoint("primary GUI instance acquired");
+            log.info("GUI instance coordination selected this process as primary");
             return OptionalInt.empty();
         }
         if (result.status() == SingleInstanceCoordinator.LaunchStatus.EXISTING_INSTANCE_NOTIFIED) {
@@ -87,8 +103,11 @@ public class AppLauncher {
     }
 
     private void startSwingApplication() {
+        markStartupCheckpoint("Swing EDT initialization started");
+        log.info("Starting Swing application initialization on EDT");
         // Swing 组件创建前先确定主题；主题初始化会同步恢复用户字体 defaults。
         initializeLookAndFeel();
+        markStartupCheckpoint("look and feel initialized");
         startMainFrame();
     }
 
@@ -96,12 +115,16 @@ public class AppLauncher {
      * Look and feel 必须在 Swing 组件创建前完成，否则首屏组件会混用旧 UI defaults。
      */
     private void initializeLookAndFeel() {
+        log.info("Initializing application look and feel");
         SimpleThemeManager.initTheme();
+        log.info("Application look and feel initialized");
     }
 
     private void startMainFrame() {
         StartupCoordinator startupCoordinator = new StartupCoordinator();
-        if (SettingManager.isStartupSplashEnabled()) {
+        boolean splashEnabled = SettingManager.isStartupSplashEnabled();
+        log.info("Starting main frame initialization: splashEnabled={}", splashEnabled);
+        if (splashEnabled) {
             // Splash 模式下先显示轻量过渡窗口，主窗口 shell 准备完成后再切换。
             startWithSplash(startupCoordinator);
             return;
@@ -118,6 +141,7 @@ public class AppLauncher {
 
     private void registerShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("JVM shutdown hook started: lastStartupCheckpoint={}", startupCheckpoint);
             if (skipHostRuntimeShutdown) {
                 closeSingleInstanceCoordinator();
                 return;

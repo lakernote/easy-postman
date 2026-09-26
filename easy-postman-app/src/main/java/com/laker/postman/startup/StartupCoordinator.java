@@ -4,6 +4,7 @@ import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.frame.MainFrame;
 import com.laker.postman.ioc.BeanFactory;
 import com.laker.postman.service.sync.WebDavSyncScheduler;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.SwingUtilities;
 import java.util.function.Consumer;
@@ -11,17 +12,32 @@ import java.util.function.Consumer;
 /**
  * 协调应用启动过程中与主窗口相关的初始化步骤。
  */
+@Slf4j
 public class StartupCoordinator {
 
     public MainFrame prepareMainFrameShell(StartupProgressListener progressListener) throws Exception {
+        long startupStartedAt = System.nanoTime();
         notifyProgress(progressListener, StartupStage.STARTING);
+        AppLauncher.markStartupCheckpoint("initializing host IOC container");
+        log.info("GUI startup stage: initializing host IOC container");
         GuiStartupBootstrap.initBeanFactory();
+        AppLauncher.markStartupCheckpoint("host IOC container initialized");
+        log.info("GUI startup stage complete: host IOC container initialized");
 
         notifyProgress(progressListener, StartupStage.LOADING_PLUGINS);
+        AppLauncher.markStartupCheckpoint("initializing plugin runtime");
+        log.info("GUI startup stage: initializing plugin runtime");
         GuiStartupBootstrap.initPluginRuntime();
+        AppLauncher.markStartupCheckpoint("plugin runtime initialized");
+        log.info("GUI startup stage complete: plugin runtime initialized");
 
         notifyProgress(progressListener, StartupStage.LOADING_MAIN);
+        AppLauncher.markStartupCheckpoint("creating main frame on EDT");
+        log.info("GUI startup stage: creating and initializing main frame on EDT");
         MainFrame mainFrame = createAndInitializeMainFrameOnEdt();
+        AppLauncher.markStartupCheckpoint("main frame initialized");
+        log.info("GUI startup stage complete: main frame initialized in {} ms",
+                (System.nanoTime() - startupStartedAt) / 1_000_000);
 
         notifyProgress(progressListener, StartupStage.READY);
         return mainFrame;
@@ -97,16 +113,22 @@ public class StartupCoordinator {
     }
 
     private MainFrame createMainFrame() {
+        log.info("Constructing main frame");
         MainFrame mainFrame = UiSingletonFactory.getInstance(MainFrame.class);
+        log.info("Initializing main frame components");
         mainFrame.initComponents();
+        log.info("Main frame components initialized");
         return mainFrame;
     }
 
     private void showMainFrameAndLoadContentOnEdt(MainFrame mainFrame) {
+        log.info("Showing main frame on EDT");
         mainFrame.setVisible(true);
+        AppLauncher.markStartupCheckpoint("main frame made visible");
         AppSingleInstanceController.registerReadyMainFrame(mainFrame);
         mainFrame.toFront();
         mainFrame.requestFocus();
+        log.info("Main frame is visible; scheduling main content loading");
         // 先让轻量启动壳完成首帧显示，再切换到完整主内容，减少首屏阻塞。
         SwingUtilities.invokeLater(mainFrame::loadMainContentAsync);
     }

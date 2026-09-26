@@ -68,6 +68,8 @@ public class MainFrame extends JFrame {
         if (!isMaximized) {
             setLocationRelativeTo(null);
         }
+        log.info("MainFrame component initialization completed: bounds={}, state={}",
+                getBounds(), getExtendedState());
     }
 
     public void loadMainContentAsync() {
@@ -77,9 +79,11 @@ public class MainFrame extends JFrame {
         // 主内容延后到启动壳显示后加载，避免首次展示窗口时被完整工作区初始化阻塞。
         Runnable task = () -> {
             try {
+                log.info("Main content initialization started");
                 replaceContentWithStartupTransition(UiSingletonFactory.getInstance(MainPanel.class));
                 startupShellPanel = null;
                 startupLifecycle.markMainContentLoaded();
+                log.info("Main content initialization completed");
             } catch (Throwable throwable) {
                 log.error("Failed to initialize main content", throwable);
                 startupLifecycle.markMainContentLoadFailed(throwable);

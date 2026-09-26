@@ -3,6 +3,7 @@ package com.laker.postman.panel.collections.editor.request.sub;
 import com.laker.postman.common.component.notification.NotificationCenter;
 
 import cn.hutool.core.util.XmlUtil;
+import com.formdev.flatlaf.FlatClientProperties;
 import com.formdev.flatlaf.util.SystemFileChooser;
 import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.EasyComboBox;
@@ -52,8 +53,10 @@ public class ResponseBodyPanel extends JPanel {
     private String fileName = DEFAULT_FILE_NAME; // 默认下载文件名
     private final SearchButton searchButton; // 搜索按钮
     private Map<String, List<String>> lastHeaders;
+    private HttpResponse currentResponse;
     private final EasyComboBox<String> syntaxComboBox;
     private final FormatButton formatButton;
+    private final JToggleButton autoSortJsonKeysButton;
     private final CopyButton copyButton;
     private final GenerateModelButton generateModelButton;
     private final WrapToggleButton wrapButton;
@@ -61,11 +64,9 @@ public class ResponseBodyPanel extends JPanel {
 
     // 常量定义
     private static final int LARGE_RESPONSE_THRESHOLD = 500 * 1024; // 500KB threshold
-    private static final int MAX_AUTO_FORMAT_SIZE = 1024 * 1024; // 1MB max for auto-format
     private static final int BUFFER_SIZE = 8192;
     private static final String DEFAULT_FILE_NAME = "downloaded_file";
     private static final String CONTENT_TYPE_HEADER = "Content-Type";
-    private static final String SKIP_AUTO_FORMAT_MESSAGE = " Skip auto-format for large response.";
     private static final String CARD_TEXT = "TEXT";
     private static final String CARD_IMAGE = "IMAGE";
     private static final String CARD_MEDIA = "MEDIA";
@@ -143,6 +144,22 @@ public class ResponseBodyPanel extends JPanel {
         toolBarPanel.add(searchButton);
         toolBarPanel.add(Box.createHorizontalStrut(1)); // 间隔
 
+        // Key 排序切换按钮，沿用自动换行工具按钮的选中态视觉
+        autoSortJsonKeysButton = new JToggleButton();
+        autoSortJsonKeysButton.setToolTipText(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_AUTO_SORT_JSON_KEYS_TOOLTIP));
+        autoSortJsonKeysButton.getAccessibleContext().setAccessibleName(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_AUTO_SORT_JSON_KEYS));
+        autoSortJsonKeysButton.setFocusable(false);
+        autoSortJsonKeysButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        autoSortJsonKeysButton.putClientProperty(
+                FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        autoSortJsonKeysButton.setSelected(false);
+        updateAutoSortJsonKeysIcon(autoSortJsonKeysButton.isSelected());
+        autoSortJsonKeysButton.addItemListener(e -> updateAutoSortJsonKeysIcon(autoSortJsonKeysButton.isSelected()));
+        toolBarPanel.add(autoSortJsonKeysButton);
+        toolBarPanel.add(Box.createHorizontalStrut(1));
+
         // 换行按钮
         wrapButton = new WrapToggleButton();
         toolBarPanel.add(wrapButton);
@@ -181,6 +198,11 @@ public class ResponseBodyPanel extends JPanel {
         copyButton.addActionListener(e -> copyToClipboard());
         wrapButton.addActionListener(e -> toggleLineWrap());
         syntaxComboBox.addActionListener(e -> onSyntaxComboChanged());
+        autoSortJsonKeysButton.addActionListener(e -> {
+            if (currentResponse != null) {
+                setBodyText(currentResponse);
+            }
+        });
         updateGenerateModelButtonState();
     }
 
@@ -297,7 +319,7 @@ public class ResponseBodyPanel extends JPanel {
         try {
             String formatted = null;
             if (contentType.contains("json") || JsonUtil.isTypeJSON(text)) {
-                formatted = JsonUtil.toJsonPrettyStr(text);
+                formatted = formatJson(text, autoSortJsonKeysButton.isSelected());
             } else if (contentType.contains("xml")) {
                 formatted = XmlUtil.format(text);
             }
@@ -371,6 +393,7 @@ public class ResponseBodyPanel extends JPanel {
         }
 
         this.currentFilePath = resp.filePath;
+        this.currentResponse = resp;
         this.fileName = resp.fileName;
         this.lastHeaders = resp.headers;
         String contentType = extractContentType(resp.headers);
@@ -426,11 +449,15 @@ public class ResponseBodyPanel extends JPanel {
         updateGenerateModelButtonState();
 
         // 根据设置和大小决定是否自动格式化
-        if (SettingManager.isAutoFormatResponse() && textSize < MAX_AUTO_FORMAT_SIZE) {
-            autoFormatIfPossible(text, contentType);
-        } else if (SettingManager.isAutoFormatResponse() && textSize >= MAX_AUTO_FORMAT_SIZE) {
-            // 大文件不自动格式化，提示用户手动格式化
-            sizeWarningLabel.setText(sizeWarningLabel.getText() + SKIP_AUTO_FORMAT_MESSAGE);
+        boolean shouldAutoFormat = SettingManager.isAutoFormatResponse();
+        boolean shouldAutoSortKeys = autoSortJsonKeysButton.isSelected();
+        if (shouldAutoFormat || shouldAutoSortKeys) {
+            if (textSize <= LARGE_RESPONSE_THRESHOLD) {
+                autoFormatIfPossible(text, contentType, shouldAutoFormat, shouldAutoSortKeys);
+            } else {
+                sizeWarningLabel.setText(sizeWarningLabel.getText() + "  "
+                        + I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_SKIP_AUTO_PROCESSING_LARGE));
+            }
         }
 
         responseBodyPane.setCaretPosition(0);
@@ -477,38 +504,69 @@ public class ResponseBodyPanel extends JPanel {
     /**
      * 自动格式化内容（如果可能）
      * <p>
-     * 只有在满足以下条件时才会自动格式化：
-     * 1. 用户开启了自动格式化设置
-     * 2. 文件大小小于阈值（500KB）
-     * 3. 内容类型为 JSON 或 XML
+     * 对小于等于 500KB 的响应按用户设置处理 JSON/XML；key 排序只作用于 JSON。
      * </p>
      *
      * @param text        文本内容
      * @param contentType Content-Type 响应头
      */
-    private void autoFormatIfPossible(String text, String contentType) {
+    private void autoFormatIfPossible(String text, String contentType,
+                                      boolean autoFormat, boolean sortJsonKeys) {
         if (text == null || text.isEmpty()) {
             return;
         }
 
-        int textSize = text.getBytes().length;
-
-        // 小文件直接格式化
-        if (textSize < LARGE_RESPONSE_THRESHOLD) {
-            try {
-                if (contentType != null && contentType.toLowerCase().contains("json")
-                        || JsonUtil.isTypeJSON(text)) {
-                    String pretty = JsonUtil.toJsonPrettyStr(text);
-                    responseBodyPane.setText(pretty);
-                } else if (contentType != null && contentType.toLowerCase().contains("xml")) {
-                    String pretty = XmlUtil.format(text);
-                    responseBodyPane.setText(pretty);
-                }
-            } catch (Exception ex) {
-                // 格式化失败时静默忽略，保持原始内容
+        try {
+            boolean isJson = (contentType != null && contentType.toLowerCase().contains("json"))
+                    || JsonUtil.isTypeJSON(text);
+            if (isJson) {
+                responseBodyPane.setText(formatJson(text, sortJsonKeys));
+            } else if (autoFormat && contentType != null && contentType.toLowerCase().contains("xml")) {
+                responseBodyPane.setText(XmlUtil.format(text));
             }
+        } catch (Exception ex) {
+            // 格式化或排序失败时保留原始响应内容。
         }
-        // 大文件不自动格式化
+    }
+
+    private String formatJson(String json, boolean sortKeys) throws Exception {
+        if (!sortKeys) {
+            return JsonUtil.toJsonPrettyStr(json);
+        }
+        try {
+            Object parsed = cn.hutool.json.JSONUtil.parse(json);
+            return JsonUtil.toJsonPrettyStr(sortJsonValue(parsed));
+        } catch (Exception parseFailure) {
+            // JsonUtil accepts commented JSON; keep that existing behavior if Hutool cannot parse it.
+            return JsonUtil.toJsonPrettyStr(json);
+        }
+    }
+
+    private void updateAutoSortJsonKeysIcon(boolean selected) {
+        String iconPath = "icons/sort-keys.svg";
+        if (selected) {
+            autoSortJsonKeysButton.setIcon(IconUtil.createOnPrimary(
+                    iconPath, IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        } else {
+            autoSortJsonKeysButton.setIcon(IconUtil.createThemed(
+                    iconPath, IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        }
+    }
+
+    private Object sortJsonValue(Object value) {
+        if (value instanceof cn.hutool.json.JSONObject object) {
+            cn.hutool.json.JSONObject sorted = new cn.hutool.json.JSONObject(true);
+            object.keySet().stream().sorted().forEach(key -> sorted.set(key, sortJsonValue(object.get(key))));
+            return sorted;
+        }
+        if (value instanceof cn.hutool.json.JSONArray array) {
+            cn.hutool.json.JSONArray sorted = new cn.hutool.json.JSONArray();
+            for (Object item : array) {
+                sorted.add(sortJsonValue(item));
+            }
+            return sorted;
+        }
+        return value;
     }
 
     @Override
@@ -521,6 +579,7 @@ public class ResponseBodyPanel extends JPanel {
         searchableTextArea.setEnabled(enabled);
 
         if (formatButton != null) formatButton.setEnabled(enabled);
+        if (autoSortJsonKeysButton != null) autoSortJsonKeysButton.setEnabled(enabled);
         if (copyButton != null) copyButton.setEnabled(enabled);
         updateGenerateModelButtonState();
         if (wrapButton != null) wrapButton.setEnabled(enabled);
@@ -620,6 +679,7 @@ public class ResponseBodyPanel extends JPanel {
         responseBodyPane.setText("");
         updateGenerateModelButtonState();
         currentFilePath = null;
+        currentResponse = null;
         fileName = DEFAULT_FILE_NAME;
         lastHeaders = null;
         responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);

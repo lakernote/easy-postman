@@ -6,6 +6,7 @@ import com.laker.postman.panel.mock.MockServerPanel;
 import com.laker.postman.panel.sidebar.SidebarTab;
 import com.laker.postman.panel.sidebar.SidebarTabPanel;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
+import com.laker.postman.panel.collections.tree.CollectionTreeToolbar;
 import com.laker.postman.panel.collections.tree.coordinator.RequestTreeCoordinator;
 import com.laker.postman.service.collections.CollectionTreeNodes;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
@@ -134,6 +135,16 @@ public class RequestTreePopupMenu {
         );
         duplicate.setEnabled(!isMultipleSelection);
         menu.add(duplicate);
+
+        JMenuItem importCurl = createMenuItem(
+                MessageKeys.COLLECTIONS_IMPORT_CURL,
+                "icons/curl.svg",
+                e -> CollectionTreeNodes.group(selectedNode)
+                        .ifPresent(group -> UiSingletonFactory.getInstance(CollectionTreeToolbar.class)
+                                .importCurlToGroup(group))
+        );
+        importCurl.setEnabled(!isMultipleSelection);
+        menu.add(importCurl);
 
         // 导出为 Postman
         JMenuItem exportPostman = createMenuItem(

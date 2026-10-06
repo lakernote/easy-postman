@@ -504,7 +504,16 @@ public class CollectionTreeToolbar extends UiSingletonPanel {
         }
     }
 
+    public void importCurlToGroup(RequestGroup targetGroup) {
+        if (targetGroup == null) return;
+        importCurlToCollection(null, targetGroup);
+    }
+
     private void importCurlToCollection(String defaultCurl) {
+        importCurlToCollection(defaultCurl, null);
+    }
+
+    private void importCurlToCollection(String defaultCurl, RequestGroup targetGroup) {
         MainFrame mainFrame = UiSingletonFactory.getInstance(MainFrame.class);
         String curlText = CurlImportDialog.show(mainFrame,
                 I18nUtil.getMessage(MessageKeys.COLLECTIONS_IMPORT_CURL_DIALOG_TITLE),
@@ -520,7 +529,9 @@ public class CollectionTreeToolbar extends UiSingletonPanel {
 
             boolean batchInput = importResult.totalCommands() > 1;
             boolean saved;
-            if (batchInput) {
+            if (targetGroup != null) {
+                saved = saveRequestsToGroup(importResult.items(), targetGroup);
+            } else if (batchInput) {
                 saved = saveRequestsWithGroupDialog(importResult.items());
             } else {
                 saved = saveRequestWithGroupDialog(importResult.items().get(0));
@@ -615,11 +626,17 @@ public class CollectionTreeToolbar extends UiSingletonPanel {
 
     private boolean saveRequestsWithGroupDialog(List<HttpRequestItem> items) {
         CollectionTreePanel collectionPanel = UiSingletonFactory.getInstance(CollectionTreePanel.class);
-        RequestEditorPanel requestEditPanel = UiSingletonFactory.getInstance(RequestEditorPanel.class);
         TreeModel groupTreeModel = collectionPanel.getGroupTreeModel();
         RequestGroup group = CollectionGroupSelectionDialog.chooseGroup(groupTreeModel).orElse(null);
         if (group == null) return false;
 
+        return saveRequestsToGroup(items, group);
+    }
+
+    private boolean saveRequestsToGroup(List<HttpRequestItem> items, RequestGroup group) {
+        if (items == null || items.isEmpty() || group == null) return false;
+        CollectionTreePanel collectionPanel = UiSingletonFactory.getInstance(CollectionTreePanel.class);
+        RequestEditorPanel requestEditPanel = UiSingletonFactory.getInstance(RequestEditorPanel.class);
         HttpRequestItem lastItem = null;
         for (HttpRequestItem item : items) {
             item.setId(IdUtil.simpleUUID());

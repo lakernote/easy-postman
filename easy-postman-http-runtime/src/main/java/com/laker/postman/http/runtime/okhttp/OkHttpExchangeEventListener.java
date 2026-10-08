@@ -1,5 +1,7 @@
 package com.laker.postman.http.runtime.okhttp;
 
+import com.laker.postman.http.runtime.config.HttpRuntimeSettings;
+import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.model.HttpCapturePolicy;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
 import com.laker.postman.http.runtime.model.HttpExchangeKind;
@@ -8,6 +10,7 @@ import com.laker.postman.http.runtime.model.HttpRouteAttempt;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
 import com.laker.postman.http.runtime.observation.NetworkLogSupport;
+import com.laker.postman.http.runtime.observation.SafeSocketAddressFormatter;
 import com.laker.postman.http.runtime.error.NetworkErrorMessageResolver;
 import com.laker.postman.http.runtime.ssl.CertificateCapturingSSLSocketFactory;
 import com.laker.postman.http.runtime.ssl.SSLCertificateValidator;
@@ -15,6 +18,7 @@ import com.laker.postman.http.runtime.ssl.SSLConfigurationUtil;
 import com.laker.postman.http.runtime.ssl.SSLValidationResult;
 import com.laker.postman.http.runtime.transport.HttpExchangeTraceSupport;
 import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpRequestProxyPolicy;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
@@ -29,8 +33,12 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 事件监听器，既记录详细连接事件和耗时，也统计连接信息
@@ -47,6 +55,8 @@ public class OkHttpExchangeEventListener extends EventListener {
     private final boolean collectEventInfo; // 是否收集完整事件信息（DNS、连接等）
     private final boolean enableNetworkLog; // 是否启用网络日志面板输出
     private final Object routeAttemptLock = new Object();
+    private final AtomicBoolean socksProtocolMismatchLogged = new AtomicBoolean();
+    private final Set<String> hiddenDiagnosticHosts;
     private final List<PendingRouteAttempt> pendingRouteAttempts = new ArrayList<>();
     private boolean successfulRouteConnected;
 
@@ -64,6 +74,8 @@ public class OkHttpExchangeEventListener extends EventListener {
         this.collectMetricsInfo = capturePolicy.collectMetrics();
         this.collectEventInfo = capturePolicy.collectEventDetails();
         this.enableNetworkLog = capturePolicy.emitNetworkLog();
+        this.hiddenDiagnosticHosts = collectEventInfo
+                ? ConcurrentHashMap.newKeySet() : Collections.emptySet();
     }
 
     /**
@@ -81,7 +93,18 @@ public class OkHttpExchangeEventListener extends EventListener {
 
         long now = System.nanoTime();
         long elapsedMs = (now - callStartNanos) / 1_000_000;
-        NetworkLogSupport.append(preparedRequest, stage, msg, elapsedMs, durationMs);
+        NetworkLogSupport.append(preparedRequest, stage,
+                containsEndpointDiagnostics(stage) ? safeDiagnosticText(msg) : msg,
+                elapsedMs, durationMs);
+    }
+
+    private static boolean containsEndpointDiagnostics(NetworkLogEventStage stage) {
+        return switch (stage) {
+            case PROXY_SELECT_END, DNS_START, DNS_END, CONNECT_START, CONNECT_END, CONNECT_FAILED,
+                    CONNECTION_ACQUIRED, CONNECTION_RELEASED, RETRY_DECISION,
+                    REQUEST_FAILED, RESPONSE_FAILED, CALL_FAILED -> true;
+            default -> false;
+        };
     }
 
     @Override
@@ -174,7 +197,8 @@ public class OkHttpExchangeEventListener extends EventListener {
             sb.append(proxy.type()).append(" ");
             if (proxy.address() instanceof InetSocketAddress address) {
                 // getHostName() may trigger an unrelated reverse-DNS lookup while tracing.
-                sb.append(address.getHostString()).append(":").append(address.getPort()).append(" ");
+                safeDiagnosticHost(address.getHostString());
+                sb.append(SafeSocketAddressFormatter.hostPort(address)).append(" ");
             }
         }
         log(NetworkLogEventStage.PROXY_SELECT_END, sb.toString(),
@@ -187,10 +211,10 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setDnsStart(System.currentTimeMillis());
-        info.setDnsHost(domainName);
+        info.setDnsHost(safeDiagnosticHost(domainName));
         info.setDnsError(null);
         info.replaceDnsAddresses(List.of());
-        log(NetworkLogEventStage.DNS_START, domainName);
+        log(NetworkLogEventStage.DNS_START, info.getDnsHost());
     }
 
     @Override
@@ -199,10 +223,12 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setDnsEnd(System.currentTimeMillis());
-        info.replaceDnsAddresses(inetAddressList.stream()
+        String displayedHost = safeDiagnosticHost(domainName);
+        List<String> addresses = inetAddressList.stream()
                 .map(OkHttpExchangeEventListener::concreteAddress)
-                .toList());
-        log(NetworkLogEventStage.DNS_END, domainName + " -> " + inetAddressList,
+                .toList();
+        info.replaceDnsAddresses(addresses);
+        log(NetworkLogEventStage.DNS_END, displayedHost + " -> " + addresses,
                 duration(info.getDnsStart(), info.getDnsEnd()));
     }
 
@@ -212,15 +238,18 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         long startTime = System.currentTimeMillis();
+        safeDiagnosticHost(inetSocketAddress.getHostString());
         synchronized (routeAttemptLock) {
             pendingRouteAttempts.add(new PendingRouteAttempt(
+                    inetSocketAddress,
                     routeAddress(inetSocketAddress),
                     addressFamily(inetSocketAddress),
                     startTime,
                     System.nanoTime()
             ));
         }
-        log(NetworkLogEventStage.CONNECT_START, inetSocketAddress + " via " + proxy.type());
+        log(NetworkLogEventStage.CONNECT_START,
+                SafeSocketAddressFormatter.socketAddress(inetSocketAddress) + " via " + proxy.type());
     }
 
     @Override
@@ -395,15 +424,19 @@ public class OkHttpExchangeEventListener extends EventListener {
             info.setConnectStart(attempt.startTime());
             info.setConnectEnd(attempt.endTime());
         }
-        log(NetworkLogEventStage.CONNECT_END, inetSocketAddress + " via " + proxy.type() + ", protocol=" + protocol,
+        log(NetworkLogEventStage.CONNECT_END,
+                SafeSocketAddressFormatter.socketAddress(inetSocketAddress)
+                        + " via " + proxy.type() + ", protocol=" + protocol,
                 attempt == null ? null : attempt.durationMs());
     }
 
     @Override
     public void connectFailed(Call call, InetSocketAddress inetSocketAddress, Proxy proxy, Protocol protocol, IOException ioe) {
+        logSocksProtocolMismatch(proxy, ioe);
         if (!collectEventInfo) {
             return;
         }
+        safeDiagnosticHost(inetSocketAddress.getHostString());
         HttpRouteAttempt attempt;
         synchronized (routeAttemptLock) {
             boolean canceled = (call != null && call.isCanceled())
@@ -417,8 +450,42 @@ public class OkHttpExchangeEventListener extends EventListener {
                     exceptionMessage(ioe)
             );
         }
-        log(NetworkLogEventStage.CONNECT_FAILED, inetSocketAddress + " via " + proxy.type() + ", protocol=" + protocol + ", error: " + exceptionMessage(ioe),
+        log(NetworkLogEventStage.CONNECT_FAILED,
+                SafeSocketAddressFormatter.socketAddress(inetSocketAddress)
+                        + " via " + proxy.type() + ", protocol=" + protocol + ", error: " + exceptionMessage(ioe),
                 attempt == null ? null : attempt.durationMs());
+    }
+
+    private void logSocksProtocolMismatch(Proxy proxy, IOException exception) {
+        if (!enableNetworkLog || !NetworkErrorMessageResolver.isSocksProtocolMismatch(exception.getMessage())) {
+            return;
+        }
+        if (!socksProtocolMismatchLogged.compareAndSet(false, true)) {
+            return;
+        }
+        String routeProxy = proxy == null ? "UNKNOWN" : proxy.type().name();
+        HttpRequestProxyPolicy requestPolicy = HttpRequestProxyPolicy.normalize(
+                preparedRequest == null ? null : preparedRequest.proxyPolicy);
+        try {
+            HttpRuntimeSettings settings = HttpRuntimeSettingsProvider.get();
+            boolean appProxyEnabled = settings.isProxyEnabled();
+            boolean systemProxyMode = settings.isSystemProxyMode();
+            boolean manualProxyRequested = requestPolicy != HttpRequestProxyPolicy.NO_PROXY
+                    && !systemProxyMode
+                    && (requestPolicy == HttpRequestProxyPolicy.USE_PROXY || appProxyEnabled);
+            String manualProxyType = "NOT_USED";
+            if (manualProxyRequested) {
+                manualProxyType = HttpRuntimeSettings.PROXY_TYPE_SOCKS.equalsIgnoreCase(settings.getProxyType())
+                        ? "SOCKS" : "HTTP";
+            }
+            log.warn("SOCKS_PROTOCOL_MISMATCH requestPolicy={} appProxyEnabled={} appProxyMode={} "
+                            + "manualProxyType={} routeProxy={}",
+                    requestPolicy, appProxyEnabled, systemProxyMode ? "SYSTEM" : "MANUAL",
+                    manualProxyType, routeProxy);
+        } catch (RuntimeException ignored) {
+            log.warn("SOCKS_PROTOCOL_MISMATCH requestPolicy={} routeProxy={} proxySettings=unavailable",
+                    requestPolicy, routeProxy);
+        }
     }
 
     private HttpRouteAttempt completeRouteAttemptLocked(InetSocketAddress address,
@@ -427,11 +494,10 @@ public class OkHttpExchangeEventListener extends EventListener {
                                                         boolean canceled,
                                                         String protocol,
                                                         String error) {
-        String routeAddress = routeAddress(address);
         HttpRouteAttempt completedAttempt = null;
         for (int i = pendingRouteAttempts.size() - 1; i >= 0; i--) {
             PendingRouteAttempt pending = pendingRouteAttempts.get(i);
-            if (!pending.address.equals(routeAddress)) {
+            if (!pending.socketAddress.equals(address)) {
                 continue;
             }
             pendingRouteAttempts.remove(i);
@@ -527,7 +593,7 @@ public class OkHttpExchangeEventListener extends EventListener {
     private static String routeAddress(InetSocketAddress address) {
         InetAddress resolvedAddress = address.getAddress();
         if (resolvedAddress == null) {
-            return address.getHostString() + ":" + address.getPort();
+            return SafeSocketAddressFormatter.hostPort(address);
         }
         return socketEndpoint(resolvedAddress, address.getPort());
     }
@@ -560,12 +626,18 @@ public class OkHttpExchangeEventListener extends EventListener {
     }
 
     private static final class PendingRouteAttempt {
+        private final InetSocketAddress socketAddress;
         private final String address;
         private final String addressFamily;
         private final long startTime;
         private final long startNanos;
 
-        private PendingRouteAttempt(String address, String addressFamily, long startTime, long startNanos) {
+        private PendingRouteAttempt(InetSocketAddress socketAddress,
+                                    String address,
+                                    String addressFamily,
+                                    long startTime,
+                                    long startNanos) {
+            this.socketAddress = socketAddress;
             this.address = address;
             this.addressFamily = addressFamily;
             this.startTime = startTime;
@@ -594,7 +666,8 @@ public class OkHttpExchangeEventListener extends EventListener {
         }
         boolean reused = info.getConnectStart() <= 0;
         String label = reused ? "Connection reused" : "Connection acquired";
-        log(NetworkLogEventStage.CONNECTION_ACQUIRED, label + ": " + connection.toString() + ", local=" + info.getLocalAddress() + ", remote=" + info.getRemoteAddress());
+        log(NetworkLogEventStage.CONNECTION_ACQUIRED, label + ": " + connectionRouteDescription(connection)
+                + ", local=" + info.getLocalAddress() + ", remote=" + info.getRemoteAddress());
     }
 
     @Override
@@ -603,8 +676,21 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setConnectionReleased(System.currentTimeMillis());
-        log(NetworkLogEventStage.CONNECTION_RELEASED, "Connection released: " + connection.toString() + ", local=" + info.getLocalAddress() + ", remote=" + info.getRemoteAddress(),
+        log(NetworkLogEventStage.CONNECTION_RELEASED, "Connection released: "
+                        + connectionRouteDescription(connection) + ", local=" + info.getLocalAddress()
+                        + ", remote=" + info.getRemoteAddress(),
                 duration(info.getConnectionAcquired(), info.getConnectionReleased()));
+    }
+
+    private static String connectionRouteDescription(Connection connection) {
+        try {
+            Route route = connection.route();
+            return "proxy=" + route.proxy().type()
+                    + ", routeAddress=" + SafeSocketAddressFormatter.socketAddress(route.socketAddress())
+                    + ", protocol=" + connection.protocol();
+        } catch (RuntimeException ignored) {
+            return "route unavailable";
+        }
     }
 
     @Override
@@ -659,7 +745,7 @@ public class OkHttpExchangeEventListener extends EventListener {
         if (!collectMetricsInfo) {
             return;
         }
-        info.setErrorMessage(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe));
+        info.setErrorMessage(safeDiagnosticText(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe)));
         info.setError(ioe);
         if (!enableNetworkLog) {
             return;
@@ -757,7 +843,7 @@ public class OkHttpExchangeEventListener extends EventListener {
         if (!collectMetricsInfo) {
             return;
         }
-        info.setErrorMessage(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe));
+        info.setErrorMessage(safeDiagnosticText(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe)));
         info.setError(ioe);
         if (!enableNetworkLog) {
             return;
@@ -782,7 +868,7 @@ public class OkHttpExchangeEventListener extends EventListener {
             return;
         }
         info.setCallFailed(System.currentTimeMillis());
-        info.setErrorMessage(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe));
+        info.setErrorMessage(safeDiagnosticText(NetworkErrorMessageResolver.toUserFriendlyMessage(ioe)));
         info.setError(ioe);
         if (info.getDnsStart() > 0 && info.getDnsEnd() <= 0 && info.getRouteAttempts().isEmpty()) {
             info.setDnsError(exceptionMessage(ioe));
@@ -905,12 +991,32 @@ public class OkHttpExchangeEventListener extends EventListener {
         return endMs - startMs;
     }
 
-    private static String exceptionMessage(Throwable throwable) {
+    private String exceptionMessage(Throwable throwable) {
         if (throwable == null) {
             return "Unknown error";
         }
         String message = throwable.getMessage();
-        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;
+        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : safeDiagnosticText(message);
+    }
+
+    private String safeDiagnosticHost(String rawHost) {
+        String displayed = SafeSocketAddressFormatter.host(rawHost);
+        if (!SafeSocketAddressFormatter.isSafeHost(rawHost)
+                && rawHost != null && rawHost.length() >= 4 && rawHost.indexOf('@') > 0) {
+            hiddenDiagnosticHosts.add(rawHost);
+        }
+        return displayed;
+    }
+
+    private String safeDiagnosticText(String text) {
+        if (text == null || hiddenDiagnosticHosts.isEmpty()) {
+            return text;
+        }
+        String result = text;
+        for (String host : hiddenDiagnosticHosts) {
+            result = result.replace(host, "<invalid-host>");
+        }
+        return result;
     }
 
     private static boolean isRouteCancellationSignal(Throwable throwable) {

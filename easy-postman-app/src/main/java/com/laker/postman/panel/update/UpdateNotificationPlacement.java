@@ -11,10 +11,10 @@ class UpdateNotificationPlacement {
     private static final int BOTTOM_CLEARANCE = 36;
     private static final int RIGHT_CLEARANCE = 34;
 
-    void positionDialog(JDialog dialog, JFrame parent) {
+    void positionWindow(Window window, JFrame parent) {
         Rectangle anchor = parentAnchorBoundsOnScreen(parent);
-        int width = dialog.getWidth();
-        int height = dialog.getHeight();
+        int width = window.getWidth();
+        int height = window.getHeight();
 
         int x = anchor.x + anchor.width - width - EDGE_MARGIN - RIGHT_CLEARANCE;
         int y = anchor.y + anchor.height - height - EDGE_MARGIN - BOTTOM_CLEARANCE;
@@ -31,7 +31,7 @@ class UpdateNotificationPlacement {
             x = clamp(x, minX, maxX);
             y = clamp(y, minY, maxY);
         }
-        dialog.setLocation(x, y);
+        window.setLocation(x, y);
     }
 
     private Rectangle parentAnchorBoundsOnScreen(JFrame parent) {

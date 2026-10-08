@@ -3,6 +3,7 @@ package com.laker.postman.http.runtime.okhttp;
 import com.laker.postman.certificate.TrustedCertificateEntry;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettings;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
+import com.laker.postman.http.runtime.observation.SafeSocketAddressFormatter;
 import com.laker.postman.http.runtime.ssl.SSLConfigurationUtil;
 import com.laker.postman.request.model.HttpRequestProxyPolicy;
 import lombok.extern.slf4j.Slf4j;
@@ -45,7 +46,7 @@ public class OkHttpClientManager {
         }
 
         public String description() {
-            return OkHttpClientManager.describeProxy(proxy);
+            return OkHttpClientManager.describeProxyForDisplay(proxy);
         }
     }
 
@@ -58,6 +59,10 @@ public class OkHttpClientManager {
         }
         clientMap.clear();
         SocksProxyAuthenticatorSupport.clearAllowedEndpoints();
+    }
+
+    public static boolean bypassesJvmSocketProxySelector(OkHttpClient client) {
+        return client != null && client.socketFactory() == JvmProxyBypassingSocketFactory.INSTANCE;
     }
 
     private static void shutdownClient(OkHttpClient client) {
@@ -360,6 +365,7 @@ public class OkHttpClientManager {
                                              CookieJar cookieJar,
                                              HttpRequestProxyPolicy proxyPolicy) {
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
+                .socketFactory(JvmProxyBypassingSocketFactory.INSTANCE)
                 .connectTimeout(0, TimeUnit.MILLISECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .writeTimeout(0, TimeUnit.MILLISECONDS)
@@ -566,8 +572,17 @@ public class OkHttpClientManager {
 
         SocketAddress address = proxy.address();
         if (address instanceof InetSocketAddress socketAddress) {
-            String host = socketAddress.getHostString();
-            return proxy.type() + ":" + host + ":" + socketAddress.getPort();
+            return proxy.type() + ":" + socketAddress.getHostString() + ":" + socketAddress.getPort();
+        }
+        return proxy.type() + ":unknown";
+    }
+
+    private static String describeProxyForDisplay(Proxy proxy) {
+        if (isDirectProxy(proxy)) {
+            return "direct";
+        }
+        if (proxy.address() instanceof InetSocketAddress socketAddress) {
+            return proxy.type() + ":" + SafeSocketAddressFormatter.hostPort(socketAddress);
         }
         return proxy.type() + ":unknown";
     }

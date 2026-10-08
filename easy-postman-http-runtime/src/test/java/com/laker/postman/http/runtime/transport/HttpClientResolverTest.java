@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 public class HttpClientResolverTest {
@@ -94,6 +95,182 @@ public class HttpClientResolverTest {
 
             assertEquals(client.proxy(), Proxy.NO_PROXY);
         } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void directClientProxyDiagnosticShouldShowJvmSocksBypass() {
+        try {
+            HttpRuntimeSettingsProvider.set(manualProxySettings(true));
+            PreparedRequest request = requestWithProxyPolicy(HttpRequestProxyPolicy.NO_PROXY);
+
+            String diagnostic = captureProxyDiagnostic(request);
+
+            assertTrue(diagnostic.contains("requestPolicy=NO_PROXY"));
+            assertTrue(diagnostic.contains("clientProxy=DIRECT"));
+            assertTrue(diagnostic.contains("directHttpSocketFactoryJvmSocksBypass=true"));
+            assertTrue(diagnostic.contains("manualProxyConfig=NOT_USED"));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void manualProxyDiagnosticShouldShowEndpointWithoutCredentials() {
+        try {
+            HttpRuntimeSettingsProvider.set(new HttpRuntimeSettings() {
+                @Override
+                public boolean isProxyEnabled() {
+                    return true;
+                }
+
+                @Override
+                public String getProxyType() {
+                    return PROXY_TYPE_HTTP;
+                }
+
+                @Override
+                public String getProxyHost() {
+                    return "127.0.0.1";
+                }
+
+                @Override
+                public int getProxyPort() {
+                    return 8080;
+                }
+
+                @Override
+                public String getProxyUsername() {
+                    return "proxy-secret-user";
+                }
+
+                @Override
+                public String getProxyPassword() {
+                    return "proxy-secret-password";
+                }
+            });
+            PreparedRequest request = requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT);
+
+            String diagnostic = captureProxyDiagnostic(request);
+
+            assertTrue(diagnostic.contains("clientProxy=HTTP:127.0.0.1:8080"));
+            assertTrue(diagnostic.contains("manualProxyConfig=FIELDS_PRESENT"));
+            assertFalse(diagnostic.contains("proxy-secret-user"));
+            assertFalse(diagnostic.contains("proxy-secret-password"));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void ipv6ManualProxyDiagnosticShouldBracketHost() {
+        try {
+            HttpRuntimeSettingsProvider.set(manualProxySettings(true, "::1"));
+            String diagnostic = captureProxyDiagnostic(requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT));
+
+            assertTrue(diagnostic.contains("clientProxy=HTTP:["));
+            assertTrue(diagnostic.contains("]:8080"));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void manualProxyDiagnosticShouldHideUserInfoPastedIntoHost() {
+        try {
+            HttpRuntimeSettingsProvider.set(manualProxySettings(true, "user:password@proxy.example"));
+            String diagnostic = captureProxyDiagnostic(requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT));
+
+            assertTrue(diagnostic.contains("clientProxy=HTTP:<invalid-host>:8080"));
+            assertTrue(diagnostic.contains("manualProxyConfig=INVALID_HOST"));
+            assertFalse(diagnostic.contains("password"));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void manualProxyDiagnosticShouldExplainMissingHostFallback() {
+        try {
+            HttpRuntimeSettingsProvider.set(manualProxySettings(true, " "));
+            String diagnostic = captureProxyDiagnostic(requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT));
+
+            assertTrue(diagnostic.contains("clientProxy=DIRECT"));
+            assertTrue(diagnostic.contains("manualProxyConfig=MISSING_HOST"));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void manualProxyDiagnosticShouldExplainInvalidPortFallback() {
+        try {
+            HttpRuntimeSettingsProvider.set(manualProxySettings(true, "127.0.0.1", 0));
+            String diagnostic = captureProxyDiagnostic(requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT));
+
+            assertTrue(diagnostic.contains("clientProxy=DIRECT"));
+            assertTrue(diagnostic.contains("manualProxyConfig=INVALID_PORT"));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void unavailableProxyDiagnosticsShouldNotPreventClientResolution() {
+        try {
+            HttpRuntimeSettingsProvider.set(new HttpRuntimeSettings() {
+                @Override
+                public boolean isProxyEnabled() {
+                    throw new IllegalStateException("settings unavailable");
+                }
+            });
+            PreparedRequest request = requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT);
+            HttpCaptureProfiles.apply(request, HttpCaptureProfile.COLLECTION_DIAGNOSTIC);
+            List<NetworkLogEvent> events = new ArrayList<>();
+            request.networkLogSink = events::add;
+
+            OkHttpClient client = new HttpClientResolver().resolveClient(request, ignored -> new OkHttpClient());
+
+            assertNotNull(client);
+            assertTrue(events.stream().anyMatch(event -> event.stage() == NetworkLogEventStage.PROXY_SELECT
+                    && "proxy diagnostics unavailable".equals(event.message())));
+        } finally {
+            HttpRuntimeSettingsProvider.reset();
+        }
+    }
+
+    @Test
+    public void systemProxyDiagnosticShouldIdentifySelector() {
+        ProxySelector originalSelector = ProxySelector.getDefault();
+        try {
+            ProxySelector.setDefault(fakeSystemProxySelector());
+            HttpRuntimeSettingsProvider.set(new HttpRuntimeSettings() {
+                @Override
+                public boolean isProxyEnabled() {
+                    return true;
+                }
+
+                @Override
+                public String getProxyMode() {
+                    return PROXY_MODE_SYSTEM;
+                }
+            });
+            PreparedRequest request = requestWithProxyPolicy(HttpRequestProxyPolicy.DEFAULT);
+
+            String diagnostic = captureProxyDiagnostic(request);
+
+            assertTrue(diagnostic.contains("clientProxy=SYSTEM_SELECTOR"));
+            assertTrue(diagnostic.contains("manualProxyConfig=NOT_USED"));
+        } finally {
+            ProxySelector.setDefault(originalSelector);
             HttpRuntimeSettingsProvider.reset();
             OkHttpClientManager.clearClientCache();
         }
@@ -299,6 +476,20 @@ public class HttpClientResolverTest {
         request.proxyPolicy = proxyPolicy;
         request.sslVerificationEnabled = true;
         return request;
+    }
+
+    private static String captureProxyDiagnostic(PreparedRequest request) {
+        HttpCaptureProfiles.apply(request, HttpCaptureProfile.COLLECTION_DIAGNOSTIC);
+        List<NetworkLogEvent> events = new ArrayList<>();
+        request.networkLogSink = events::add;
+
+        new HttpClientResolver().resolveClient(request, null);
+
+        return events.stream()
+                .filter(event -> event.stage() == NetworkLogEventStage.PROXY_SELECT)
+                .map(NetworkLogEvent::message)
+                .findFirst()
+                .orElseThrow();
     }
 
     private static HttpRuntimeSettings manualProxySettings(boolean proxyEnabled) {

@@ -1,6 +1,7 @@
 package com.laker.postman.http.runtime.transport;
 
 import com.laker.postman.http.runtime.config.HttpRequestRuntimeSettingsResolver;
+import com.laker.postman.http.runtime.config.HttpRuntimeSettings;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.model.HttpCapturePolicy;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
@@ -9,8 +10,12 @@ import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.okhttp.DigestAuthenticator;
 import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
 import com.laker.postman.http.runtime.okhttp.OkHttpExchangeEventListener;
+import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
+import com.laker.postman.http.runtime.observation.NetworkLogSupport;
+import com.laker.postman.http.runtime.observation.SafeSocketAddressFormatter;
 import com.laker.postman.http.runtime.ssl.SSLConfigurationUtil;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.HttpRequestProxyPolicy;
 import com.laker.postman.request.model.TransportAuth;
 import com.laker.postman.request.util.HttpUrlUtil;
 import okhttp3.CookieJar;
@@ -18,6 +23,9 @@ import okhttp3.EventListener;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
 
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -127,7 +135,64 @@ public final class HttpClientResolver {
                     .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                     .callTimeout(timeoutMs, TimeUnit.MILLISECONDS);
         }
-        return builder.build();
+        OkHttpClient client = builder.build();
+        if (capturePolicy.emitNetworkLog()) {
+            publishProxyConfiguration(preparedRequest, client);
+        }
+        return client;
+    }
+
+    private void publishProxyConfiguration(PreparedRequest request, OkHttpClient client) {
+        try {
+            HttpRuntimeSettings settings = HttpRuntimeSettingsProvider.get();
+            HttpRequestProxyPolicy policy = HttpRequestProxyPolicy.normalize(request.proxyPolicy);
+            boolean appProxyEnabled = settings.isProxyEnabled();
+            boolean systemProxyMode = settings.isSystemProxyMode();
+            String message = "requestPolicy=" + policy
+                    + ", appProxyEnabled=" + appProxyEnabled
+                    + ", appProxyMode=" + (systemProxyMode ? "SYSTEM" : "MANUAL")
+                    + ", clientProxy=" + describeClientProxy(client)
+                    + ", directHttpSocketFactoryJvmSocksBypass="
+                    + OkHttpClientManager.bypassesJvmSocketProxySelector(client)
+                    + ", manualProxyConfig=" + describeManualProxyConfig(
+                    settings, policy, appProxyEnabled, systemProxyMode);
+            NetworkLogSupport.append(request, NetworkLogEventStage.PROXY_SELECT, message);
+        } catch (RuntimeException ignored) {
+            NetworkLogSupport.append(request, NetworkLogEventStage.PROXY_SELECT, "proxy diagnostics unavailable");
+        }
+    }
+
+    private String describeClientProxy(OkHttpClient client) {
+        Proxy proxy = client.proxy();
+        if (proxy == null) {
+            return client.proxySelector() == ProxySelector.getDefault() ? "SYSTEM_SELECTOR" : "CUSTOM_SELECTOR";
+        }
+        if (proxy == Proxy.NO_PROXY || proxy.type() == Proxy.Type.DIRECT) {
+            return "DIRECT";
+        }
+        if (proxy.address() instanceof InetSocketAddress address) {
+            return proxy.type() + ":" + SafeSocketAddressFormatter.hostPort(address);
+        }
+        return proxy.type().toString();
+    }
+
+    private String describeManualProxyConfig(HttpRuntimeSettings settings,
+                                             HttpRequestProxyPolicy policy,
+                                             boolean appProxyEnabled,
+                                             boolean systemProxyMode) {
+        if (systemProxyMode || policy == HttpRequestProxyPolicy.NO_PROXY
+                || (policy != HttpRequestProxyPolicy.USE_PROXY && !appProxyEnabled)) {
+            return "NOT_USED";
+        }
+        String host = settings.getProxyHost();
+        if (host == null || host.isBlank()) {
+            return "MISSING_HOST";
+        }
+        if (!SafeSocketAddressFormatter.isSafeHost(host.trim())) {
+            return "INVALID_HOST";
+        }
+        int port = settings.getProxyPort();
+        return port > 0 && port <= 65535 ? "FIELDS_PRESENT" : "INVALID_PORT";
     }
 
     private void applyRequestSettings(OkHttpClient.Builder builder,

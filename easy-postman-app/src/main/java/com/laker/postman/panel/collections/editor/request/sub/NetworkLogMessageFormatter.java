@@ -20,6 +20,10 @@ public class NetworkLogMessageFormatter {
             "^Follow-up: (true|false), response: ([^,]+), next: (.*)$");
     private static final Pattern RETRY = Pattern.compile(
             "^Retry: (true|false), reason: (.*)$");
+    private static final Pattern PROXY_CONFIGURATION = Pattern.compile(
+            "^requestPolicy=([^,]+), appProxyEnabled=(true|false), appProxyMode=([^,]+), "
+                    + "clientProxy=(.*), directHttpSocketFactoryJvmSocksBypass=(true|false), "
+                    + "manualProxyConfig=([^,]+)$");
 
     public static String format(NetworkLogEventStage stage, String message) {
         if (message == null || message.isEmpty()) {
@@ -30,6 +34,7 @@ public class NetworkLogMessageFormatter {
                     MessageKeys.NETWORK_LOG_MESSAGE_SELECTING_PROXY);
             case PROXY_SELECT_END -> replacePrefix(message, "Proxies: ",
                     MessageKeys.NETWORK_LOG_MESSAGE_PROXIES);
+            case PROXY_SELECT -> formatProxyConfiguration(message);
             case SECURE_CONNECT_START -> exact(message, "TLS handshake start",
                     MessageKeys.NETWORK_LOG_MESSAGE_TLS_START);
             case SECURE_CONNECT_END -> formatTlsMessage(message);
@@ -65,6 +70,57 @@ public class NetworkLogMessageFormatter {
         }
         return I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_FOLLOW_UP,
                 formatBoolean(matcher.group(1)), matcher.group(2), formatNone(matcher.group(3)));
+    }
+
+    private static String formatProxyConfiguration(String message) {
+        if ("proxy diagnostics unavailable".equals(message)) {
+            return I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_PROXY_DIAGNOSTICS_UNAVAILABLE);
+        }
+        Matcher matcher = PROXY_CONFIGURATION.matcher(message);
+        if (!matcher.matches()) {
+            return message;
+        }
+        return I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_PROXY_CONFIGURATION,
+                formatProxyPolicy(matcher.group(1)), formatBoolean(matcher.group(2)),
+                formatProxyMode(matcher.group(3)), formatClientProxy(matcher.group(4)),
+                formatBoolean(matcher.group(5)), formatManualProxyConfig(matcher.group(6)));
+    }
+
+    private static String formatProxyPolicy(String value) {
+        return switch (value) {
+            case "DEFAULT" -> I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_PROXY_POLICY_DEFAULT);
+            case "USE_PROXY" -> I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_PROXY_POLICY_USE_PROXY);
+            case "NO_PROXY" -> I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_PROXY_POLICY_NO_PROXY);
+            default -> value;
+        };
+    }
+
+    private static String formatProxyMode(String value) {
+        return switch (value) {
+            case "MANUAL" -> I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_MODE_MANUAL);
+            case "SYSTEM" -> I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_MODE_SYSTEM);
+            default -> value;
+        };
+    }
+
+    private static String formatClientProxy(String value) {
+        return switch (value) {
+            case "DIRECT" -> I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_STATUS_DIRECT);
+            case "SYSTEM_SELECTOR" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_SYSTEM_SELECTOR);
+            case "CUSTOM_SELECTOR" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_CUSTOM_SELECTOR);
+            default -> value;
+        };
+    }
+
+    private static String formatManualProxyConfig(String value) {
+        return switch (value) {
+            case "NOT_USED" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_MANUAL_PROXY_NOT_USED);
+            case "MISSING_HOST" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_MANUAL_PROXY_MISSING_HOST);
+            case "INVALID_HOST" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_MANUAL_PROXY_INVALID_HOST);
+            case "INVALID_PORT" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_MANUAL_PROXY_INVALID_PORT);
+            case "FIELDS_PRESENT" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_MANUAL_PROXY_FIELDS_PRESENT);
+            default -> value;
+        };
     }
 
     private static String formatRetry(String message) {

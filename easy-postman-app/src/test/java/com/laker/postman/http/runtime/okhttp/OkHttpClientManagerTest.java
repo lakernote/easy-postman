@@ -1,6 +1,7 @@
 package com.laker.postman.http.runtime.okhttp;
 
 import cn.hutool.json.JSONUtil;
+import com.sun.net.httpserver.HttpServer;
 import com.laker.postman.model.ClientCertificate;
 import com.laker.postman.certificate.TrustedCertificateEntry;
 import com.laker.postman.http.runtime.app.AppHttpRuntimeBootstrap;
@@ -11,13 +12,18 @@ import com.laker.postman.request.model.HttpRequestProxyPolicy;
 import com.laker.postman.service.setting.SettingManager;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.Response;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import javax.net.ssl.KeyManager;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.Authenticator;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.ProxySelector;
@@ -30,11 +36,14 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
@@ -226,6 +235,172 @@ public class OkHttpClientManagerTest {
     }
 
     @Test
+    public void directRequestShouldIgnoreSystemSocksProxySelectedForRawSockets() throws Exception {
+        Properties props = getSettingsProperties();
+        Properties backup = new Properties();
+        backup.putAll(props);
+        ProxySelector originalSelector = ProxySelector.getDefault();
+
+        HttpServer target = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        target.createContext("/", exchange -> {
+            byte[] body = "direct".getBytes(StandardCharsets.US_ASCII);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        target.start();
+
+        try (ServerSocket decoySocksProxy = new ServerSocket(0)) {
+            Thread decoyResponder = new Thread(() -> {
+                try (Socket socket = decoySocksProxy.accept()) {
+                    socket.getOutputStream().write("HTTP/1.1 400 Bad Request\r\n\r\n"
+                            .getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().flush();
+                } catch (IOException ignored) {
+                    // Closing the unused decoy socket also ends this thread.
+                }
+            }, "decoy-system-socks-proxy");
+            decoyResponder.setDaemon(true);
+            decoyResponder.start();
+
+            try {
+                props.clear();
+                props.setProperty("proxy_enabled", "false");
+                props.setProperty("ssl_verification_enabled", "true");
+                props.setProperty("proxy_ssl_verification_disabled", "false");
+
+                ProxySelector.setDefault(new ProxySelector() {
+                    @Override
+                    public List<Proxy> select(URI uri) {
+                        if ("socket".equalsIgnoreCase(uri.getScheme())) {
+                            return List.of(new Proxy(Proxy.Type.SOCKS,
+                                    new InetSocketAddress("127.0.0.1", decoySocksProxy.getLocalPort())));
+                        }
+                        return List.of(Proxy.NO_PROXY);
+                    }
+
+                    @Override
+                    public void connectFailed(URI uri, java.net.SocketAddress sa, IOException ioe) {
+                    }
+                });
+
+                String url = "http://127.0.0.1:" + target.getAddress().getPort() + "/";
+                OkHttpClient client = OkHttpClientManager.getClient(url, true)
+                        .newBuilder().callTimeout(5, TimeUnit.SECONDS).build();
+                assertEquals(client.proxy(), Proxy.NO_PROXY);
+                assertEquals(client.proxySelector().select(URI.create(url)), List.of(Proxy.NO_PROXY));
+
+                try (Response response = client.newCall(new Request.Builder().url(url).build()).execute()) {
+                    assertEquals(response.code(), 200);
+                    assertNotNull(response.body());
+                    assertEquals(response.body().string(), "direct");
+                }
+            } finally {
+                decoySocksProxy.close();
+                decoyResponder.join(1000L);
+            }
+        } finally {
+            target.stop(0);
+            ProxySelector.setDefault(originalSelector);
+            props.clear();
+            props.putAll(backup);
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void manualHttpProxyShouldIgnoreSystemSocksProxyForItsTcpConnection() throws Exception {
+        Properties props = getSettingsProperties();
+        Properties backup = new Properties();
+        backup.putAll(props);
+        ProxySelector originalSelector = ProxySelector.getDefault();
+
+        try (ServerSocket httpProxy = new ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"));
+             ServerSocket decoySocksProxy = new ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))) {
+            AtomicReference<String> proxyRequestLine = new AtomicReference<>();
+            Thread httpProxyResponder = new Thread(() -> {
+                try (Socket socket = httpProxy.accept()) {
+                    socket.setSoTimeout(3000);
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII));
+                    proxyRequestLine.set(reader.readLine());
+                    String header;
+                    while ((header = reader.readLine()) != null && !header.isEmpty()) {
+                        // Consume the request headers before responding.
+                    }
+                    socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"
+                            .concat("Connection: close\r\n\r\nproxy")
+                            .getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().flush();
+                } catch (IOException ignored) {
+                    // Closing the server socket also ends this thread.
+                }
+            }, "fake-http-proxy");
+            httpProxyResponder.setDaemon(true);
+            httpProxyResponder.start();
+
+            Thread decoyResponder = new Thread(() -> {
+                try (Socket socket = decoySocksProxy.accept()) {
+                    socket.getOutputStream().write("HTTP/1.1 400 Bad Request\r\n\r\n"
+                            .getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().flush();
+                } catch (IOException ignored) {
+                    // Closing the unused decoy socket also ends this thread.
+                }
+            }, "decoy-system-socks-for-http-proxy");
+            decoyResponder.setDaemon(true);
+            decoyResponder.start();
+
+            try {
+                props.clear();
+                props.setProperty("proxy_enabled", "true");
+                props.setProperty("proxy_mode", SettingManager.PROXY_MODE_MANUAL);
+                props.setProperty("proxy_type", SettingManager.PROXY_TYPE_HTTP);
+                props.setProperty("proxy_host", "127.0.0.1");
+                props.setProperty("proxy_port", String.valueOf(httpProxy.getLocalPort()));
+
+                ProxySelector.setDefault(new ProxySelector() {
+                    @Override
+                    public List<Proxy> select(URI uri) {
+                        if ("socket".equalsIgnoreCase(uri.getScheme())) {
+                            return List.of(new Proxy(Proxy.Type.SOCKS,
+                                    new InetSocketAddress("127.0.0.1", decoySocksProxy.getLocalPort())));
+                        }
+                        return List.of(Proxy.NO_PROXY);
+                    }
+
+                    @Override
+                    public void connectFailed(URI uri, java.net.SocketAddress sa, IOException ioe) {
+                    }
+                });
+
+                String url = "http://example.invalid/through-proxy";
+                OkHttpClient client = OkHttpClientManager.getClient(url, true)
+                        .newBuilder().callTimeout(5, TimeUnit.SECONDS).build();
+                assertEquals(client.proxy().type(), Proxy.Type.HTTP);
+
+                try (Response response = client.newCall(new Request.Builder().url(url).build()).execute()) {
+                    assertEquals(response.code(), 200);
+                    assertNotNull(response.body());
+                    assertEquals(response.body().string(), "proxy");
+                }
+                assertEquals(proxyRequestLine.get(), "GET http://example.invalid/through-proxy HTTP/1.1");
+            } finally {
+                httpProxy.close();
+                decoySocksProxy.close();
+                httpProxyResponder.join(1000L);
+                decoyResponder.join(1000L);
+            }
+        } finally {
+            ProxySelector.setDefault(originalSelector);
+            props.clear();
+            props.putAll(backup);
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
     public void systemProxyModeShouldResolveProxyFromDefaultSelector() throws Exception {
         Properties props = getSettingsProperties();
         Properties backup = new Properties();
@@ -314,6 +489,34 @@ public class OkHttpClientManagerTest {
             String secondKey = getProxyConfigKey("https://example.com");
 
             assertNotEquals(secondKey, firstKey);
+
+            ProxySelector.setDefault(new ProxySelector() {
+                @Override
+                public List<Proxy> select(URI uri) {
+                    return List.of(new Proxy(Proxy.Type.HTTP,
+                            InetSocketAddress.createUnresolved("user:first-secret@proxy.example", 8080)));
+                }
+
+                @Override
+                public void connectFailed(URI uri, java.net.SocketAddress sa, java.io.IOException ioe) {
+                }
+            });
+            String firstMalformedHostKey = getProxyConfigKey("https://example.com");
+
+            ProxySelector.setDefault(new ProxySelector() {
+                @Override
+                public List<Proxy> select(URI uri) {
+                    return List.of(new Proxy(Proxy.Type.HTTP,
+                            InetSocketAddress.createUnresolved("user:second-secret@proxy.example", 8080)));
+                }
+
+                @Override
+                public void connectFailed(URI uri, java.net.SocketAddress sa, java.io.IOException ioe) {
+                }
+            });
+            String secondMalformedHostKey = getProxyConfigKey("https://example.com");
+
+            assertNotEquals(secondMalformedHostKey, firstMalformedHostKey);
         } finally {
             ProxySelector.setDefault(originalSelector);
             props.clear();
@@ -388,6 +591,54 @@ public class OkHttpClientManagerTest {
             assertEquals(socksServer.username(), expectedUsername);
             assertEquals(socksServer.password(), expectedPassword);
         } finally {
+            Authenticator.setDefault(originalAuthenticator);
+            props.clear();
+            props.putAll(backup);
+            OkHttpClientManager.clearClientCache();
+        }
+    }
+
+    @Test
+    public void systemSocksProxyShouldStillReceiveTheConnection() throws Exception {
+        Properties props = getSettingsProperties();
+        Properties backup = new Properties();
+        backup.putAll(props);
+        ProxySelector originalSelector = ProxySelector.getDefault();
+        Authenticator originalAuthenticator = Authenticator.getDefault();
+
+        try (FakeSocks5Server socksServer = new FakeSocks5Server()) {
+            Authenticator.setDefault(null);
+            props.clear();
+            props.setProperty("proxy_enabled", "true");
+            props.setProperty("proxy_mode", SettingManager.PROXY_MODE_SYSTEM);
+            props.setProperty("proxy_username", "system-socks-user");
+            props.setProperty("proxy_password", "system-socks-password");
+            ProxySelector.setDefault(new ProxySelector() {
+                @Override
+                public List<Proxy> select(URI uri) {
+                    return List.of(new Proxy(Proxy.Type.SOCKS,
+                            new InetSocketAddress("127.0.0.1", socksServer.port())));
+                }
+
+                @Override
+                public void connectFailed(URI uri, java.net.SocketAddress sa, IOException ioe) {
+                }
+            });
+
+            OkHttpClient client = OkHttpClientManager.getClient("http://example.com", true)
+                    .newBuilder().callTimeout(5, TimeUnit.SECONDS).build();
+            assertNull(client.proxy());
+
+            try {
+                client.newCall(new Request.Builder().url("http://example.com/").build()).execute();
+            } catch (IOException ignored) {
+                // The fake proxy closes after capturing the SOCKS handshake.
+            }
+
+            assertEquals(socksServer.username(), "system-socks-user");
+            assertEquals(socksServer.password(), "system-socks-password");
+        } finally {
+            ProxySelector.setDefault(originalSelector);
             Authenticator.setDefault(originalAuthenticator);
             props.clear();
             props.putAll(backup);

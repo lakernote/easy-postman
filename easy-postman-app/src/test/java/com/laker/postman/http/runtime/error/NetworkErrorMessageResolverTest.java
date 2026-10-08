@@ -20,6 +20,17 @@ public class NetworkErrorMessageResolverTest {
     }
 
     @Test
+    public void shouldTranslateBadVersionSocksReplyIntoActionableHint() {
+        String rawMessage = "Reply from SOCKS server has bad version";
+
+        String message = NetworkErrorMessageResolver.toUserFriendlyMessage(rawMessage);
+
+        assertTrue(NetworkErrorMessageResolver.isSocksProtocolMismatch(rawMessage));
+        assertTrue(message.contains("HTTP/SOCKS"));
+        assertTrue(message.contains(rawMessage));
+    }
+
+    @Test
     public void shouldKeepUnknownMessagesUnchanged() {
         String rawMessage = "Connection reset by peer";
 

@@ -389,6 +389,15 @@ public final class MessageKeys {
 
     public static final String NETWORK_LOG_MESSAGE_SELECTING_PROXY = "network_log.message.selecting_proxy";
     public static final String NETWORK_LOG_MESSAGE_PROXIES = "network_log.message.proxies";
+    public static final String NETWORK_LOG_MESSAGE_PROXY_CONFIGURATION = "network_log.message.proxy_configuration";
+    public static final String NETWORK_LOG_MESSAGE_PROXY_DIAGNOSTICS_UNAVAILABLE = "network_log.message.proxy_diagnostics_unavailable";
+    public static final String NETWORK_LOG_VALUE_SYSTEM_SELECTOR = "network_log.value.system_selector";
+    public static final String NETWORK_LOG_VALUE_CUSTOM_SELECTOR = "network_log.value.custom_selector";
+    public static final String NETWORK_LOG_VALUE_MANUAL_PROXY_NOT_USED = "network_log.value.manual_proxy_not_used";
+    public static final String NETWORK_LOG_VALUE_MANUAL_PROXY_MISSING_HOST = "network_log.value.manual_proxy_missing_host";
+    public static final String NETWORK_LOG_VALUE_MANUAL_PROXY_INVALID_HOST = "network_log.value.manual_proxy_invalid_host";
+    public static final String NETWORK_LOG_VALUE_MANUAL_PROXY_INVALID_PORT = "network_log.value.manual_proxy_invalid_port";
+    public static final String NETWORK_LOG_VALUE_MANUAL_PROXY_FIELDS_PRESENT = "network_log.value.manual_proxy_fields_present";
     public static final String NETWORK_LOG_MESSAGE_TLS_START = "network_log.message.tls_start";
     public static final String NETWORK_LOG_MESSAGE_SSL_CONNECTION = "network_log.message.ssl_connection";
     public static final String NETWORK_LOG_MESSAGE_SERVER_CERTIFICATE = "network_log.message.server_certificate";

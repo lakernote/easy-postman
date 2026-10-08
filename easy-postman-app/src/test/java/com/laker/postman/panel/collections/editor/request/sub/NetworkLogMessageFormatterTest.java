@@ -39,6 +39,68 @@ public class NetworkLogMessageFormatterTest {
     }
 
     @Test
+    public void shouldLocalizeProxyConfigurationAndPreserveRouteDetails() {
+        assertEquals(NetworkLogStage.PROXY_SELECT.getDisplayName(), "代理配置");
+        String formatted = NetworkLogMessageFormatter.format(
+                NetworkLogEventStage.PROXY_SELECT,
+                "requestPolicy=DEFAULT, appProxyEnabled=false, appProxyMode=MANUAL, "
+                        + "clientProxy=DIRECT, directHttpSocketFactoryJvmSocksBypass=true, "
+                        + "manualProxyConfig=NOT_USED");
+
+        assertEquals(formatted, "代理配置：请求策略=使用默认值，应用代理启用=否，应用代理模式=手动配置，"
+                + "客户端代理=直连，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，手动代理配置=本次未使用");
+    }
+
+    @Test
+    public void shouldLocalizeSystemSelectorAndKeepManualProxyEndpoint() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                        "requestPolicy=USE_PROXY, appProxyEnabled=true, appProxyMode=SYSTEM, "
+                                + "clientProxy=SYSTEM_SELECTOR, directHttpSocketFactoryJvmSocksBypass=true, "
+                                + "manualProxyConfig=NOT_USED"),
+                "代理配置：请求策略=使用代理，应用代理启用=是，应用代理模式=自动检测系统代理，"
+                        + "客户端代理=系统代理选择器，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，"
+                        + "手动代理配置=本次未使用");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                        "requestPolicy=NO_PROXY, appProxyEnabled=true, appProxyMode=MANUAL, "
+                                + "clientProxy=SOCKS:127.0.0.1:1080, directHttpSocketFactoryJvmSocksBypass=true, "
+                                + "manualProxyConfig=FIELDS_PRESENT"),
+                "代理配置：请求策略=不使用代理，应用代理启用=是，应用代理模式=手动配置，"
+                        + "客户端代理=SOCKS:127.0.0.1:1080，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，"
+                        + "手动代理配置=主机与端口已填写");
+    }
+
+    @Test
+    public void shouldKeepProxyHostContainingCommaWhileLocalizingDiagnostic() {
+        String formatted = NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                "requestPolicy=USE_PROXY, appProxyEnabled=true, appProxyMode=MANUAL, "
+                        + "clientProxy=HTTP:proxy,internal:8080, directHttpSocketFactoryJvmSocksBypass=true, "
+                        + "manualProxyConfig=FIELDS_PRESENT");
+
+        assertEquals(formatted, "代理配置：请求策略=使用代理，应用代理启用=是，应用代理模式=手动配置，"
+                + "客户端代理=HTTP:proxy,internal:8080，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，"
+                + "手动代理配置=主机与端口已填写");
+    }
+
+    @Test
+    public void shouldLocalizeManualProxyFallbackReasons() {
+        String diagnostic = "requestPolicy=USE_PROXY, appProxyEnabled=true, appProxyMode=MANUAL, "
+                + "clientProxy=DIRECT, directHttpSocketFactoryJvmSocksBypass=true, manualProxyConfig=";
+
+        assertTrue(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                diagnostic + "MISSING_HOST").contains("手动代理配置=缺少主机"));
+        assertTrue(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                diagnostic + "INVALID_HOST").contains("手动代理配置=主机格式无效"));
+        assertTrue(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                diagnostic + "INVALID_PORT").contains("手动代理配置=端口无效"));
+    }
+
+    @Test
+    public void shouldLocalizeUnavailableProxyDiagnostics() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                "proxy diagnostics unavailable"), "无法获取代理诊断信息");
+    }
+
+    @Test
     public void shouldLocalizeTlsLabelsWithoutChangingCertificateValues() {
         String formatted = NetworkLogMessageFormatter.format(
                 NetworkLogEventStage.SECURE_CONNECT_END,

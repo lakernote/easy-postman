@@ -13,6 +13,7 @@ import com.laker.postman.http.request.HttpRequestProtocol;
 import com.laker.postman.http.runtime.redirect.HttpRedirectExecutor;
 import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.service.js.ScriptExecutionPipeline;
+import com.laker.postman.util.FileSizeDisplayUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import com.laker.postman.common.component.notification.NotificationCenter;
@@ -127,6 +128,9 @@ final class HttpRequestExecutor {
                     log.info("User canceled download for request: {} {}", req.method, req.url);
                     userCanceled = true;
                     resp = HttpExchangeTerminalResponseFactory.fromCancellation(req, requestStartMs, System.currentTimeMillis());
+                    resp.bodySize = ex.getReceivedBytes();
+                    resp.body = I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_CANCELLED_BODY,
+                            FileSizeDisplayUtil.formatSize(ex.getReceivedBytes()));
                 } catch (InterruptedIOException ex) {
                     log.warn("Request interrupted: {} {} - {}", req.method, req.url, ex.getMessage());
                     if (isCancelled()) {

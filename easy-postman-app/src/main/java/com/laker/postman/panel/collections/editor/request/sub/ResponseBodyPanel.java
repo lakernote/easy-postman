@@ -217,7 +217,7 @@ public class ResponseBodyPanel extends JPanel {
         String syntax;
         if (syntaxType == SyntaxType.AUTO_DETECT) {
             // 自动检测语法类型
-            syntax = detectSyntax(responseBodyPane.getText(), getCurrentContentTypeFromHeaders());
+            syntax = detectResponseSyntax(responseBodyPane.getText(), getCurrentContentTypeFromHeaders());
         } else {
             // 使用用户选择的语法类型
             syntax = syntaxType.getSyntaxStyle();
@@ -437,7 +437,7 @@ public class ResponseBodyPanel extends JPanel {
         updateSizeWarning(textSize, isLargeResponse);
 
         // 动态选择高亮类型
-        String syntax = detectSyntax(text, contentType);
+        String syntax = detectResponseSyntax(text, contentType);
 
         // 自动匹配下拉框选项
         int syntaxIndex = SyntaxType.getBySyntaxStyle(syntax).getIndex();
@@ -461,6 +461,18 @@ public class ResponseBodyPanel extends JPanel {
         }
 
         responseBodyPane.setCaretPosition(0);
+    }
+
+    /**
+     * 二进制响应在文本视图中展示的是接收提示，不是原始响应内容。
+     */
+    private String detectResponseSyntax(String text, String contentType) {
+        if (currentResponse != null
+                && !currentResponse.isImage
+                && FileExtensionUtil.isBinaryType(contentType)) {
+            return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+        return detectSyntax(text, contentType);
     }
 
     /**
@@ -597,6 +609,7 @@ public class ResponseBodyPanel extends JPanel {
      * 切换中心区域显示的卡片（文本编辑器 或 图片预览）
      */
     private void switchCard(String cardName) {
+        syntaxComboBox.setVisible(CARD_TEXT.equals(cardName));
         Container centerPanel = searchableTextArea.getParent();
         if (centerPanel != null && centerPanel.getLayout() instanceof CardLayout cl) {
             cl.show(centerPanel, cardName);
@@ -641,6 +654,7 @@ public class ResponseBodyPanel extends JPanel {
                 if (nameLower.endsWith(".svg")) {
                     String svgText = Files.readString(file.toPath());
                     responseBodyPane.setText(svgText);
+                    syntaxComboBox.setSelectedIndex(SyntaxType.XML.getIndex());
                     responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_XML);
                     responseBodyPane.setCaretPosition(0);
                     sizeWarningLabel.setText(String.format("  SVG  [%.2f KB]", bodySize / 1024.0));
@@ -666,6 +680,7 @@ public class ResponseBodyPanel extends JPanel {
     /** 图片加载失败时回退到文本卡片显示错误信息 */
     private void showImageError(String message, long bodySize) {
         responseBodyPane.setText(message);
+        syntaxComboBox.setSelectedIndex(SyntaxType.PLAIN_TEXT.getIndex());
         responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         sizeWarningLabel.setText(String.format("  [%.2f KB]", bodySize / 1024.0));
         sizeWarningLabel.setVisible(true);

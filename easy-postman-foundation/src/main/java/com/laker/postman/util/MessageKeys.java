@@ -1777,6 +1777,29 @@ public final class MessageKeys {
 
     // ============ OkHttpResponseHandler ============
     public static final String DOWNLOAD_PROGRESS_TITLE = "download.progress.title";
+    public static final String DOWNLOAD_PROGRESS_DOWNLOADED = "download.progress.downloaded";
+    public static final String DOWNLOAD_PROGRESS_DOWNLOADED_TOTAL = "download.progress.downloaded_total";
+    public static final String DOWNLOAD_PROGRESS_RECEIVED = "download.progress.received";
+    public static final String DOWNLOAD_PROGRESS_SPEED = "download.progress.speed";
+    public static final String DOWNLOAD_PROGRESS_ELAPSED = "download.progress.elapsed";
+    public static final String DOWNLOAD_PROGRESS_REMAINING = "download.progress.remaining";
+    public static final String DOWNLOAD_PROGRESS_REMAINING_WAITING = "download.progress.remaining_waiting";
+    public static final String DOWNLOAD_PROGRESS_TOTAL_UNKNOWN = "download.progress.total_unknown";
+    public static final String DOWNLOAD_PROGRESS_SPEED_AXIS = "download.progress.speed_axis";
+    public static final String DOWNLOAD_PROGRESS_TIME_AXIS = "download.progress.time_axis";
+    public static final String DOWNLOAD_PROGRESS_CONNECTED = "download.progress.connected";
+    public static final String DOWNLOAD_PROGRESS_RECEIVING = "download.progress.receiving";
+    public static final String DOWNLOAD_PROGRESS_WAITING = "download.progress.waiting";
+    public static final String DOWNLOAD_PROGRESS_FINISHED = "download.progress.finished";
+    public static final String DOWNLOAD_PROGRESS_FAILED = "download.progress.failed";
+    public static final String DOWNLOAD_PROGRESS_STOPPED = "download.progress.stopped";
+    public static final String DOWNLOAD_PROGRESS_CANCELLED_BODY = "download.progress.cancelled_body";
+    public static final String STREAM_RESPONSE_TITLE = "stream.response.title";
+    public static final String STREAM_RESPONSE_HINT = "stream.response.hint";
+    public static final String STREAM_RESPONSE_TIME_AXIS = "stream.response.time_axis";
+    public static final String STREAM_RESPONSE_COPY_ADDRESS = "stream.response.copy_address";
+    public static final String STREAM_RESPONSE_COPY_ADDRESS_TOOLTIP = "stream.response.copy_address.tooltip";
+    public static final String STREAM_RESPONSE_STOP = "stream.response.stop";
     public static final String DOWNLOAD_CANCELLED = "download.cancelled";
     public static final String BINARY_TOO_LARGE = "binary.too.large";
     public static final String BINARY_TOO_LARGE_BODY = "binary.too.large.body";

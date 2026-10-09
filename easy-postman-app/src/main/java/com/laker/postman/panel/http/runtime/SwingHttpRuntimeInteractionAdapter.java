@@ -1,6 +1,8 @@
 package com.laker.postman.panel.http.runtime;
 
+import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.DownloadProgressDialog;
+import com.laker.postman.frame.MainFrame;
 import com.laker.postman.http.runtime.interaction.HttpCallbackDispatcher;
 import com.laker.postman.http.runtime.interaction.DownloadProgressSink;
 import com.laker.postman.http.runtime.interaction.DownloadProgressSinkFactory;
@@ -15,6 +17,7 @@ import lombok.experimental.UtilityClass;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import java.awt.GraphicsEnvironment;
+import java.lang.reflect.InvocationTargetException;
 
 @UtilityClass
 public class SwingHttpRuntimeInteractionAdapter {
@@ -88,27 +91,77 @@ public class SwingHttpRuntimeInteractionAdapter {
     }
 
     private static final class SwingDownloadProgressSink implements DownloadProgressSink {
-        private final DownloadProgressDialog progressDialog =
-                new DownloadProgressDialog(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_TITLE));
+        private volatile DownloadProgressDialog progressDialog;
 
         @Override
         public void start(int contentLength) {
-            progressDialog.startDownload(contentLength);
+            start(contentLength, false, null, null);
+        }
+
+        @Override
+        public void start(int contentLength, boolean streamingMedia, String sourceUrl, Runnable cancelAction) {
+            runOnEdtAndWait(() -> {
+                progressDialog = new DownloadProgressDialog(UiSingletonFactory.getInstance(MainFrame.class),
+                        I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_TITLE));
+                progressDialog.startDownload(contentLength, streamingMedia, sourceUrl, cancelAction);
+            });
         }
 
         @Override
         public boolean isCancelled() {
-            return progressDialog.isCancelled();
+            DownloadProgressDialog dialog = progressDialog;
+            return dialog != null && dialog.isCancelled();
         }
 
         @Override
         public void updateProgress(int bytesRead) {
-            progressDialog.updateProgress(bytesRead);
+            DownloadProgressDialog dialog = progressDialog;
+            if (dialog != null) {
+                // Only atomic counters are touched here; the dialog timer updates Swing.
+                dialog.updateProgress(bytesRead);
+            }
         }
 
         @Override
         public void finish() {
-            progressDialog.finishDownload();
+            finish(true);
+        }
+
+        @Override
+        public void finish(boolean completed) {
+            finish(completed, false);
+        }
+
+        @Override
+        public void finish(boolean completed, boolean cancelled) {
+            Runnable finishOnEdt = () -> {
+                // An interrupted invokeAndWait can leave the start event queued.
+                // Resolve the dialog after that event, rather than losing finish.
+                DownloadProgressDialog dialog = progressDialog;
+                if (dialog != null) {
+                    dialog.finishDownload(completed, cancelled);
+                }
+            };
+            if (SwingUtilities.isEventDispatchThread()) {
+                finishOnEdt.run();
+            } else {
+                SwingUtilities.invokeLater(finishOnEdt);
+            }
+        }
+
+        private static void runOnEdtAndWait(Runnable action) {
+            if (SwingUtilities.isEventDispatchThread()) {
+                action.run();
+                return;
+            }
+            try {
+                SwingUtilities.invokeAndWait(action);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while creating response progress dialog", ex);
+            } catch (InvocationTargetException ex) {
+                throw new IllegalStateException("Unable to create response progress dialog", ex.getCause());
+            }
         }
     }
 }

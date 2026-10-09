@@ -73,6 +73,7 @@ public class FileExtensionUtil {
         if (ct.contains("video/mp4")) return ".mp4";
         if (ct.contains("video/mpeg")) return ".mpeg";
         if (ct.contains("video/webm")) return ".webm";
+        if (ct.contains("video/x-flv")) return ".flv";
 
         // 其他
         if (ct.contains("apk")) return ".apk";
@@ -125,7 +126,7 @@ public class FileExtensionUtil {
             case "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico" -> "image";
             case "zip", "gz", "tar", "7z", "rar", "bz2", "xz" -> "archive";
             case "mp3", "wav", "ogg", "aac", "m4a", "flac", "aiff", "au", "opus" -> "audio";
-            case "mp4", "mpeg", "webm" -> "video";
+            case "mp4", "mpeg", "webm", "flv" -> "video";
             case "apk", "dmg", "iso", "exe", "deb", "rpm" -> "package";
             default -> "response";
         };

@@ -1,12 +1,18 @@
 package com.laker.postman.common.component;
 
-import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.common.component.button.ModernButtonFactory;
+import com.laker.postman.common.component.setting.SettingsHintLabel;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.service.setting.SettingManager;
+import com.laker.postman.util.AsyncClipboardUtil;
 import com.laker.postman.util.FileSizeDisplayUtil;
 import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.IconUtil;
+import com.laker.postman.util.MessageKeys;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import net.miginfocom.swing.MigLayout;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
@@ -19,270 +25,369 @@ import org.jfree.data.time.TimeSeriesCollection;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 通用下载进度对话框组件
+ * Progress for finite downloads and unknown-length media responses.
+ * Network workers only update counters; the Swing timer renders their latest values.
  */
+@Slf4j
 public class DownloadProgressDialog extends JDialog {
+    private static final long WAITING_FOR_DATA_NANOS = 2_000_000_000L;
+    private static final int UPDATE_INTERVAL_MS = 500;
+    private static final int MAX_SPEED_SAMPLES = 600;
+    private static final int STREAM_CHART_WINDOW_MS = 30_000;
+
+    private final String downloadTitle;
+    private final JLabel titleLabel;
+    private final JLabel statusLabel;
     private final JLabel detailsLabel;
     private final JLabel speedLabel;
-    private final JLabel timeLabel;
+    private final JLabel elapsedLabel;
+    private final JLabel remainingLabel;
+    private final JTextArea streamHint;
+    private final JButton copyAddressButton;
     private final JButton cancelButton;
     private final JButton closeButton;
     private final TimeSeries speedSeries;
+    private final DateAxis timeAxis;
     private final Timer updateTimer;
+    private final AtomicLong totalBytes = new AtomicLong();
+    private final AtomicLong lastDataNanos = new AtomicLong();
 
     @Getter
-    private boolean cancelled = false;
-
-    // 是否自动关闭对话框
-    private final boolean autoClose = false;
-    // 当前下载信息
+    private volatile boolean cancelled;
+    private volatile boolean transferActive;
     private int currentContentLength;
-    private int currentTotalBytes;
-
-    // 记录用于速度计算的最后字节数和时间
-    private long lastBytesForSpeed = 0;
-    private long lastTimeForSpeed = 0;
+    private boolean streamingMedia;
+    private String sourceUrl;
+    private Runnable cancelAction;
+    private long startedNanos;
+    private long endedNanos;
+    private long lastBytesForSpeed;
+    private long lastTimeForSpeed;
 
     public DownloadProgressDialog(String title) {
-        super((JFrame) null, title, false);
+        this(null, title);
+    }
+
+    public DownloadProgressDialog(Window owner, String title) {
+        super(owner, title, ModalityType.MODELESS);
+        downloadTitle = title;
         setModal(false);
-        setSize(550, 350); // 加大窗口尺寸以容纳图表
-        setLocationRelativeTo(null);
         setResizable(true);
         ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
 
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
+        JPanel mainPanel = new JPanel(new BorderLayout(0, 12));
         ToolWindowSurfaceStyle.applyDialogSurface(mainPanel);
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        JLabel iconLabel = new JLabel(IconUtil.createThemed("icons/download.svg", 24, 24));
-        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        ToolWindowSurfaceStyle.applyDialogSurface(titlePanel);
-        titlePanel.add(iconLabel);
-        JLabel titleLabel = new JLabel(title);
-        titleLabel.setFont(FontsUtil.getDefaultFont(Font.BOLD));
-        titlePanel.add(titleLabel);
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
 
-        detailsLabel = new JLabel("Downloaded: 0 KB");
-        speedLabel = new JLabel("Speed: 0 KB/s");
-        timeLabel = new JLabel("Time left: Calculating...");
-        JPanel infoPanel = new JPanel(new GridLayout(3, 1, 5, 0));
-        ToolWindowSurfaceStyle.applyDialogSurface(infoPanel);
-        infoPanel.add(detailsLabel);
-        infoPanel.add(speedLabel);
-        infoPanel.add(timeLabel);
+        JPanel headerPanel = new JPanel(new MigLayout("insets 0, fillx, novisualpadding", "[][grow,fill][]", "[]"));
+        ToolWindowSurfaceStyle.applyDialogSurface(headerPanel);
+        headerPanel.add(new JLabel(IconUtil.createThemed("icons/download.svg", 18, 18)));
+        titleLabel = new JLabel(title);
+        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, 1));
+        headerPanel.add(titleLabel, "wmin 0");
+        statusLabel = new JLabel();
+        statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        statusLabel.setForeground(ModernColors.getTextSecondary());
+        headerPanel.add(statusLabel);
+        mainPanel.add(headerPanel, BorderLayout.NORTH);
 
-        // 创建速度图表
-        speedSeries = new TimeSeries("Speed (KB/s)");
-        TimeSeriesCollection dataset = new TimeSeriesCollection(speedSeries);
+        speedSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_SPEED_AXIS));
+        speedSeries.setMaximumItemCount(MAX_SPEED_SAMPLES);
         JFreeChart chart = ChartFactory.createTimeSeriesChart(
-                null,  // 图表标题
-                "Time", // X轴标题
-                "Speed (KB/s)", // Y轴标题
-                dataset, // 数据集
-                false, // 是否显示图例
-                true, // 是否生成工具提示
-                false // 是否生成URL链接
-        );
-
-        // 设置图表样式
-        XYPlot plot = (XYPlot) chart.getPlot();
-        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
-        dateAxis.setAutoRange(true);
-        dateAxis.setTickLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2)); // 设置X轴刻度字体，比默认小2号
-        dateAxis.setTickLabelPaint(ModernColors.getTextSecondary()); // 使用主题适配的次要文本颜色
-        dateAxis.setLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1)); // 设置X轴标签字体，比默认小1号
-        dateAxis.setLabelPaint(ModernColors.getTextPrimary()); // 使用主题适配的主要文本颜色
-        dateAxis.setAxisLinePaint(ModernColors.getBorderMediumColor()); // 设置X轴线颜色（更明显）
-        dateAxis.setTickMarkPaint(ModernColors.getBorderMediumColor()); // 设置X轴刻度线颜色
-
-        NumberAxis valueAxis = (NumberAxis) plot.getRangeAxis();
-        valueAxis.setAutoRangeIncludesZero(true);
-        valueAxis.setTickLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2)); // 设置Y轴刻度字体，比默认小2号
-        valueAxis.setTickLabelPaint(ModernColors.getTextSecondary()); // 使用主题适配的次要文本颜色
-        valueAxis.setLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1)); // 设置Y轴标签字体，比默认小1号
-        valueAxis.setLabelPaint(ModernColors.getTextPrimary()); // 使用主题适配的主要文本颜色
-        valueAxis.setAxisLinePaint(ModernColors.getBorderMediumColor()); // 设置Y轴线颜色（更明显）
-        valueAxis.setTickMarkPaint(ModernColors.getBorderMediumColor()); // 设置Y轴刻度线颜色
-
-        // 设置图表背景透明，线条颜色更明显
-        chart.setBackgroundPaint(null); // 设置图表背景透明
-        plot.setBackgroundPaint(ModernColors.getCardBackgroundColor()); // 使用主题适配的卡片背景色
-
-        // 设置网格线颜色（使用更明显的中等边框颜色，而非浅色）
-        // 亮色主题: Slate-300 (203, 213, 225) - 清晰可见
-        // 暗色主题: (85, 87, 90) - 比背景亮，清晰可见
-        plot.setDomainGridlinePaint(ModernColors.getBorderMediumColor());
-        plot.setRangeGridlinePaint(ModernColors.getBorderMediumColor());
-
-        // 设置网格线样式为虚线，更美观
-        plot.setDomainGridlineStroke(new BasicStroke(
-                1.0f,                      // 线宽
-                BasicStroke.CAP_BUTT,      // 端点样式
-                BasicStroke.JOIN_MITER,    // 连接样式
-                10.0f,                     // 斜接限制
-                new float[]{3.0f, 3.0f},   // 虚线模式：3像素实线，3像素空白
-                0.0f                       // 虚线偏移
-        ));
-        plot.setRangeGridlineStroke(new BasicStroke(
-                1.0f,
-                BasicStroke.CAP_BUTT,
-                BasicStroke.JOIN_MITER,
-                10.0f,
-                new float[]{3.0f, 3.0f},
-                0.0f
-        ));
-
-        // 设置轮廓线颜色（使用更深的分隔线颜色）
-        plot.setOutlinePaint(ModernColors.getDividerBorderColor());
-        plot.setOutlineStroke(new BasicStroke(1.0f)); // 设置轮廓线宽度
-
-        // 设置线条颜色和粗细
-        plot.getRenderer().setSeriesPaint(0, ModernColors.getPrimary()); // 使用主题主色
-        plot.getRenderer().setSeriesStroke(0, new BasicStroke(2.5f)); // 加粗数据线条，使其更醒目
-
+                null,
+                I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_TIME_AXIS),
+                I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_SPEED_AXIS),
+                new TimeSeriesCollection(speedSeries), false, true, false);
+        configureChart(chart);
+        timeAxis = (DateAxis) chart.getXYPlot().getDomainAxis();
         ChartPanel chartPanel = new ChartPanel(chart);
-        chartPanel.setPreferredSize(new Dimension(400, 150));
+        chartPanel.setPreferredSize(new Dimension(510, 160));
+        chartPanel.setMinimumSize(new Dimension(250, 120));
         chartPanel.setMouseWheelEnabled(true);
+        mainPanel.add(chartPanel, BorderLayout.CENTER);
 
-        // 取消按钮
-        cancelButton = ModernButtonFactory.createButton("Cancel", false, "icons/cancel.svg", 16);
-        cancelButton.addActionListener(e -> {
-            cancelled = true;
-            dispose();
+        JPanel southPanel = new JPanel(new MigLayout("insets 0, fillx, wrap 1, novisualpadding", "[grow,fill]", "[]8[]10[]"));
+        ToolWindowSurfaceStyle.applyDialogSurface(southPanel);
+        JPanel infoPanel = new JPanel(new MigLayout("insets 0, fillx, wrap 2, novisualpadding", "[grow,fill]12[grow,fill]", "[]4[]"));
+        ToolWindowSurfaceStyle.applyDialogSurface(infoPanel);
+        detailsLabel = createInfoLabel();
+        speedLabel = createInfoLabel();
+        elapsedLabel = createInfoLabel();
+        remainingLabel = createInfoLabel();
+        infoPanel.add(detailsLabel, "wmin 0");
+        infoPanel.add(elapsedLabel, "wmin 0");
+        infoPanel.add(speedLabel, "wmin 0");
+        infoPanel.add(remainingLabel, "wmin 0, hidemode 3");
+        southPanel.add(infoPanel);
+
+        streamHint = new SettingsHintLabel(I18nUtil.getMessage(MessageKeys.STREAM_RESPONSE_HINT), 510);
+        streamHint.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        ToolWindowSurfaceStyle.applyTextComponentDialogSurface(streamHint);
+        streamHint.setForeground(ModernColors.getTextSecondary());
+        streamHint.setBorder(BorderFactory.createEmptyBorder());
+        streamHint.setVisible(false);
+        southPanel.add(streamHint, "hidemode 3, growx, wmin 0");
+
+        copyAddressButton = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.STREAM_RESPONSE_COPY_ADDRESS), false, "icons/copy.svg");
+        copyAddressButton.setToolTipText(I18nUtil.getMessage(MessageKeys.STREAM_RESPONSE_COPY_ADDRESS_TOOLTIP));
+        copyAddressButton.setVisible(false);
+        copyAddressButton.addActionListener(e -> {
+            if (sourceUrl != null && !sourceUrl.isBlank()) {
+                AsyncClipboardUtil.setStringAsync(sourceUrl);
+            }
         });
-
-        // 关闭按钮（下载完成后可见）
-        closeButton = ModernButtonFactory.createButton("Close", true, "icons/check.svg", 16);
-        closeButton.setVisible(false); // 初始不可见
+        cancelButton = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.STREAM_RESPONSE_STOP), false, "icons/cancel.svg");
+        cancelButton.addActionListener(e -> {
+            if (streamingMedia) {
+                stopTransfer();
+            } else {
+                dispose();
+            }
+        });
+        closeButton = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.BUTTON_CLOSE), true, null);
+        closeButton.setVisible(false);
         closeButton.addActionListener(e -> dispose());
 
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        JPanel buttonPanel = new JPanel(new MigLayout("insets 10 0 0 0, fillx, novisualpadding", "[grow][][][]", "[]"));
         ToolWindowSurfaceStyle.applyDialogFooter(buttonPanel);
-        buttonPanel.add(closeButton);
-        buttonPanel.add(cancelButton);
-
-        JPanel southPanel = new JPanel();
-        ToolWindowSurfaceStyle.applyDialogSurface(southPanel);
-        southPanel.setLayout(new BoxLayout(southPanel, BoxLayout.Y_AXIS));
-        southPanel.add(infoPanel);
-        southPanel.add(Box.createVerticalStrut(10));
+        buttonPanel.add(new JLabel());
+        buttonPanel.add(copyAddressButton, "hidemode 3");
+        buttonPanel.add(cancelButton, "hidemode 3");
+        buttonPanel.add(closeButton, "hidemode 3");
         southPanel.add(buttonPanel);
-
-        mainPanel.add(titlePanel, BorderLayout.NORTH);
-        mainPanel.add(chartPanel, BorderLayout.CENTER); // 添加图表到中央区域
         mainPanel.add(southPanel, BorderLayout.SOUTH);
         setContentPane(mainPanel);
-        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-
-        // 创建定时器，定期更新UI（无论是否有新数据）
-        updateTimer = new Timer(200, e -> updateUIWithLatestData());
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                dispose();
+            }
+        });
+        updateTimer = new Timer(UPDATE_INTERVAL_MS, e -> updateUIWithLatestData());
+        pack();
+        setMinimumSize(new Dimension(480, 330));
+        setSize(Math.max(560, getWidth()), Math.max(350, getHeight()));
     }
 
-    /**
-     * 开始下载并显示进度
-     *
-     * @param contentLength 内容总长度
-     */
+    private static JLabel createInfoLabel() {
+        JLabel label = new JLabel();
+        label.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
+        return label;
+    }
+
+    private static void configureChart(JFreeChart chart) {
+        XYPlot plot = chart.getXYPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setAutoRange(true);
+        dateAxis.setAutoRangeMinimumSize(10_000);
+        dateAxis.setTickLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        dateAxis.setTickLabelPaint(ModernColors.getTextSecondary());
+        dateAxis.setLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        dateAxis.setLabelPaint(ModernColors.getTextPrimary());
+        dateAxis.setAxisLinePaint(ModernColors.getBorderMediumColor());
+        dateAxis.setTickMarkPaint(ModernColors.getBorderMediumColor());
+        NumberAxis valueAxis = (NumberAxis) plot.getRangeAxis();
+        valueAxis.setAutoRangeIncludesZero(true);
+        valueAxis.setTickLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        valueAxis.setTickLabelPaint(ModernColors.getTextSecondary());
+        valueAxis.setLabelFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        valueAxis.setLabelPaint(ModernColors.getTextPrimary());
+        valueAxis.setAxisLinePaint(ModernColors.getBorderMediumColor());
+        valueAxis.setTickMarkPaint(ModernColors.getBorderMediumColor());
+        chart.setBackgroundPaint(ModernColors.getDialogChromeBackgroundColor());
+        plot.setBackgroundPaint(ModernColors.getDialogChromeBackgroundColor());
+        plot.setDomainGridlinePaint(ModernColors.getBorderLightColor());
+        plot.setRangeGridlinePaint(ModernColors.getBorderLightColor());
+        BasicStroke gridStroke = new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, new float[]{3f, 3f}, 0f);
+        plot.setDomainGridlineStroke(gridStroke);
+        plot.setRangeGridlineStroke(gridStroke);
+        plot.setOutlinePaint(ModernColors.getBorderLightColor());
+        plot.getRenderer().setSeriesPaint(0, ModernColors.getPrimary());
+        plot.getRenderer().setSeriesStroke(0, new BasicStroke(2f));
+    }
+
     public void startDownload(int contentLength) {
+        startDownload(contentLength, false, null, null);
+    }
+
+    public void startDownload(int contentLength, boolean streamingMedia, String sourceUrl, Runnable cancelAction) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> startDownload(contentLength, streamingMedia, sourceUrl, cancelAction));
+            return;
+        }
         this.currentContentLength = contentLength;
-        this.currentTotalBytes = 0;
-        this.lastBytesForSpeed = 0;
-        this.lastTimeForSpeed = System.nanoTime();
-        closeButton.setVisible(false);
+        this.streamingMedia = streamingMedia;
+        this.sourceUrl = sourceUrl;
+        this.cancelAction = cancelAction;
+        cancelled = false;
+        totalBytes.set(0);
+        startedNanos = System.nanoTime();
+        endedNanos = 0;
+        lastDataNanos.set(startedNanos);
+        lastTimeForSpeed = startedNanos;
+        lastBytesForSpeed = 0;
+        speedSeries.clear();
+        // Millisecond periods use milliseconds as their serial index.
+        speedSeries.setMaximumItemAge(streamingMedia ? STREAM_CHART_WINDOW_MS : Long.MAX_VALUE);
+        timeAxis.setFixedAutoRange(streamingMedia ? STREAM_CHART_WINDOW_MS : 0);
+        timeAxis.setLabel(streamingMedia
+                ? I18nUtil.getMessage(MessageKeys.STREAM_RESPONSE_TIME_AXIS, STREAM_CHART_WINDOW_MS / 1000)
+                : I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_TIME_AXIS));
+        transferActive = true;
+        String title = streamingMedia ? I18nUtil.getMessage(MessageKeys.STREAM_RESPONSE_TITLE) : downloadTitle;
+        setTitle(title);
+        titleLabel.setText(title);
+        streamHint.setVisible(streamingMedia);
+        copyAddressButton.setVisible(streamingMedia);
+        copyAddressButton.setEnabled(sourceUrl != null && !sourceUrl.isBlank());
+        cancelButton.setText(I18nUtil.getMessage(streamingMedia ? MessageKeys.STREAM_RESPONSE_STOP : MessageKeys.BUTTON_CANCEL));
         cancelButton.setVisible(true);
-        boolean shouldDisplay = shouldShow(contentLength);
-        if (shouldDisplay) {
+        closeButton.setVisible(false);
+        remainingLabel.setVisible(!streamingMedia);
+        updateUIWithLatestData();
+        if (shouldShow(contentLength)) {
+            pack();
+            setSize(Math.max(560, getWidth()), Math.max(350, getHeight()));
+            // Center after the final layout, on the owning window's display.
+            setLocationRelativeTo(getOwner());
             setVisible(true);
             updateTimer.start();
         }
     }
 
-    /**
-     * 更新下载进度
-     *
-     * @param bytesRead 新读取的字节数
-     */
     public void updateProgress(int bytesRead) {
-        if (!isVisible()) return;
-        currentTotalBytes += bytesRead;
+        if (bytesRead > 0 && transferActive) {
+            totalBytes.addAndGet(bytesRead);
+            lastDataNanos.set(System.nanoTime());
+        }
     }
 
-    /**
-     * 完成下载
-     */
     public void finishDownload() {
-        if (isVisible()) {
-            // 更新界面状态
-            cancelButton.setVisible(false);
-            closeButton.setVisible(true);
-            updateTimer.stop();
-            updateUIWithLatestData();
-            // 如果设置为自动关闭，则关闭对话框
-            if (autoClose) {
-                dispose();
+        finishDownload(true);
+    }
+
+    public void finishDownload(boolean completed) {
+        finishDownload(completed, false);
+    }
+
+    public void finishDownload(boolean completed, boolean transferCancelled) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> finishDownload(completed, transferCancelled));
+            return;
+        }
+        cancelled |= transferCancelled;
+        transferActive = false;
+        cancelAction = null;
+        if (endedNanos == 0) {
+            endedNanos = System.nanoTime();
+        }
+        updateTimer.stop();
+        updateUIWithLatestData();
+        showFinishedControls();
+        setStatus(cancelled ? MessageKeys.DOWNLOAD_PROGRESS_STOPPED
+                : completed ? MessageKeys.DOWNLOAD_PROGRESS_FINISHED : MessageKeys.DOWNLOAD_PROGRESS_FAILED,
+                completed || cancelled ? ModernColors.getTextSecondary() : ModernColors.getError());
+        if (!isVisible()) {
+            dispose();
+        }
+    }
+
+    private void stopTransfer() {
+        if (!transferActive) {
+            return;
+        }
+        cancelled = true;
+        transferActive = false;
+        endedNanos = System.nanoTime();
+        updateTimer.stop();
+        Runnable action = cancelAction;
+        cancelAction = null;
+        if (action != null) {
+            try {
+                action.run();
+            } catch (RuntimeException ex) {
+                log.warn("Failed to cancel response transfer", ex);
             }
         }
+        updateUIWithLatestData();
+        showFinishedControls();
+        setStatus(MessageKeys.DOWNLOAD_PROGRESS_STOPPED, ModernColors.getTextSecondary());
     }
 
-    /**
-     * 定时更新UI的方法
-     */
-    private void updateUIWithLatestData() {
-        if (!isVisible()) return;
-        long now = System.nanoTime();
-        long bytesDelta = currentTotalBytes - lastBytesForSpeed;
-        long timeDelta = now - lastTimeForSpeed;
-        double speed = 0;
-        if (timeDelta > 0) {
-            speed = (bytesDelta * 1_000_000_000.0) / timeDelta;
+    private void showFinishedControls() {
+        cancelButton.setVisible(false);
+        closeButton.setVisible(true);
+        remainingLabel.setVisible(false);
+        getContentPane().revalidate();
+        getContentPane().repaint();
+    }
+
+    @Override
+    public void dispose() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::dispose);
+            return;
         }
-        lastBytesForSpeed = currentTotalBytes;
+        stopTransfer();
+        updateTimer.stop();
+        super.dispose();
+    }
+
+    private void updateUIWithLatestData() {
+        long now = System.nanoTime();
+        long bytes = totalBytes.get();
+        long bytesDelta = Math.max(0, bytes - lastBytesForSpeed);
+        long timeDelta = now - lastTimeForSpeed;
+        double speed = timeDelta > 0 ? bytesDelta * 1_000_000_000.0 / timeDelta : 0;
+        lastBytesForSpeed = bytes;
         lastTimeForSpeed = now;
         speedSeries.addOrUpdate(new Millisecond(), speed / 1024.0);
-        String sizeStr = FileSizeDisplayUtil.formatDownloadSize(currentTotalBytes, currentContentLength);
-        String speedStr;
-        if (speed > 1024 * 1024) {
-            speedStr = String.format("Speed: %.2f MB/s", speed / (1024 * 1024));
+        detailsLabel.setText(I18nUtil.getMessage(streamingMedia ? MessageKeys.DOWNLOAD_PROGRESS_RECEIVED
+                : currentContentLength > 0 ? MessageKeys.DOWNLOAD_PROGRESS_DOWNLOADED_TOTAL
+                : MessageKeys.DOWNLOAD_PROGRESS_DOWNLOADED, formatSize(bytes), formatSize(currentContentLength)));
+        speedLabel.setText(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_SPEED, formatSize((long) speed)));
+        long elapsedSeconds = Math.max(0, ((endedNanos > 0 ? endedNanos : now) - startedNanos) / 1_000_000_000L);
+        elapsedLabel.setText(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_ELAPSED, formatDuration(elapsedSeconds)));
+        if (currentContentLength <= 0) {
+            remainingLabel.setText(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_TOTAL_UNKNOWN));
+        } else if (speed > 0) {
+            long remainingSeconds = Math.max(0, (long) Math.ceil((currentContentLength - bytes) / speed));
+            remainingLabel.setText(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_REMAINING, formatDuration(remainingSeconds)));
         } else {
-            speedStr = String.format("Speed: %.2f KB/s", speed / 1024);
+            remainingLabel.setText(I18nUtil.getMessage(MessageKeys.DOWNLOAD_PROGRESS_REMAINING_WAITING));
         }
-        String remainStr;
-        if (currentContentLength > 0 && speed > 0) {
-            long remainSeconds = (long) ((currentContentLength - currentTotalBytes) / speed);
-            if (remainSeconds > 60) {
-                remainStr = String.format("Time left: %d min %d sec", remainSeconds / 60, remainSeconds % 60);
-            } else {
-                remainStr = String.format("Time left: %d sec", remainSeconds);
-            }
-        } else {
-            remainStr = "Time left: Calculating...";
+        if (transferActive) {
+            boolean waiting = now - lastDataNanos.get() >= WAITING_FOR_DATA_NANOS;
+            setStatus(waiting ? MessageKeys.DOWNLOAD_PROGRESS_WAITING
+                            : bytes == 0 ? MessageKeys.DOWNLOAD_PROGRESS_CONNECTED : MessageKeys.DOWNLOAD_PROGRESS_RECEIVING,
+                    waiting ? ModernColors.getTextSecondary() : ModernColors.getPrimary());
         }
-        updateProgress(sizeStr, speedStr, remainStr);
     }
 
-    /**
-     * 统一更新进度信息
-     *
-     * @param details 进度详情（如已下载大小）
-     * @param speed   速度（如 KB/s）
-     * @param time    剩余时间
-     */
-    private void updateProgress(String details, String speed, String time) {
-        detailsLabel.setText(details);
-        speedLabel.setText(speed);
-        timeLabel.setText(time);
+    private void setStatus(String messageKey, Color color) {
+        statusLabel.setText(I18nUtil.getMessage(messageKey));
+        statusLabel.setForeground(color);
     }
 
-    /**
-     * 判断是否需要显示弹窗
-     */
+    private static String formatSize(long size) {
+        return FileSizeDisplayUtil.formatSize(Math.max(0, size));
+    }
+
+    private static String formatDuration(long seconds) {
+        return String.format("%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60);
+    }
+
     private boolean shouldShow(int contentLength) {
-        if (!SettingManager.isShowDownloadProgressDialog()) {
-            return false;
-        }
-        int threshold = SettingManager.getDownloadProgressDialogThreshold();
-        return contentLength > threshold || contentLength <= 0;
+        return SettingManager.isShowDownloadProgressDialog()
+                && (contentLength > SettingManager.getDownloadProgressDialogThreshold() || contentLength <= 0);
     }
 }

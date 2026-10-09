@@ -16,9 +16,19 @@ public class FileSizeDisplayUtil {
      * @return 友好的显示字符串，如 1.23 MB
      */
     public static String formatSize(int sizeBytes) {
+        return formatSize((long) sizeBytes);
+    }
+
+    /**
+     * Formats long-running transfers without overflowing the byte count.
+     */
+    public static String formatSize(long sizeBytes) {
         String unit;
         double value;
-        if (sizeBytes >= 1024 * 1024 * 1024) {
+        if (sizeBytes >= 1024L * 1024 * 1024 * 1024) {
+            unit = "TB";
+            value = sizeBytes / (1024.0 * 1024 * 1024 * 1024);
+        } else if (sizeBytes >= 1024 * 1024 * 1024) {
             unit = "GB";
             value = sizeBytes / (1024.0 * 1024 * 1024);
         } else if (sizeBytes >= 1024 * 1024) {
@@ -32,7 +42,7 @@ public class FileSizeDisplayUtil {
             value = sizeBytes;
         }
         if (unit.equals("B")) {
-            return String.format("%d %s", (int) value, unit);
+            return String.format("%d %s", sizeBytes, unit);
         } else {
             return String.format("%.2f %s", value, unit);
         }

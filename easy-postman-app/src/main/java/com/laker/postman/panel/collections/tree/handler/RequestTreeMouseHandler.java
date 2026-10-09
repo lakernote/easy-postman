@@ -101,6 +101,8 @@ public class RequestTreeMouseHandler extends MouseAdapter {
 
     @Override
     public void mousePressed(MouseEvent e) {
+        // 主题/字体刷新可能让 Swing UI 监听器排到本监听器之后，不能依赖它清除上次点击的保护。
+        coordinator.finishRequestCreationSelection();
         if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
             handleLeftSingleClick(e);
         } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
@@ -121,6 +123,7 @@ public class RequestTreeMouseHandler extends MouseAdapter {
                 e.consume();
             }
         }
+        coordinator.finishRequestCreationSelection();
     }
 
     private void handleLeftSingleClick(MouseEvent e) {
@@ -149,8 +152,7 @@ public class RequestTreeMouseHandler extends MouseAdapter {
     }
 
     private void handleGroupAddRequestClick(DefaultMutableTreeNode groupNode) {
-        // 不在此处 setSelectionPath(path)，避免 group 选中状态与后续 invokeLater 里的
-        // 新请求节点选中产生竞争（addHttpRequestDirectly 内部会定位到新请求节点）
+        // addHttpRequestDirectly 会选中新请求，mouseReleased 后结束选中保护。
         coordinator.addHttpRequestDirectly(groupNode);
     }
 
@@ -175,7 +177,7 @@ public class RequestTreeMouseHandler extends MouseAdapter {
         JMenuItem addGroup = new JMenuItem(
                 I18nUtil.getMessage(MessageKeys.COLLECTIONS_MENU_ADD_GROUP),
                 IconUtil.create("icons/group.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
-        addGroup.addActionListener(ev -> coordinator.addGroupUnderSelected());
+        addGroup.addActionListener(ev -> coordinator.showAddGroupDialog(groupNode));
         menu.add(addGroup);
 
         menu.addSeparator();

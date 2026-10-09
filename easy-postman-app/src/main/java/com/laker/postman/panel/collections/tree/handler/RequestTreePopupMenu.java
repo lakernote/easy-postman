@@ -122,7 +122,7 @@ public class RequestTreePopupMenu {
         JMenuItem addGroup = createMenuItem(
                 MessageKeys.COLLECTIONS_MENU_ADD_GROUP,
                 "icons/group.svg",
-                e -> coordinator.addGroupUnderSelected()
+                e -> coordinator.showAddGroupDialog(selectedNode)
         );
         addGroup.setEnabled(!isMultipleSelection);
         menu.add(addGroup);

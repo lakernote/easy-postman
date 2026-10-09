@@ -61,8 +61,8 @@ public class RequestTreeCoordinator {
 
     /**
      * 待保护的树路径：addHttpRequestDirectly 创建新请求后设置此值。
-     * TreeSelectionListener 发现选中被 BasicTreeUI 覆盖时，会立刻纠正回此路径，
-     * 纠正后清除该字段。
+     * 仅在本次鼠标点击内防止 BasicTreeUI 覆盖新请求的选中状态，
+     * mouseReleased 后由 finishRequestCreationSelection 清除。
      */
     private TreePath pendingSelectPath = null;
 
@@ -87,7 +87,7 @@ public class RequestTreeCoordinator {
      * 显示添加分组对话框
      */
     public void showAddGroupDialog(DefaultMutableTreeNode parentNode) {
-        if (parentNode == null) return;
+        if (!canContainGroup(parentNode)) return;
 
         TextInputDialog.showRequiredName(
                 UiSingletonFactory.getInstance(MainFrame.class),
@@ -101,7 +101,7 @@ public class RequestTreeCoordinator {
      * 在指定节点下添加分组
      */
     private void addGroupToNode(DefaultMutableTreeNode parentNode, String groupName) {
-        if (parentNode == null) return;
+        if (!canContainGroup(parentNode)) return;
         RequestGroup group = new RequestGroup(groupName);
         // 参考 Postman：第一层 Collection 默认 No Auth，子层 Folder 默认 Inherit auth from parent
         boolean isRootLevel = ROOT.equals(String.valueOf(parentNode.getUserObject()));
@@ -125,6 +125,12 @@ public class RequestTreeCoordinator {
         leftPanel.getCollectionTreePersistence().saveCurrentTree();
     }
 
+    private boolean canContainGroup(DefaultMutableTreeNode node) {
+        return node != null && (CollectionTreeNodes.isGroup(node)
+                || node == requestTree.getModel().getRoot()
+                || (leftPanel != null && node == leftPanel.getRootTreeNode()));
+    }
+
     /**
      * 在选中节点下添加分组
      */
@@ -138,6 +144,7 @@ public class RequestTreeCoordinator {
      * 显示添加请求对话框
      */
     public void showAddRequestDialog(DefaultMutableTreeNode groupNode) {
+        if (!CollectionTreeNodes.isGroup(groupNode)) return;
         AddRequestDialog dialog = new AddRequestDialog(groupNode, leftPanel);
         dialog.show();
     }
@@ -146,7 +153,7 @@ public class RequestTreeCoordinator {
      * 直接在指定分组下创建一个默认 HTTP GET 请求，不弹对话框（类似 Postman 点击 "+" 的行为）
      */
     public void addHttpRequestDirectly(DefaultMutableTreeNode groupNode) {
-        if (groupNode == null) return;
+        if (!CollectionTreeNodes.isGroup(groupNode)) return;
         HttpRequestItem item = HttpRequestFactory.createBlankRequest(RequestItemProtocolEnum.HTTP);
         item.setName("New Request");
         DefaultMutableTreeNode reqNode = CollectionTreeNodes.requestNode(item);
@@ -162,6 +169,18 @@ public class RequestTreeCoordinator {
         UiSingletonFactory.getInstance(RequestEditorPanel.class).showOrCreateTab(item);
         tree.setSelectionPath(newPath);
         tree.scrollPathToVisible(newPath);
+    }
+
+    /**
+     * 完成本次新增请求的选中保护，避免影响下一次点击的文件夹或请求。
+     */
+    public void finishRequestCreationSelection() {
+        TreePath newPath = pendingSelectPath;
+        pendingSelectPath = null;
+        if (newPath != null) {
+            requestTree.setSelectionPath(newPath);
+            requestTree.scrollPathToVisible(newPath);
+        }
     }
 
 

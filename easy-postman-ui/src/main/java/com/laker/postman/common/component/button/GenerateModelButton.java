@@ -9,7 +9,7 @@ import java.awt.*;
 /** Compact toolbar action for generating a model from structured content. */
 public class GenerateModelButton extends JButton {
     public GenerateModelButton(String tooltip) {
-        setIcon(IconUtil.createThemed("icons/braces.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        setIcon(IconUtil.createThemed("icons/file-code.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
         setToolTipText(tooltip);
         setFocusable(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

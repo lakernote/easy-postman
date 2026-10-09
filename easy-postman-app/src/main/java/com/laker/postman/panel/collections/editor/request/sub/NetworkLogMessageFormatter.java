@@ -24,6 +24,10 @@ public class NetworkLogMessageFormatter {
             "^requestPolicy=([^,]+), appProxyEnabled=(true|false), appProxyMode=([^,]+), "
                     + "clientProxy=(.*), directHttpSocketFactoryJvmSocksBypass=(true|false), "
                     + "manualProxyConfig=([^,]+)$");
+    private static final Pattern REDIRECT_NUMBER = Pattern.compile("^Redirect #(\\d+)$");
+    private static final Pattern REDIRECT_STOPPED = Pattern.compile(
+            "^Redirect stopped: ([^,]+), status: (\\d+)(?:, max: (\\d+))?$");
+    private static final Pattern RESPONSE_WAIT = Pattern.compile("^Wait: (\\d+)ms$");
 
     public static String format(NetworkLogEventStage stage, String message) {
         if (message == null || message.isEmpty()) {
@@ -38,15 +42,22 @@ public class NetworkLogMessageFormatter {
             case SECURE_CONNECT_START -> exact(message, "TLS handshake start",
                     MessageKeys.NETWORK_LOG_MESSAGE_TLS_START);
             case SECURE_CONNECT_END -> formatTlsMessage(message);
-            case CONNECTION_ACQUIRED -> replacePrefix(message, "Connection acquired: ",
-                    MessageKeys.NETWORK_LOG_MESSAGE_CONNECTION_ACQUIRED);
-            case CONNECTION_RELEASED -> replacePrefix(message, "Connection released: ",
-                    MessageKeys.NETWORK_LOG_MESSAGE_CONNECTION_RELEASED);
+            case CONNECTION_ACQUIRED -> formatConnectionAcquired(message);
+            case CONNECTION_RELEASED -> "Connection use released".equals(message)
+                    || "Returned to connection pool".equals(message)
+                    || message.startsWith("Connection released: ")
+                    ? "" : message;
+            case REQUEST_HEADERS_END -> formatHeaderSnapshot(message);
+            case RESPONSE_HEADERS_END, RESPONSE_HEADERS_END_REDIRECT -> formatResponseHeaders(message);
+            case REQUEST_COMPLETE -> formatFlowSummary(message);
+            case REDIRECT -> formatRedirect(message);
+            case REQUEST_BODY_START -> exact(message, "Request body preview unavailable",
+                    MessageKeys.NETWORK_LOG_MESSAGE_REQUEST_BODY_PREVIEW_UNAVAILABLE);
             case REQUEST_BODY_END, RESPONSE_BODY_END -> replacePrefix(message, "bytes=",
                     MessageKeys.NETWORK_LOG_MESSAGE_BYTES);
             case FOLLOW_UP_DECISION -> formatFollowUp(message);
             case RETRY_DECISION -> formatRetry(message);
-            case CALL_END -> exact(message, "done", MessageKeys.NETWORK_LOG_MESSAGE_REQUEST_DONE);
+            case CALL_END -> "done".equals(message) ? "" : message;
             case CANCELED -> exact(message, "Call was canceled",
                     MessageKeys.NETWORK_LOG_MESSAGE_CALL_CANCELED);
             case CACHE_HIT -> replacePrefix(message, "Response served from cache: ",
@@ -68,6 +79,9 @@ public class NetworkLogMessageFormatter {
         if (!matcher.matches()) {
             return message;
         }
+        if ("false".equals(matcher.group(1))) {
+            return "";
+        }
         return I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_FOLLOW_UP,
                 formatBoolean(matcher.group(1)), matcher.group(2), formatNone(matcher.group(3)));
     }
@@ -80,10 +94,17 @@ public class NetworkLogMessageFormatter {
         if (!matcher.matches()) {
             return message;
         }
-        return I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_PROXY_CONFIGURATION,
-                formatProxyPolicy(matcher.group(1)), formatBoolean(matcher.group(2)),
-                formatProxyMode(matcher.group(3)), formatClientProxy(matcher.group(4)),
-                formatBoolean(matcher.group(5)), formatManualProxyConfig(matcher.group(6)));
+        String formatted = I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_PROXY_CONFIGURATION,
+                formatClientProxy(matcher.group(4)), formatProxyPolicy(matcher.group(1)));
+        String manualConfig = matcher.group(6);
+        if (!"NOT_USED".equals(manualConfig) && !"FIELDS_PRESENT".equals(manualConfig)) {
+            formatted += "\n" + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_PROXY_FALLBACK,
+                    formatManualProxyConfig(manualConfig));
+        }
+        if ("false".equals(matcher.group(5))) {
+            formatted += "\n" + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_JVM_SOCKS_ACTIVE);
+        }
+        return formatted;
     }
 
     private static String formatProxyPolicy(String value) {
@@ -91,14 +112,6 @@ public class NetworkLogMessageFormatter {
             case "DEFAULT" -> I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_PROXY_POLICY_DEFAULT);
             case "USE_PROXY" -> I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_PROXY_POLICY_USE_PROXY);
             case "NO_PROXY" -> I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_PROXY_POLICY_NO_PROXY);
-            default -> value;
-        };
-    }
-
-    private static String formatProxyMode(String value) {
-        return switch (value) {
-            case "MANUAL" -> I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_MODE_MANUAL);
-            case "SYSTEM" -> I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_MODE_SYSTEM);
             default -> value;
         };
     }
@@ -132,6 +145,110 @@ public class NetworkLogMessageFormatter {
                 formatBoolean(matcher.group(1)), matcher.group(2));
     }
 
+    private static String formatConnectionAcquired(String message) {
+        if (message.startsWith("Connection reused: ")) {
+            return replacePrefix(message, "Connection reused: ",
+                    MessageKeys.NETWORK_LOG_MESSAGE_CONNECTION_REUSED);
+        }
+        return replacePrefix(message, "Connection acquired: ",
+                MessageKeys.NETWORK_LOG_MESSAGE_CONNECTION_ACQUIRED);
+    }
+
+    private static String formatHeaderSnapshot(String message) {
+        String http2Prefix = "HTTP/2 header view (regular headers and :authority):";
+        String generalPrefix = "Header snapshot:";
+        String leadingNewline = message.startsWith("\n") ? "\n" : "";
+        String snapshot = message.substring(leadingNewline.length());
+        if ("Headers unchanged".equals(snapshot)) {
+            return leadingNewline + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_HEADERS_UNCHANGED);
+        }
+        if (snapshot.startsWith(http2Prefix)) {
+            return leadingNewline + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_HEADER_SNAPSHOT_HTTP2)
+                    + snapshot.substring(http2Prefix.length());
+        }
+        if (snapshot.startsWith(generalPrefix)) {
+            return leadingNewline + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_HEADER_SNAPSHOT)
+                    + snapshot.substring(generalPrefix.length());
+        }
+        return message;
+    }
+
+    private static String formatResponseHeaders(String message) {
+        String[] lines = message.split("\n", -1);
+        int statusIndex = lines[0].isEmpty() ? 1 : 0;
+        int waitIndex = statusIndex + 1;
+        if (lines.length <= waitIndex || !lines[statusIndex].startsWith("HTTP/")) {
+            return message;
+        }
+        Matcher wait = RESPONSE_WAIT.matcher(lines[waitIndex]);
+        if (wait.matches()) {
+            lines[waitIndex] = I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_RESPONSE_WAIT,
+                    wait.group(1));
+        }
+        return String.join("\n", lines);
+    }
+
+    private static String formatFlowSummary(String message) {
+        String[] lines = message.split("\n", -1);
+        for (int index = 0; index < lines.length; index++) {
+            lines[index] = formatSummaryLine(lines[index]);
+        }
+        return String.join("\n", lines);
+    }
+
+    private static String formatSummaryLine(String line) {
+        if (line.startsWith("Status: ")) {
+            return replacePrefix(line, "Status: ", MessageKeys.NETWORK_LOG_MESSAGE_STATUS);
+        }
+        if (line.startsWith("Final: ")) {
+            return replacePrefix(line, "Final: ", MessageKeys.NETWORK_LOG_MESSAGE_FINAL_REQUEST);
+        }
+        if (line.startsWith("Redirects: ")) {
+            return replacePrefix(line, "Redirects: ", MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_COUNT);
+        }
+        return replacePrefix(line, "Total: ", MessageKeys.NETWORK_LOG_MESSAGE_TOTAL_DURATION);
+    }
+
+    private static String formatRedirect(String message) {
+        Matcher stopped = REDIRECT_STOPPED.matcher(message);
+        if (stopped.matches()) {
+            String reason = switch (stopped.group(1)) {
+                case "disabled" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_DISABLED);
+                case "max redirects reached" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_LIMIT);
+                case "missing Location" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_MISSING_LOCATION);
+                default -> stopped.group(1);
+            };
+            String formatted = I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_STOPPED,
+                    reason, stopped.group(2));
+            return stopped.group(3) == null ? formatted : formatted + "\n"
+                    + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_MAX, stopped.group(3));
+        }
+        String[] lines = message.split("\n", -1);
+        for (int index = 0; index < lines.length; index++) {
+            String line = lines[index];
+            Matcher redirect = REDIRECT_NUMBER.matcher(line);
+            if (redirect.matches()) {
+                lines[index] = I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_NUMBER,
+                        redirect.group(1));
+            } else if (line.startsWith("From: ")) {
+                lines[index] = replacePrefix(line, "From: ", MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_FROM);
+            } else if (line.startsWith("To: ")) {
+                lines[index] = replacePrefix(line, "To: ", MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_TO);
+            } else if ("Cross-Origin: true".equals(line)) {
+                lines[index] = I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_CROSS_ORIGIN);
+            } else if (line.startsWith("Method Changed: ")) {
+                lines[index] = replacePrefix(line, "Method Changed: ",
+                        MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_METHOD_CHANGED);
+            } else if (line.startsWith("Removed Headers: ")) {
+                lines[index] = replacePrefix(line, "Removed Headers: ",
+                        MessageKeys.NETWORK_LOG_MESSAGE_REDIRECT_REMOVED_HEADERS);
+            } else {
+                lines[index] = formatSummaryLine(line);
+            }
+        }
+        return String.join("\n", lines);
+    }
+
     private static String formatBoolean(String value) {
         return Boolean.parseBoolean(value)
                 ? I18nUtil.getMessage(MessageKeys.NETWORK_LOG_VALUE_YES)
@@ -145,24 +262,51 @@ public class NetworkLogMessageFormatter {
     }
 
     private static String formatTlsMessage(String message) {
-        String formatted = replacePrefix(message, "SSL connection using ",
-                MessageKeys.NETWORK_LOG_MESSAGE_SSL_CONNECTION);
-        formatted = replaceLine(formatted, "Server certificate:",
-                MessageKeys.NETWORK_LOG_MESSAGE_SERVER_CERTIFICATE);
-        formatted = replaceLine(formatted, " subject:",
-                MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_SUBJECT);
-        formatted = replaceLine(formatted, " start date:",
-                MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_START_DATE);
-        formatted = replaceLine(formatted, " expire date:",
-                MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_EXPIRE_DATE);
-        formatted = replaceLine(formatted, " subjectAltName:",
-                MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_ALT_NAME);
-        formatted = replaceLine(formatted, " issuer:",
-                MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_ISSUER);
-        formatted = replaceLine(formatted, "SSL certificate verify ok.",
-                MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_VERIFY_OK);
-        return replaceLinePrefix(formatted, "⚠️  Certificate Warning: ",
-                "⚠️  ", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_WARNING);
+        String[] lines = message.split("\n", -1);
+        for (int index = 0; index < lines.length; index++) {
+            lines[index] = formatTlsLine(lines[index]);
+        }
+        return String.join("\n", lines);
+    }
+
+    private static String formatTlsLine(String line) {
+        if (line.startsWith("TLS connection: ")) {
+            return replacePrefix(line, "TLS connection: ", MessageKeys.NETWORK_LOG_MESSAGE_TLS_CONNECTION);
+        }
+        if (line.startsWith("SSL connection using ")) {
+            return replacePrefix(line, "SSL connection using ", MessageKeys.NETWORK_LOG_MESSAGE_SSL_CONNECTION);
+        }
+        return switch (line) {
+            case "Verification: disabled" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_TLS_VERIFICATION_DISABLED);
+            case "Verification: enabled" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_TLS_VERIFICATION_ENABLED);
+            case "Verification: passed" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_TLS_VERIFICATION_PASSED);
+            case "Server certificate:" -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_SERVER_CERTIFICATE);
+            case "SSL certificate verify ok." -> I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_VERIFY_OK);
+            default -> formatCertificateDetailLine(line);
+        };
+    }
+
+    private static String formatCertificateDetailLine(String line) {
+        if (line.startsWith(" subject:")) {
+            return replaceLiteralPrefix(line, " subject:", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_SUBJECT);
+        }
+        if (line.startsWith(" start date:")) {
+            return replaceLiteralPrefix(line, " start date:", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_START_DATE);
+        }
+        if (line.startsWith(" expire date:")) {
+            return replaceLiteralPrefix(line, " expire date:", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_EXPIRE_DATE);
+        }
+        if (line.startsWith(" subjectAltName:")) {
+            return replaceLiteralPrefix(line, " subjectAltName:", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_ALT_NAME);
+        }
+        if (line.startsWith(" issuer:")) {
+            return replaceLiteralPrefix(line, " issuer:", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_ISSUER);
+        }
+        if (line.startsWith("⚠️  Certificate Warning: ")) {
+            return "⚠️  " + replacePrefix(line.substring("⚠️  ".length()), "Certificate Warning: ",
+                    MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_WARNING);
+        }
+        return replacePrefix(line, "Certificate Warning: ", MessageKeys.NETWORK_LOG_MESSAGE_CERTIFICATE_WARNING);
     }
 
     private static String replacePrefix(String value, String prefix, String messageKey) {
@@ -172,13 +316,8 @@ public class NetworkLogMessageFormatter {
         return I18nUtil.getMessage(messageKey, value.substring(prefix.length()));
     }
 
-    private static String replaceLine(String value, String prefix, String messageKey) {
-        return value.replace(prefix, I18nUtil.getMessage(messageKey));
-    }
-
-    private static String replaceLinePrefix(String value, String prefix, String preservedPrefix,
-                                            String messageKey) {
-        return value.replace(prefix, preservedPrefix + I18nUtil.getMessage(messageKey, ""));
+    private static String replaceLiteralPrefix(String value, String prefix, String messageKey) {
+        return I18nUtil.getMessage(messageKey) + value.substring(prefix.length());
     }
 
     private static String exact(String value, String expected, String messageKey) {

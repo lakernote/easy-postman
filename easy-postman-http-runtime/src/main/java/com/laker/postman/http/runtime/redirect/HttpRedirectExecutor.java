@@ -11,9 +11,12 @@ import com.laker.postman.http.runtime.transport.HttpCallTracker;
 import com.laker.postman.http.runtime.transport.HttpExchangeOptions;
 import com.laker.postman.http.runtime.transport.HttpTransport;
 import com.laker.postman.http.runtime.observation.NetworkLogEventStage;
+import com.laker.postman.http.runtime.observation.NetworkLogEvent;
+import com.laker.postman.http.runtime.observation.NetworkLogSink;
 import com.laker.postman.http.runtime.observation.NetworkLogSupport;
 import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.request.util.HttpUrlUtil;
+import com.laker.postman.util.MonotonicStopwatch;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
@@ -22,6 +25,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * 负责处理重定向链
@@ -46,11 +51,20 @@ public class HttpRedirectExecutor {
                                              int maxRedirects,
                                              SseResponseCallback callback,
                                              HttpCallTracker callTracker) throws Exception {
+        MonotonicStopwatch flowTimer = NetworkLogSupport.isEnabled(req) ? MonotonicStopwatch.start() : null;
         // 创建工作副本
         PreparedRequest workingReq = req.shallowCopy();
+        deduplicateLogDetails(workingReq);
 
         if (!workingReq.followRedirects || maxRedirects <= 0) {
-            return executeAndSyncRequestMetadata(req, workingReq, callback, callTracker);
+            // A zero redirect limit must also disable transport-level automatic redirects.
+            workingReq.followRedirects = false;
+            HttpResponse resp = executeAndSyncRequestMetadata(req, workingReq, callback, callTracker);
+            if (isRedirectStatus(resp.code)) {
+                logRedirectStopped(workingReq, resp.code,
+                        req.followRedirects ? "max redirects reached" : "disabled", maxRedirects);
+            }
+            return resp;
         }
 
         // 重定向链由 HttpRedirectExecutor 统一处理，底层单次 OkHttp call 不能再自动跟随。
@@ -65,8 +79,10 @@ public class HttpRedirectExecutor {
 
             // 判断是否重定向
             RedirectInfo info = buildRedirectInfo(workingReq.url, resp);
-            if (isRedirectStatus(info.statusCode) && info.location != null) {
+            if (isRedirectStatus(info.statusCode) && info.location != null && !info.location.isBlank()) {
                 if (redirectCount >= maxRedirects) {
+                    logRedirectStopped(workingReq, resp.code, "max redirects reached", maxRedirects);
+                    logRequestComplete(workingReq, resp, redirectCount, flowTimer);
                     return resp;
                 }
 
@@ -81,9 +97,57 @@ public class HttpRedirectExecutor {
                 workingReq = redirectReq;
                 prevUrl = nextUrl;
             } else {
+                if (isRedirectStatus(info.statusCode)) {
+                    logRedirectStopped(workingReq, resp.code, "missing Location", maxRedirects);
+                }
+                logRequestComplete(workingReq, resp, redirectCount, flowTimer);
                 return resp;
             }
         }
+    }
+
+    private static void deduplicateLogDetails(PreparedRequest request) {
+        if (!NetworkLogSupport.isEnabled(request)) {
+            return;
+        }
+        NetworkLogSink sink = NetworkLogSupport.resolveSink(request);
+        AtomicReference<String> previousProxyConfiguration = new AtomicReference<>();
+        AtomicReference<String> previousRequestHeaders = new AtomicReference<>();
+        request.networkLogSink = event -> {
+            if (event.stage() == NetworkLogEventStage.PROXY_SELECT
+                    && java.util.Objects.equals(event.message(), previousProxyConfiguration.getAndSet(event.message()))) {
+                return;
+            }
+            if (event.stage() == NetworkLogEventStage.REQUEST_HEADERS_END
+                    && event.message() != null && !event.message().isBlank()
+                    && event.message().equals(previousRequestHeaders.getAndSet(event.message()))) {
+                sink.append(new NetworkLogEvent(event.stage(), "Headers unchanged", event.elapsedMs(), event.durationMs()));
+                return;
+            }
+            sink.append(event);
+        };
+    }
+
+    private static void logRedirectStopped(PreparedRequest request, int status, String reason, int maxRedirects) {
+        String message = "Redirect stopped: " + reason + ", status: " + status;
+        if ("max redirects reached".equals(reason)) {
+            message += ", max: " + Math.max(0, maxRedirects);
+        }
+        NetworkLogSupport.append(request, NetworkLogEventStage.REDIRECT, message);
+    }
+
+    private static void logRequestComplete(PreparedRequest request,
+                                           HttpResponse response,
+                                           int redirectCount,
+                                           MonotonicStopwatch flowTimer) {
+        if (redirectCount <= 0 || !NetworkLogSupport.isEnabled(request)) {
+            return;
+        }
+        String finalMethod = request.sentMethod == null ? request.method : request.sentMethod;
+        String finalUrl = request.sentUrl == null ? request.url : request.sentUrl;
+        NetworkLogSupport.append(request, NetworkLogEventStage.REQUEST_COMPLETE,
+                "Status: " + response.code + "\nFinal: " + finalMethod + " " + finalUrl
+                        + "\nRedirects: " + redirectCount + "\nTotal: " + flowTimer.elapsedMs() + "ms");
     }
 
     /**
@@ -250,10 +314,22 @@ public class HttpRedirectExecutor {
         logMessage.append("Redirect #").append(redirectNumber).append("\n");
         logMessage.append("Status: ").append(info.statusCode).append("\n");
         logMessage.append("From: ").append(currentMethod).append(" ").append(info.url).append("\n");
-        logMessage.append("Location: ").append(info.location).append("\n");
         logMessage.append("To: ").append(nextMethod).append(" ").append(nextUrl).append("\n");
-        logMessage.append("Cross-Origin: ").append(crossOrigin).append("\n");
-        logMessage.append("Method Changed: ").append(!currentMethod.equalsIgnoreCase(nextMethod));
+        if (crossOrigin) {
+            logMessage.append("Cross-Origin: true\n");
+            String removedHeaders = request.headersList == null ? "" : request.headersList.stream()
+                    .filter(header -> header != null && header.isEnabled())
+                    .map(HttpHeader::getKey)
+                    .filter(key -> "Authorization".equalsIgnoreCase(key) || "Cookie".equalsIgnoreCase(key))
+                    .distinct()
+                    .collect(Collectors.joining(", "));
+            if (!removedHeaders.isEmpty()) {
+                logMessage.append("Removed Headers: ").append(removedHeaders).append("\n");
+            }
+        }
+        if (!currentMethod.equalsIgnoreCase(nextMethod)) {
+            logMessage.append("Method Changed: ").append(currentMethod).append(" → ").append(nextMethod);
+        }
         NetworkLogSupport.append(request, NetworkLogEventStage.REDIRECT, logMessage.toString());
     }
 

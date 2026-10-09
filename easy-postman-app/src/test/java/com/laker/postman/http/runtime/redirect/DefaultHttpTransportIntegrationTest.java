@@ -52,6 +52,7 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.URL;
 import java.security.MessageDigest;
+import java.security.cert.X509Certificate;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -147,7 +148,7 @@ public class DefaultHttpTransportIntegrationTest {
     }
 
     @Test
-    public void shouldPublishRequestSnapshotAfterRequestHeadersStartInNetworkLog() throws Exception {
+    public void shouldPublishRequestSnapshotWithoutEmptyPhaseStartLogs() throws Exception {
         server = createServer();
         server.enqueue(new MockResponse()
                 .setResponseCode(200)
@@ -162,24 +163,34 @@ public class DefaultHttpTransportIntegrationTest {
         List<NetworkLogEvent> events = Collections.synchronizedList(new ArrayList<>());
         request.networkLogSink = events::add;
 
-        httpTransport.execute(request, HttpExchangeOptions.defaults());
+        HttpResponse response = httpTransport.execute(request, HttpExchangeOptions.defaults());
         RecordedRequest recordedRequest = takeRecordedRequest();
 
         assertEquals(recordedRequest.getBody().readUtf8(), request.body);
-        int headersStart = firstEventIndex(events, NetworkLogEventStage.REQUEST_HEADERS_START);
         int headersEnd = firstEventIndex(events, NetworkLogEventStage.REQUEST_HEADERS_END);
         int bodyStart = firstEventIndex(events, NetworkLogEventStage.REQUEST_BODY_START);
         int bodyEnd = firstEventIndex(events, NetworkLogEventStage.REQUEST_BODY_END);
-        assertTrue(headersStart >= 0, "Network log should include request headers start");
-        assertTrue(headersEnd > headersStart, eventSnapshot(events).toString());
+        assertEquals(countEvents(events, NetworkLogEventStage.REQUEST_HEADERS_START), 0L);
+        assertEquals(countEvents(events, NetworkLogEventStage.RESPONSE_HEADERS_START), 0L);
+        assertEquals(countEvents(events, NetworkLogEventStage.RESPONSE_BODY_START), 0L);
+        assertTrue(headersEnd > firstEventIndex(events, NetworkLogEventStage.CALL_START),
+                eventSnapshot(events).toString());
         assertTrue(bodyStart > headersEnd, eventSnapshot(events).toString());
         assertTrue(bodyEnd > bodyStart, eventSnapshot(events).toString());
         assertTrue(firstEventMessage(events, NetworkLogEventStage.REQUEST_HEADERS_END).contains("Content-Type"),
-                "Request headers end should include the actual sent headers");
+                "Request headers end should include the request header snapshot");
+        assertTrue(firstEventMessage(events, NetworkLogEventStage.REQUEST_HEADERS_END)
+                .contains("Header snapshot:"));
         assertTrue(firstEventMessage(events, NetworkLogEventStage.REQUEST_BODY_START).contains("\"chatId\""),
                 "Request body start should include the captured request body preview");
         assertDurationRecorded(firstEvent(events, NetworkLogEventStage.REQUEST_HEADERS_END));
         assertDurationRecorded(firstEvent(events, NetworkLogEventStage.REQUEST_BODY_END));
+        assertTrue(response.httpEventInfo.getRequestHeadersStart() > 0);
+        assertTrue(response.httpEventInfo.getResponseHeadersStart() > 0);
+        assertTrue(response.httpEventInfo.getResponseBodyStart() > 0);
+        assertTrue(response.httpEventInfo.getHeaderBytesSent() > 0);
+        assertTrue(response.httpEventInfo.getHeaderBytesReceived() > 0);
+        assertTrue(response.httpEventInfo.getBodyBytesReceived() > 0);
     }
 
     @Test
@@ -212,6 +223,10 @@ public class DefaultHttpTransportIntegrationTest {
         String connectionAcquired = firstEventMessage(events, NetworkLogEventStage.CONNECTION_ACQUIRED);
         assertTrue(connectionAcquired.contains("Connection reused"),
                 "Reused connection should be explicit in the network log: " + eventSnapshot(events));
+        assertFalse(connectionAcquired.contains("routeAddress="), connectionAcquired);
+        assertTrue(connectionAcquired.contains("protocol="), connectionAcquired);
+        assertTrue(connectionAcquired.contains("local="), connectionAcquired);
+        assertTrue(connectionAcquired.contains("remote="), connectionAcquired);
     }
 
     @Test
@@ -1029,7 +1044,11 @@ public class DefaultHttpTransportIntegrationTest {
 
         PreparedRequest request = createRequest("GET", serverUrl("/secure-ping"));
         request.sslVerificationEnabled = false;
+        request.collectEventInfo = true;
         request.headersList.add(new HttpHeader(true, "Accept", "*/*"));
+        request.enableNetworkLog = true;
+        List<NetworkLogEvent> events = new ArrayList<>();
+        request.networkLogSink = events::add;
 
         HttpResponse response = httpTransport.execute(request, HttpExchangeOptions.defaults());
         RecordedRequest recordedRequest = takeRecordedRequest();
@@ -1038,6 +1057,16 @@ public class DefaultHttpTransportIntegrationTest {
         assertEquals(response.body, "secure-pong");
         assertNotNull(recordedRequest.getHandshake());
         assertTrue(recordedRequest.getRequestUrl().isHttps());
+        String tls = firstEventMessage(events, NetworkLogEventStage.SECURE_CONNECT_END);
+        assertTrue(tls.contains("Verification: disabled"), tls);
+        assertFalse(tls.contains("verify ok"), tls);
+        assertFalse(tls.contains("Verification: passed"), tls);
+        assertTrue(tls.contains("Self-signed certificate"), tls);
+        assertNotNull(response.httpEventInfo.getSslCertWarning());
+        assertFalse(response.httpEventInfo.getSslCertWarning().isBlank());
+        X509Certificate certificate = (X509Certificate) response.httpEventInfo.getPeerCertificates().get(0);
+        assertTrue(tls.contains(certificate.getNotBefore().toInstant().toString()), tls);
+        assertTrue(tls.contains(certificate.getNotAfter().toInstant().toString()), tls);
     }
 
     @Test
@@ -1051,6 +1080,10 @@ public class DefaultHttpTransportIntegrationTest {
         PreparedRequest request = createRequest("GET", serverUrl("/h2"));
         request.sslVerificationEnabled = false;
         request.httpVersion = HttpRequestItem.HTTP_VERSION_HTTP_2;
+        request.headersList.add(new HttpHeader(true, "Connection", "keep-alive"));
+        request.enableNetworkLog = true;
+        List<NetworkLogEvent> events = new ArrayList<>();
+        request.networkLogSink = events::add;
 
         HttpResponse response = httpTransport.execute(request, HttpExchangeOptions.defaults());
         RecordedRequest recordedRequest = takeRecordedRequest();
@@ -1058,6 +1091,13 @@ public class DefaultHttpTransportIntegrationTest {
         assertEquals(response.code, 200);
         assertEquals(response.protocol, Protocol.HTTP_2.toString());
         assertNotNull(recordedRequest.getHandshake());
+        String headers = firstEventMessage(events, NetworkLogEventStage.REQUEST_HEADERS_END);
+        assertTrue(headers.contains(":authority: " + new URL(request.url).getAuthority()), headers);
+        assertFalse(headers.contains("Host: "), headers);
+        assertFalse(headers.contains("Connection: keep-alive"), headers);
+        assertEquals(findHeaderValue(request.sentHeadersList, "Connection"), "keep-alive");
+        assertEquals(findHeaderValue(request.sentHeadersList, "Host"), new URL(request.url).getAuthority());
+        assertEquals(recordedRequest.getHeader("Connection"), null);
     }
 
     @Test
@@ -1213,6 +1253,7 @@ public class DefaultHttpTransportIntegrationTest {
         server.enqueue(new MockResponse()
                 .setResponseCode(302)
                 .addHeader("Location", serverUrl("/target"))
+                .setBodyDelay(100, TimeUnit.MILLISECONDS)
                 .setBody("redirect"));
         server.enqueue(new MockResponse()
                 .setResponseCode(200)
@@ -1247,10 +1288,94 @@ public class DefaultHttpTransportIntegrationTest {
         assertTrue(redirectLog.contains("Status: 302"), redirectLog);
         assertTrue(redirectLog.contains("From: POST " + serverUrl("/start")), redirectLog);
         assertTrue(redirectLog.contains("To: GET " + serverUrl("/target")), redirectLog);
-        assertTrue(redirectLog.contains("Cross-Origin: false"), redirectLog);
-        assertTrue(redirectLog.contains("Method Changed: true"), redirectLog);
+        assertFalse(redirectLog.contains("Cross-Origin:"), redirectLog);
+        assertFalse(redirectLog.contains("Location:"), redirectLog);
+        assertTrue(redirectLog.contains("Method Changed: POST → GET"), redirectLog);
         assertTrue(events.stream().anyMatch(event -> event.stage() == NetworkLogEventStage.CALL_START),
                 "OkHttp event listener should publish call events through the injected sink");
+        assertEquals(countEvents(events, NetworkLogEventStage.CALL_START), 2L);
+        assertEquals(countEvents(events, NetworkLogEventStage.CALL_END), 2L);
+        assertEquals(countEvents(events, NetworkLogEventStage.PROXY_SELECT), 1L,
+                "Unchanged proxy configuration should only be logged once across redirects");
+        assertEquals(countEvents(events, NetworkLogEventStage.FOLLOW_UP_DECISION), 0L);
+        assertEquals(countEvents(events, NetworkLogEventStage.REQUEST_COMPLETE), 1L);
+        NetworkLogEvent complete = firstEvent(events, NetworkLogEventStage.REQUEST_COMPLETE);
+        assertEquals(events.get(events.size() - 1), complete);
+        assertTrue(complete.message().contains("Status: 200"), complete.message());
+        assertTrue(complete.message().contains("Final: GET " + serverUrl("/target")), complete.message());
+        assertTrue(complete.message().contains("Redirects: 1"), complete.message());
+        long totalMs = Long.parseLong(complete.message().lines()
+                .filter(line -> line.startsWith("Total: "))
+                .map(line -> line.substring("Total: ".length()).replace("ms", ""))
+                .findFirst().orElseThrow());
+        long combinedCallMs = events.stream()
+                .filter(event -> event.stage() == NetworkLogEventStage.CALL_END)
+                .mapToLong(NetworkLogEvent::elapsedMs).sum();
+        assertTrue(totalMs >= combinedCallMs, events.toString());
+        assertTrue(totalMs >= 100L, "Total should include the delayed first redirect response: " + complete);
+        int firstCallEnd = firstEventIndex(events, NetworkLogEventStage.CALL_END);
+        int redirectIndex = firstEventIndex(events, NetworkLogEventStage.REDIRECT);
+        assertTrue(firstCallEnd < redirectIndex, events.toString());
+        assertTrue(events.subList(redirectIndex + 1, events.size()).stream()
+                .anyMatch(event -> event.stage() == NetworkLogEventStage.CALL_START), events.toString());
+    }
+
+    @Test
+    public void shouldCompactUnchangedRedirectHeadersAndShowCookieChangesAndServerWait() throws Exception {
+        server = createServer();
+        server.enqueue(new MockResponse()
+                .setResponseCode(302)
+                .addHeader("Location", "/middle")
+                .setHeadersDelay(120, TimeUnit.MILLISECONDS)
+                .setBody("redirect"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(302)
+                .addHeader("Location", "/target")
+                .addHeader("Set-Cookie", "session=updated; Path=/")
+                .setBody("redirect"));
+        server.enqueue(new MockResponse().setBody("target"));
+        PreparedRequest request = createRequest("GET", serverUrl("/start"));
+        request.enableNetworkLog = true;
+        request.collectEventInfo = true;
+        request.cookieJarEnabled = true;
+        request.headersList.add(new HttpHeader(true, "X-Custom", "keep"));
+        List<NetworkLogEvent> events = new ArrayList<>();
+        request.networkLogSink = events::add;
+
+        HttpResponse response = new HttpRedirectExecutor().executeWithRedirects(request, 5, null);
+        RecordedRequest start = takeRecordedRequest();
+        RecordedRequest middle = takeRecordedRequest();
+        RecordedRequest target = takeRecordedRequest();
+
+        assertEquals(response.code, 200);
+        assertEquals(start.getMethod(), "GET");
+        assertEquals(middle.getMethod(), "GET");
+        assertEquals(target.getMethod(), "GET");
+        assertEquals(target.getPath(), "/target");
+        assertEquals(start.getHeader("X-Custom"), "keep");
+        assertEquals(target.getHeader("X-Custom"), "keep");
+        assertEquals(middle.getHeader("Cookie"), null);
+        assertEquals(target.getHeader("Cookie"), "session=updated");
+        assertEquals(findHeaderValue(request.sentHeadersList, "Cookie"), "session=updated");
+        List<NetworkLogEvent> headers = events.stream()
+                .filter(event -> event.stage() == NetworkLogEventStage.REQUEST_HEADERS_END).toList();
+        assertEquals(headers.size(), 3);
+        assertTrue(headers.get(0).message().contains("X-Custom: keep"), headers.toString());
+        assertEquals(headers.get(1).message(), "Headers unchanged");
+        assertDurationRecorded(headers.get(1));
+        assertTrue(headers.get(2).message().contains("Cookie: session=updated"), headers.toString());
+        String firstResponse = firstEventMessage(events, NetworkLogEventStage.RESPONSE_HEADERS_END_REDIRECT);
+        long waitMs = Long.parseLong(firstResponse.lines()
+                .filter(line -> line.startsWith("Wait: "))
+                .map(line -> line.substring("Wait: ".length()).replace("ms", ""))
+                .findFirst().orElseThrow());
+        assertTrue(waitMs >= 100L, firstResponse);
+        assertFalse(events.stream().anyMatch(event -> event.stage() == NetworkLogEventStage.REQUEST_BODY_START
+                || event.stage() == NetworkLogEventStage.REQUEST_BODY_END
+                || event.stage() == NetworkLogEventStage.CONNECTION_RELEASED
+                || event.stage() == NetworkLogEventStage.PROXY_SELECT_START
+                || event.stage() == NetworkLogEventStage.PROXY_SELECT_END), events.toString());
+        assertTrue(response.httpEventInfo.getConnectionReleased() > 0);
     }
 
     @Test

@@ -383,6 +383,10 @@ public class SSLConfigurationUtil {
                 return;
             }
 
+            // JSSE dispatches HandshakeCompletedListener on another thread. Capture here on
+            // the handshake thread so the following EventListener can diagnose untrusted peers.
+            CertificateCapturingSSLSocketFactory.rememberCapturedCertificates(java.util.Arrays.asList(chain));
+
             log.debug("Validating certificate chain with {} certificates", chain.length);
             X509Certificate serverCert = chain[0];
             log.debug("Server certificate: Subject={}, Issuer={}",

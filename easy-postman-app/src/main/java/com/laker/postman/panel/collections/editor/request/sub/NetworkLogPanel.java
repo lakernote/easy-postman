@@ -16,6 +16,7 @@ import com.laker.postman.common.component.notification.NotificationCenter;
 
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.AttributeSet;
 import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
@@ -26,7 +27,7 @@ import java.awt.datatransfer.StringSelection;
  * 网络日志面板，包含网络日志、请求详情和响应详情三个子Tab
  */
 public class NetworkLogPanel extends JPanel {
-    private final JTextPane logArea;
+    private final NetworkLogTextPane logArea;
     private final StyledDocument doc;
     private final JTabbedPane tabbedPane;
     private final JTextPane requestDetailsPane;
@@ -53,7 +54,7 @@ public class NetworkLogPanel extends JPanel {
         ToolWindowSurfaceStyle.applyTabbedPaneCard(tabbedPane);
 
         // 1. Network Log Tab
-        logArea = new JTextPane();
+        logArea = new NetworkLogTextPane();
         logArea.setEditable(false);
         logArea.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
         ToolWindowSurfaceStyle.applyTextComponentCard(logArea);
@@ -138,7 +139,7 @@ public class NetworkLogPanel extends JPanel {
         NetworkLogEventStage eventStage = event.stage();
         appendLog(NetworkLogStage.fromEventStage(eventStage),
                 NetworkLogMessageFormatter.format(eventStage, event.message()),
-                event.elapsedMs(), event.durationMs());
+                event.elapsedMs(), event.durationMs(), event.message());
     }
 
     /**
@@ -153,46 +154,55 @@ public class NetworkLogPanel extends JPanel {
     }
 
     public void appendLog(NetworkLogStage stage, String msg, Long elapsedMs, Long durationMs) {
+        appendLog(stage, msg, elapsedMs, durationMs, msg);
+    }
+
+    private void appendLog(NetworkLogStage stage, String msg, Long elapsedMs, Long durationMs, String rawMessage) {
         SwingUtilities.invokeLater(() -> {
             try {
-                NetworkLogStage resolvedStage = stage == null ? NetworkLogStage.DEFAULT : stage;
+                NetworkLogStage resolvedStage = NetworkLogPresentation.resolveStage(stage, rawMessage);
                 // 检查并限制总日志长度，防止内存溢出
                 if (doc.getLength() > MAX_TOTAL_LENGTH) {
                     // 删除前1/3的内容，保持日志可读性
-                    int removeLength = MAX_TOTAL_LENGTH / 3;
+                    int removeLength = Math.min(doc.getLength(),
+                            doc.getParagraphElement(MAX_TOTAL_LENGTH / 3).getEndOffset());
+                    AttributeSet retainedParagraphStyle = doc.getParagraphElement(removeLength)
+                            .getAttributes().copyAttributes();
                     doc.remove(0, removeLength);
+                    // Removing from offset zero merges paragraph attributes; retain the surviving row's icon.
+                    doc.setParagraphAttributes(0, 0, retainedParagraphStyle, true);
                 }
 
                 // 内容截断优化：如果内容过长，进行截断
-                String content = msg != null ? msg : "";
+                String content = resolvedStage == NetworkLogStage.CANCELED && stage != resolvedStage
+                        ? I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_CALL_CANCELED)
+                        : msg != null ? msg : "";
                 if (content.length() > MAX_LINE_LENGTH * MAX_LINES_PER_MESSAGE) {
                     int originalLength = content.length();
                     content = content.substring(0, MAX_LINE_LENGTH * MAX_LINES_PER_MESSAGE)
                             + "\n" + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_CONTENT_TRUNCATED, originalLength);
                 }
 
-                // 从枚举获取配置
-                String emoji = resolvedStage.getEmoji();
-                Color stageColor = resolvedStage.getColor();
-                boolean bold = resolvedStage.isBold();
+                NetworkLogPresentation.Style presentation = NetworkLogPresentation.resolveStyle(resolvedStage, rawMessage);
                 int fontSize = FontsUtil.getDefaultFont(Font.PLAIN).getSize();
-                SimpleAttributeSet stageStyle = createTextAttributes(stageColor, true, fontSize);
-                SimpleAttributeSet contentStyle = createTextAttributes(getDefaultTextColor(), bold, fontSize);
+                SimpleAttributeSet stageStyle = createTextAttributes(presentation.color(), presentation.bold(), fontSize);
+                SimpleAttributeSet timingStyle = createTextAttributes(getDefaultTextColor(), false, fontSize);
 
-                // 插入 emoji + 阶段名 + 时间（如果有）
-                StringBuilder stageText = new StringBuilder();
-                stageText.append(emoji).append(" [").append(resolvedStage.getDisplayName()).append("]");
+                int entryStart = doc.getLength();
+                doc.insertString(entryStart, "[" + resolvedStage.getDisplayName() + "]", stageStyle);
+
+                StringBuilder timingText = new StringBuilder();
                 if (elapsedMs != null) {
-                    stageText.append(" +").append(elapsedMs).append("ms");
+                    timingText.append(" +").append(elapsedMs).append("ms");
                 }
-                if (durationMs != null) {
-                    stageText.append(elapsedMs == null ? " " : ", ")
+                if (durationMs != null && durationMs > 0) {
+                    timingText.append(elapsedMs == null ? " " : ", ")
                             .append(I18nUtil.getMessage(MessageKeys.NETWORK_LOG_PHASE_DURATION, durationMs));
                 }
-                stageText.append(" ");
-                doc.insertString(doc.getLength(), stageText.toString(), stageStyle);
-
-                doc.insertString(doc.getLength(), formatContent(content), contentStyle);
+                timingText.append(" ");
+                doc.insertString(doc.getLength(), timingText.toString(), timingStyle);
+                appendContent(resolvedStage, content, rawMessage, fontSize);
+                logArea.styleEntry(entryStart, presentation, fontSize);
 
                 // 自动滚动到底部
                 logArea.setCaretPosition(doc.getLength());
@@ -217,30 +227,39 @@ public class NetworkLogPanel extends JPanel {
         return attributes;
     }
 
-    private String formatContent(String content) {
-        StringBuilder formatted = new StringBuilder();
-        // 多行内容缩进美化，限制行数和每行长度
+    private void appendContent(NetworkLogStage stage, String content, String rawMessage, int fontSize)
+            throws BadLocationException {
         String[] lines = content.split("\\n");
+        String[] rawLines = rawMessage == null ? new String[0] : rawMessage.split("\\n");
+        Integer status = NetworkLogPresentation.responseStatus(stage, rawMessage);
+        boolean statusRendered = false;
+        SimpleAttributeSet bodyStyle = createTextAttributes(getDefaultTextColor(), false, fontSize);
         int lineCount = Math.min(lines.length, MAX_LINES_PER_MESSAGE);
         for (int i = 0; i < lineCount; i++) {
             String line = lines[i];
-            // 限制单行长度
             if (line.length() > MAX_LINE_LENGTH) {
                 line = line.substring(0, MAX_LINE_LENGTH) + "...";
             }
             if (i > 0) {
-                formatted.append("\n    ");
+                doc.insertString(doc.getLength(), "\n", bodyStyle);
             }
-            formatted.append(line);
+            SimpleAttributeSet lineStyle = bodyStyle;
+            if (status != null && !statusRendered && !line.isBlank()) {
+                lineStyle = createTextAttributes(NetworkLogPresentation.statusColor(status), true, fontSize);
+                statusRendered = true;
+            } else if (i < rawLines.length && NetworkLogPresentation.isCertificateWarning(stage, rawLines[i])) {
+                line = line.replaceFirst("^⚠️?\\s*", "");
+                lineStyle = createTextAttributes(NetworkLogPresentation.warningColor(), true, fontSize);
+            } else if (i == 0 && stage.isError()) {
+                lineStyle = createTextAttributes(NetworkLogPresentation.resolveStyle(stage, rawMessage).color(), true, fontSize);
+            }
+            doc.insertString(doc.getLength(), line, lineStyle);
         }
-        // 如果行数被截断，添加提示
         if (lines.length > MAX_LINES_PER_MESSAGE) {
-            formatted.append("\n    ")
-                    .append(I18nUtil.getMessage(MessageKeys.NETWORK_LOG_LINES_OMITTED,
-                            lines.length - MAX_LINES_PER_MESSAGE));
+            doc.insertString(doc.getLength(), "\n" + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_LINES_OMITTED,
+                    lines.length - MAX_LINES_PER_MESSAGE), bodyStyle);
         }
-        formatted.append("\n");
-        return formatted.toString();
+        doc.insertString(doc.getLength(), "\n", bodyStyle);
     }
 
 
@@ -248,6 +267,7 @@ public class NetworkLogPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             try {
                 doc.remove(0, doc.getLength());
+                logArea.clearDecoration();
             } catch (BadLocationException e) {
                 // ignore
             }

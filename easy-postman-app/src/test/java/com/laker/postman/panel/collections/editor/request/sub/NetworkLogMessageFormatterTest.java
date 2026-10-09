@@ -27,15 +27,20 @@ public class NetworkLogMessageFormatterTest {
     public void shouldLocalizeStageDisplayNameWithoutChangingTechnicalName() {
         assertEquals(NetworkLogStage.CALL_START.getStageName(), "RequestStart");
         assertEquals(NetworkLogStage.CALL_START.getDisplayName(), "请求开始");
+        assertEquals(NetworkLogStage.CALL_END.getDisplayName(), "请求结束");
+        assertEquals(NetworkLogStage.REQUEST_COMPLETE.getDisplayName(), "请求流程完成");
+        assertEquals(NetworkLogStage.CONNECTION_RELEASED.getDisplayName(), "连接占用已释放");
     }
 
     @Test
     public void shouldLocalizeFollowUpDecisionAndKeepRequestDetails() {
         String formatted = NetworkLogMessageFormatter.format(
                 NetworkLogEventStage.FOLLOW_UP_DECISION,
-                "Follow-up: false, response: 200, next: none");
+                "Follow-up: true, response: 401, next: GET https://example.test/private");
 
-        assertEquals(formatted, "是否需要后续请求：否，响应码：200，下一请求：无");
+        assertEquals(formatted, "后续请求：GET https://example.test/private（响应码 401）");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.FOLLOW_UP_DECISION,
+                "Follow-up: false, response: 200, next: none"), "");
     }
 
     @Test
@@ -47,8 +52,7 @@ public class NetworkLogMessageFormatterTest {
                         + "clientProxy=DIRECT, directHttpSocketFactoryJvmSocksBypass=true, "
                         + "manualProxyConfig=NOT_USED");
 
-        assertEquals(formatted, "代理配置：请求策略=使用默认值，应用代理启用=否，应用代理模式=手动配置，"
-                + "客户端代理=直连，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，手动代理配置=本次未使用");
+        assertEquals(formatted, "客户端代理：直连 · 请求策略：使用默认值");
     }
 
     @Test
@@ -57,16 +61,12 @@ public class NetworkLogMessageFormatterTest {
                         "requestPolicy=USE_PROXY, appProxyEnabled=true, appProxyMode=SYSTEM, "
                                 + "clientProxy=SYSTEM_SELECTOR, directHttpSocketFactoryJvmSocksBypass=true, "
                                 + "manualProxyConfig=NOT_USED"),
-                "代理配置：请求策略=使用代理，应用代理启用=是，应用代理模式=自动检测系统代理，"
-                        + "客户端代理=系统代理选择器，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，"
-                        + "手动代理配置=本次未使用");
+                "客户端代理：系统代理选择器 · 请求策略：使用代理");
         assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
                         "requestPolicy=NO_PROXY, appProxyEnabled=true, appProxyMode=MANUAL, "
                                 + "clientProxy=SOCKS:127.0.0.1:1080, directHttpSocketFactoryJvmSocksBypass=true, "
                                 + "manualProxyConfig=FIELDS_PRESENT"),
-                "代理配置：请求策略=不使用代理，应用代理启用=是，应用代理模式=手动配置，"
-                        + "客户端代理=SOCKS:127.0.0.1:1080，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，"
-                        + "手动代理配置=主机与端口已填写");
+                "客户端代理：SOCKS:127.0.0.1:1080 · 请求策略：不使用代理");
     }
 
     @Test
@@ -76,9 +76,7 @@ public class NetworkLogMessageFormatterTest {
                         + "clientProxy=HTTP:proxy,internal:8080, directHttpSocketFactoryJvmSocksBypass=true, "
                         + "manualProxyConfig=FIELDS_PRESENT");
 
-        assertEquals(formatted, "代理配置：请求策略=使用代理，应用代理启用=是，应用代理模式=手动配置，"
-                + "客户端代理=HTTP:proxy,internal:8080，直连/HTTP 代理底层 Socket 绕过 JVM 隐式 SOCKS=是，"
-                + "手动代理配置=主机与端口已填写");
+        assertEquals(formatted, "客户端代理：HTTP:proxy,internal:8080 · 请求策略：使用代理");
     }
 
     @Test
@@ -87,11 +85,120 @@ public class NetworkLogMessageFormatterTest {
                 + "clientProxy=DIRECT, directHttpSocketFactoryJvmSocksBypass=true, manualProxyConfig=";
 
         assertTrue(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
-                diagnostic + "MISSING_HOST").contains("手动代理配置=缺少主机"));
+                diagnostic + "MISSING_HOST").contains("手动代理配置：缺少主机"));
         assertTrue(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
-                diagnostic + "INVALID_HOST").contains("手动代理配置=主机格式无效"));
+                diagnostic + "INVALID_HOST").contains("手动代理配置：主机格式无效"));
         assertTrue(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
-                diagnostic + "INVALID_PORT").contains("手动代理配置=端口无效"));
+                diagnostic + "INVALID_PORT").contains("手动代理配置：端口无效"));
+    }
+
+    @Test
+    public void shouldRetainJvmSocksDiagnosticWhenBypassIsUnavailable() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                "requestPolicy=DEFAULT, appProxyEnabled=false, appProxyMode=MANUAL, "
+                        + "clientProxy=DIRECT, directHttpSocketFactoryJvmSocksBypass=false, "
+                        + "manualProxyConfig=NOT_USED"),
+                "客户端代理：直连 · 请求策略：使用默认值\n底层 Socket 未绕过 JVM SOCKS 设置");
+    }
+
+    @Test
+    public void shouldDistinguishReusedAndNewConnectionWithoutRepeatingReleaseRoute() {
+        String route = "proxy=DIRECT, protocol=h2, remote=example.test:443";
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.CONNECTION_ACQUIRED,
+                "Connection reused: " + route), "复用连接：" + route);
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.CONNECTION_ACQUIRED,
+                "Connection acquired: " + route), "新连接：" + route);
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.CONNECTION_RELEASED,
+                "Connection use released"), "");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.CALL_END, "done"), "");
+    }
+
+    @Test
+    public void shouldExplainHeaderSnapshotWithoutChangingHeaderValues() {
+        String headers = "\n:authority: example.test\nX-Custom: Status: 200";
+        for (String leadingNewline : new String[]{"", "\n"}) {
+            assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_HEADERS_END,
+                    leadingNewline + "HTTP/2 header view (regular headers and :authority):"
+                            + headers),
+                    leadingNewline + "HTTP/2 请求头视图（常规头与 :authority）：" + headers);
+            assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_HEADERS_END,
+                    leadingNewline + "Header snapshot:" + headers),
+                    leadingNewline + "请求头快照：" + headers);
+            assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_HEADERS_END,
+                    leadingNewline + "Headers unchanged"), leadingNewline + "请求头未变化");
+        }
+    }
+
+    @Test
+    public void shouldLocalizeResponseWaitWithoutChangingResponseHeaders() {
+        String headers = "\nWait: 123ms\nX-Custom: Wait: 456ms\ncontent-type: application/json";
+        for (NetworkLogEventStage stage : new NetworkLogEventStage[]{
+                NetworkLogEventStage.RESPONSE_HEADERS_END, NetworkLogEventStage.RESPONSE_HEADERS_END_REDIRECT}) {
+            for (String leadingNewline : new String[]{"", "\n"}) {
+                assertEquals(NetworkLogMessageFormatter.format(stage,
+                        leadingNewline + "HTTP/2 200\nWait: 1000ms" + headers),
+                        leadingNewline + "HTTP/2 200\n等待响应：1000ms" + headers);
+            }
+        }
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.RESPONSE_HEADERS_END,
+                "Wait: 1000ms" + headers), "Wait: 1000ms" + headers);
+    }
+
+    @Test
+    public void shouldDistinguishRetryFromTerminalFailure() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.RETRY_DECISION,
+                "Retry: true, reason: connection reset"), "继续重试：是 · 原因：connection reset");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.RETRY_DECISION,
+                "Retry: false, reason: canceled"), "继续重试：否 · 原因：canceled");
+    }
+
+    @Test
+    public void shouldExplainUnavailablePreviewWithoutChangingRealRequestBody() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_BODY_START,
+                "Request body preview unavailable"), "请求体预览不可用");
+        String actualBody = "\nRequest body preview unavailable";
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_BODY_START, actualBody), actualBody);
+    }
+
+    @Test
+    public void shouldLocalizeRedirectDetailsAndFlowSummary() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REDIRECT,
+                        "Redirect #1\nStatus: 302\nFrom: POST https://example.test/redirect\n"
+                                + "To: GET https://other.test/get\nCross-Origin: true\n"
+                                + "Removed Headers: Authorization, Cookie\nMethod Changed: POST → GET"),
+                "第 1 次重定向\n状态码：302\n来源：POST https://example.test/redirect\n"
+                        + "目标：GET https://other.test/get\n跨源：是\n"
+                        + "已移除请求头：Authorization, Cookie\n请求方法变更：POST → GET");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_COMPLETE,
+                        "Status: 200\nFinal: GET https://other.test/get\nRedirects: 1\nTotal: 457ms"),
+                "状态码：200\n最终请求：GET https://other.test/get\n重定向次数：1\n总耗时：457ms");
+    }
+
+    @Test
+    public void shouldExplainWhyRedirectWasNotFollowed() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REDIRECT,
+                        "Redirect stopped: disabled, status: 302"),
+                "未继续跟随：已关闭重定向（状态码 302）");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REDIRECT,
+                        "Redirect stopped: missing Location, status: 302"),
+                "未继续跟随：缺少 Location 响应头（状态码 302）");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REDIRECT,
+                        "Redirect stopped: max redirects reached, status: 302, max: 20"),
+                "未继续跟随：已达到重定向次数上限（状态码 302）\n重定向次数上限：20");
+    }
+
+    @Test
+    public void shouldUseConciseEnglishWording() {
+        I18nUtil.setLocale("en");
+        assertEquals(NetworkLogStage.REQUEST_COMPLETE.getDisplayName(), "Request flow finished");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.PROXY_SELECT,
+                        "requestPolicy=DEFAULT, appProxyEnabled=false, appProxyMode=MANUAL, "
+                                + "clientProxy=DIRECT, directHttpSocketFactoryJvmSocksBypass=true, "
+                                + "manualProxyConfig=NOT_USED"),
+                "Client proxy: direct · Request policy: Use Default");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.REQUEST_COMPLETE,
+                        "Status: 200\nRedirects: 1\nTotal: 457ms"),
+                "Status: 200\nRedirects: 1\nTotal: 457ms");
     }
 
     @Test
@@ -113,5 +220,32 @@ public class NetworkLogMessageFormatterTest {
         assertTrue(formatted.contains("服务器证书："));
         assertTrue(formatted.contains("主题： CN=example.test"));
         assertTrue(formatted.contains("SSL 证书校验通过。"));
+    }
+
+    @Test
+    public void shouldStateDisabledVerificationWithoutClaimingSuccess() {
+        String tlsConnection = "TLSv1.2 / TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.SECURE_CONNECT_END,
+                        "TLS connection: " + tlsConnection + "\nVerification: disabled"),
+                "TLS 连接：" + tlsConnection + "\n证书校验：已关闭");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.SECURE_CONNECT_END,
+                        "TLS connection: " + tlsConnection + "\nVerification: passed"),
+                "TLS 连接：" + tlsConnection + "\n证书校验：通过");
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.SECURE_CONNECT_END,
+                        "TLS connection: " + tlsConnection + "\nVerification: enabled"),
+                "TLS 连接：" + tlsConnection + "\n证书校验：已启用");
+    }
+
+    @Test
+    public void shouldPreserveCertificateWarningAndUtcDates() {
+        assertEquals(NetworkLogMessageFormatter.format(NetworkLogEventStage.SECURE_CONNECT_END,
+                        "TLS connection: TLSv1.3 / TLS_AES_128_GCM_SHA256\nVerification: disabled\n"
+                                + "Server certificate:\n subject: CN=example.test issuer: literal text\n"
+                                + " start date: 2026-01-01T00:00:00Z\n expire date: 2027-01-01T00:00:00Z\n"
+                                + " issuer: CN=Test CA\n⚠️  Certificate Warning: certificate expired"),
+                "TLS 连接：TLSv1.3 / TLS_AES_128_GCM_SHA256\n证书校验：已关闭\n"
+                        + "服务器证书：\n主题： CN=example.test issuer: literal text\n"
+                        + "开始日期： 2026-01-01T00:00:00Z\n到期日期： 2027-01-01T00:00:00Z\n"
+                        + "颁发者： CN=Test CA\n⚠️  证书警告：certificate expired");
     }
 }

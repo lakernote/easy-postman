@@ -22,7 +22,8 @@ public class NetworkLogStageTest {
             ThemeColors.PRIMARY,
             ThemeColors.INFO,
             ThemeColors.WARNING,
-            ThemeColors.TEXT_PRIMARY
+            ThemeColors.TEXT_PRIMARY,
+            ThemeColors.TEXT_SECONDARY
     );
 
     private Map<String, Object> previousThemeTokens;
@@ -59,6 +60,7 @@ public class NetworkLogStageTest {
     public void shouldUseReadableDiagnosticStageNames() {
         assertEquals(NetworkLogStage.CALL_START.getStageName(), "RequestStart");
         assertEquals(NetworkLogStage.CALL_END.getStageName(), "RequestEnd");
+        assertEquals(NetworkLogStage.REQUEST_COMPLETE.getStageName(), "RequestComplete");
         assertEquals(NetworkLogStage.DNS_START.getStageName(), "DNSStart");
         assertEquals(NetworkLogStage.DNS_END.getStageName(), "DNSEnd");
         assertEquals(NetworkLogStage.SECURE_CONNECT_START.getStageName(), "TLSHandshakeStart");
@@ -74,20 +76,23 @@ public class NetworkLogStageTest {
         Color info = new Color(10, 11, 12);
         Color warning = new Color(13, 14, 15);
         Color text = new Color(16, 17, 18);
+        Color secondaryText = new Color(19, 20, 21);
         UIManager.put(ThemeColors.ERROR, error);
         UIManager.put(ThemeColors.SUCCESS, success);
         UIManager.put(ThemeColors.PRIMARY, primary);
         UIManager.put(ThemeColors.INFO, info);
         UIManager.put(ThemeColors.WARNING, warning);
         UIManager.put(ThemeColors.TEXT_PRIMARY, text);
+        UIManager.put(ThemeColors.TEXT_SECONDARY, secondaryText);
 
         assertEquals(NetworkLogStage.FAILED.getColor(), error);
-        assertEquals(NetworkLogStage.CALL_END.getColor(), success);
-        assertEquals(NetworkLogStage.CONNECT_START.getColor(), primary);
-        assertEquals(NetworkLogStage.SECURE_CONNECT_START.getColor(), new Color(120, 100, 80));
-        assertEquals(NetworkLogStage.REQUEST_HEADERS_START.getColor(), warning);
-        assertEquals(NetworkLogStage.RESPONSE_BODY_END.getColor(), info);
-        assertEquals(NetworkLogStage.REDIRECT.getColor(), warning);
+        assertEquals(NetworkLogStage.CALL_END.getColor(), secondaryText);
+        assertEquals(NetworkLogStage.REQUEST_COMPLETE.getColor(), secondaryText);
+        assertEquals(NetworkLogStage.CONNECT_START.getColor(), secondaryText);
+        assertEquals(NetworkLogStage.SECURE_CONNECT_START.getColor(), secondaryText);
+        assertEquals(NetworkLogStage.REQUEST_HEADERS_START.getColor(), secondaryText);
+        assertEquals(NetworkLogStage.RESPONSE_BODY_END.getColor(), secondaryText);
+        assertEquals(NetworkLogStage.REDIRECT.getColor(), primary);
         assertEquals(NetworkLogStage.DEFAULT.getColor(), text);
     }
 }

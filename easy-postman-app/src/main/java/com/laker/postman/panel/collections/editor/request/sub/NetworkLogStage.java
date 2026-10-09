@@ -12,68 +12,71 @@ import java.util.function.Supplier;
 
 /**
  * 网络日志阶段枚举
- * 统一管理日志阶段的 emoji 图标、颜色方案和粗体配置
+ * 统一管理日志阶段的默认图标、颜色和标题强调。
+ * HTTP 结果和重试判定的颜色由日志面板根据事件内容补充。
  */
 @Getter
 public enum NetworkLogStage {
     // ==================== 错误和失败（红色系，粗体）====================
     FAILED("Failed", "❌", ModernColors::getError, true),
-    CALL_FAILED("CallFailed", "💥", ModernColors::getError, true),
+    CALL_FAILED("CallFailed", "❌", ModernColors::getError, true),
     REQUEST_FAILED("RequestFailed", "❌", ModernColors::getError, true),
     RESPONSE_FAILED("ResponseFailed", "❌", ModernColors::getError, true),
-    CONNECT_FAILED("ConnectFailed", "⚠️", ModernColors::getError, true),
-    CANCELED("Canceled", "🚫", ModernColors::getError, true),
+    CANCELED("Canceled", "⏹", ModernColors::getTextSecondary, true),
 
-    // ==================== 成功和完成（绿色系）====================
-    CALL_START("RequestStart", "🚀", ModernColors::getSuccess, true),
-    CALL_END("RequestEnd", "✅", ModernColors::getSuccess, true),
-    DISPATCHER_QUEUE_START("DispatcherQueueStart", "⏳", ModernColors::getInfo, false),
-    DISPATCHER_QUEUE_END("DispatcherQueueEnd", "▶️", ModernColors::getInfo, false),
-    RETRY_DECISION("RetryDecision", "🔁", ModernColors::getWarning, false),
-    FOLLOW_UP_DECISION("FollowUpDecision", "↪️", ModernColors::getInfo, false),
-    CACHE_HIT("CacheHit", "💾", ModernColors::getSuccess, false),
-    CACHE_MISS("CacheMiss", "❌", ModernColors::getInfo, false),
-    CACHE_CONDITIONAL_HIT("CacheConditionalHit", "💾", ModernColors::getInfo, false),
+    // ==================== 请求生命周期和诊断 ====================
+    CALL_START("RequestStart", "▶", ModernColors::getPrimary, true),
+    CALL_END("RequestEnd", "■", ModernColors::getTextSecondary, true),
+    REQUEST_COMPLETE("RequestComplete", "■", ModernColors::getTextSecondary, true),
+    DISPATCHER_QUEUE_START("DispatcherQueueStart", "⏳", ModernColors::getTextSecondary, false),
+    DISPATCHER_QUEUE_END("DispatcherQueueEnd", "▶", ModernColors::getTextSecondary, false),
+    RETRY_DECISION("RetryDecision", "🔁", ModernColors::getTextSecondary, false),
+    FOLLOW_UP_DECISION("FollowUpDecision", "↪", ModernColors::getTextSecondary, false),
+    CACHE_HIT("CacheHit", "💾", ModernColors::getTextSecondary, false),
+    CACHE_MISS("CacheMiss", "💾", ModernColors::getTextSecondary, false),
+    CACHE_CONDITIONAL_HIT("CacheConditionalHit", "💾", ModernColors::getTextSecondary, false),
     SATISFACTION_FAILURE("SatisfactionFailure", "⚠️", ModernColors::getWarning, false),
-    REQUEST_PREPARED("RequestPrepared", "🧾", ModernColors::getPrimary, false),
+    REQUEST_PREPARED("RequestPrepared", "", ModernColors::getTextSecondary, false),
 
-    // ==================== 安全连接（由主色和错误色派生的紫色系）====================
-    SECURE_CONNECT_START("TLSHandshakeStart", "🔐", NetworkLogStage::getSecureConnectColor, false),
-    SECURE_CONNECT_END("TLSHandshakeEnd", "🔒", NetworkLogStage::getSecureConnectColor, false),
+    // ==================== TLS ====================
+    SECURE_CONNECT_START("TLSHandshakeStart", "🔒", ModernColors::getTextSecondary, false),
+    SECURE_CONNECT_END("TLSHandshakeEnd", "🔒", ModernColors::getTextSecondary, false),
 
-    // ==================== 连接相关（蓝色系）====================
-    CONNECT_START("ConnectStart", "🔌", ModernColors::getPrimary, false),
-    CONNECT_END("ConnectEnd", "✅", ModernColors::getPrimary, false),
-    CONNECTION_ACQUIRED("ConnectionReady", "🔗", ModernColors::getPrimary, false),
-    CONNECTION_RELEASED("ConnectionReleased", "🔓", ModernColors::getPrimary, false),
+    // ==================== 连接 ====================
+    CONNECT_START("ConnectStart", "🔌", ModernColors::getTextSecondary, false),
+    // A failed route can be followed by another successful route; terminal errors use CALL_FAILED.
+    CONNECT_FAILED("ConnectFailed", "⚠️", ModernColors::getWarning, true),
+    CONNECT_END("ConnectEnd", "🔗", ModernColors::getTextSecondary, false),
+    CONNECTION_ACQUIRED("ConnectionReady", "🔗", ModernColors::getTextSecondary, false),
+    CONNECTION_RELEASED("ConnectionReleased", "↩", ModernColors::getTextSecondary, false),
 
-    // ==================== DNS（蓝色系）====================
-    DNS_START("DNSStart", "🔍", ModernColors::getPrimary, false),
-    DNS_END("DNSEnd", "📍", ModernColors::getPrimary, false),
+    // ==================== DNS ====================
+    DNS_START("DNSStart", "🔍", ModernColors::getTextSecondary, false),
+    DNS_END("DNSEnd", "📍", ModernColors::getTextSecondary, false),
 
-    // ==================== 代理（蓝色系）====================
-    PROXY_SELECT("ProxySelect", "🌐", ModernColors::getPrimary, false),
-    PROXY_SELECT_START("ProxySelectStart", "🌐", ModernColors::getPrimary, false),
-    PROXY_SELECT_END("ProxySelectEnd", "🌐", ModernColors::getPrimary, false),
+    // ==================== 代理 ====================
+    PROXY_SELECT("ProxySelect", "🌐", ModernColors::getTextSecondary, false),
+    PROXY_SELECT_START("ProxySelectStart", "🌐", ModernColors::getTextSecondary, false),
+    PROXY_SELECT_END("ProxySelectEnd", "🌐", ModernColors::getTextSecondary, false),
 
-    // ==================== 请求（橙色系）====================
-    REQUEST_HEADERS_START("RequestHeadersStart", "📤", ModernColors::getWarning, false),
-    REQUEST_HEADERS_END("RequestHeadersEnd", "📨", ModernColors::getWarning, false),
-    REQUEST_BODY_START("RequestBodyStart", "📦", ModernColors::getWarning, false),
-    REQUEST_BODY_END("RequestBodyEnd", "✅", ModernColors::getWarning, false),
+    // ==================== 请求发送 ====================
+    REQUEST_HEADERS_START("RequestHeadersStart", "↑", ModernColors::getTextSecondary, false),
+    REQUEST_HEADERS_END("RequestHeadersEnd", "↑", ModernColors::getTextSecondary, false),
+    REQUEST_BODY_START("RequestBodyStart", "↑", ModernColors::getTextSecondary, false),
+    REQUEST_BODY_END("RequestBodyEnd", "↑", ModernColors::getTextSecondary, false),
 
-    // ==================== 响应（青色系）====================
-    RESPONSE_HEADERS_START("ResponseHeadersStart", "📥", ModernColors::getInfo, false),
-    RESPONSE_HEADERS_END("ResponseHeadersEnd", "📬", ModernColors::getInfo, false),
-    RESPONSE_HEADERS_END_REDIRECT("ResponseHeadersEnd:Redirect", "🔀", ModernColors::getWarning, true),
-    RESPONSE_BODY_START("ResponseBodyStart", "📄", ModernColors::getInfo, false),
-    RESPONSE_BODY_END("ResponseBodyEnd", "✅", ModernColors::getInfo, false),
+    // ==================== 响应接收 ====================
+    RESPONSE_HEADERS_START("ResponseHeadersStart", "↓", ModernColors::getTextSecondary, false),
+    RESPONSE_HEADERS_END("ResponseHeadersEnd", "↓", ModernColors::getTextSecondary, false),
+    RESPONSE_HEADERS_END_REDIRECT("ResponseHeadersEnd:Redirect", "↓", ModernColors::getTextSecondary, false),
+    RESPONSE_BODY_START("ResponseBodyStart", "↓", ModernColors::getTextSecondary, false),
+    RESPONSE_BODY_END("ResponseBodyEnd", "↓", ModernColors::getTextSecondary, false),
 
-    // ==================== 重定向（橙色，粗体）====================
-    REDIRECT("Redirect", "↪️", ModernColors::getWarning, true),
+    // ==================== 重定向 ====================
+    REDIRECT("Redirect", "↪", ModernColors::getPrimary, true),
 
     // ==================== 默认 ====================
-    DEFAULT("Default", "📋", ModernColors::getTextPrimary, false);
+    DEFAULT("Default", "", ModernColors::getTextPrimary, false);
 
     private final String stageName;
     private final String emoji;
@@ -103,31 +106,19 @@ public enum NetworkLogStage {
                 + name().toLowerCase(Locale.ROOT));
     }
 
-    private static Color getSecureConnectColor() {
-        return blend(ModernColors.getPrimary(), ModernColors.getError());
-    }
-
-    private static Color blend(Color first, Color second) {
-        return new Color(
-                (first.getRed() + second.getRed()) / 2,
-                (first.getGreen() + second.getGreen()) / 2,
-                (first.getBlue() + second.getBlue()) / 2
-        );
-    }
-
     /**
      * 判断是否为失败或错误类型
      */
     public boolean isError() {
         return this == FAILED || this == CALL_FAILED || this == REQUEST_FAILED
-                || this == RESPONSE_FAILED || this == CONNECT_FAILED || this == CANCELED;
+                || this == RESPONSE_FAILED;
     }
 
     /**
-     * 判断是否为成功类型
+     * 判断是否为可能展示成功结果的阶段；实际结果由响应状态决定。
      */
     public boolean isSuccess() {
-        return this == CALL_END || this == CACHE_HIT;
+        return this == REQUEST_COMPLETE;
     }
 
     /**

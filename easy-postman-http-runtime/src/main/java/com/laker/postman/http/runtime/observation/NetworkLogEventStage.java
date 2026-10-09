@@ -14,6 +14,7 @@ public enum NetworkLogEventStage {
     CANCELED,
     CALL_START,
     CALL_END,
+    REQUEST_COMPLETE,
     DISPATCHER_QUEUE_START,
     DISPATCHER_QUEUE_END,
     RETRY_DECISION,

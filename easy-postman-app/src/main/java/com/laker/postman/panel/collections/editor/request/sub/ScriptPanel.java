@@ -209,7 +209,7 @@ public class ScriptPanel extends JPanel {
         area.setCodeFoldingEnabled(true);           // 代码折叠
         area.setAutoIndentEnabled(true);            // 自动缩进
         area.setBracketMatchingEnabled(true);       // 括号匹配
-        area.setMarkOccurrences(true);              // 高亮相同标识符
+        area.setMarkOccurrences(false);             // 脚本编辑器不标记相同标识符
 
         // 显示设置
         area.setAntiAliasingEnabled(true);          // 抗锯齿，文字更清晰

@@ -110,7 +110,7 @@ Codex、Claude 和 Cursor 的具体配置入口可能随客户端版本变化，
 
 MCP 客户端为一次连接启动一个 `EasyPostmanMCP` 进程，并在多次 Tool 调用间复用；不是每执行一个请求就重新启动一次。连接结束后 stdin 关闭，MCP 进程随之退出，不需要用户维护常驻服务。
 
-桌面应用和 MCP 是两个独立进程，可以同时运行并读取同一批工作区。MCP 的工作区和环境选择只影响本次 Tool 调用，不会模拟点击页面，也不会改变桌面端当前选择。桌面端新增或删除工作区后，需要重启 MCP 客户端连接以刷新目录。
+桌面应用和 MCP 是两个独立进程，可以同时运行并读取同一批工作区。MCP 的工作区和环境选择只影响本次 Tool 调用，不会模拟点击页面，也不会改变桌面端当前选择。桌面端新增或移除工作区后，需要重启 MCP 客户端连接以刷新目录。
 
 ### 5. 可选：只授权一个工作区
 
@@ -166,7 +166,7 @@ JAR 方式如需只授权一个工作区，在 `"serve"` 后追加目录。原�
 - 传入工作区目录启动时，只授权该目录，所有 Tool 都可以省略 `workspaceId`。
 - 省略启动目录时，MCP 进程在启动时读取 EasyPostman 已登记工作区。客户端先调用 `list_workspaces`，再把返回的 `workspaceId` 传给后续 Tool，即可在不同工作区之间执行请求。
 - 多工作区模式下省略 `workspaceId`，会使用 MCP 进程启动时记录的 EasyPostman 当前工作区；如果不能唯一确定，则要求显式传入 `workspaceId`。
-- 选择 `workspaceId` 不会调用桌面端的“切换工作区”，不会保存新的当前工作区，也不会让已打开的 Swing 页面跟随切换。桌面端新增、删除或切换工作区后，应重启 MCP 客户端进程以刷新目录；始终显式传入 `workspaceId` 最稳定。
+- 选择 `workspaceId` 不会调用桌面端的“切换工作区”，不会保存新的当前工作区，也不会让已打开的 Swing 页面跟随切换。桌面端新增、移除或切换工作区后，应重启 MCP 客户端进程以刷新目录；始终显式传入 `workspaceId` 最稳定。
 - `list_environments` 用于发现环境；`run_request` / `run_collection` 的 `environmentId` 可以传环境 ID 或精确名称。省略时读取该工作区 `environments.json` 中的激活环境，没有激活项时使用第一项。
 - `environmentId` 只决定本次执行使用哪个环境，不会修改激活状态或保存 `environments.json`。
 

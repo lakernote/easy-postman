@@ -704,7 +704,15 @@ public final class MessageKeys {
     public static final String WORKSPACE_CLONE_FROM_REMOTE = "workspace.clone.from.remote";
     public static final String WORKSPACE_INIT_LOCAL = "workspace.init.local";
     public static final String WORKSPACE_RENAME = "workspace.rename";
+    public static final String WORKSPACE_REMOVE = "workspace.remove";
+    public static final String WORKSPACE_REMOVE_CONFIRM = "workspace.remove.confirm";
+    public static final String WORKSPACE_REMOVE_FAILED = "workspace.remove.failed";
+    public static final String WORKSPACE_REMOVE_REFRESH_FAILED = "workspace.remove.refresh.failed";
+    /** @deprecated Use {@link #WORKSPACE_REMOVE}. */
+    @Deprecated
     public static final String WORKSPACE_DELETE = "workspace.delete";
+    /** @deprecated Use {@link #WORKSPACE_REMOVE_CONFIRM}. */
+    @Deprecated
     public static final String WORKSPACE_DELETE_CONFIRM = "workspace.delete.confirm";
     public static final String WORKSPACE_SWITCH = "workspace.switch";
     public static final String WORKSPACE_INFO = "workspace.info";

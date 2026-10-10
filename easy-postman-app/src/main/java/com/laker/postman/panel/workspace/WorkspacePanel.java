@@ -449,7 +449,7 @@ public class WorkspacePanel extends UiSingletonPanel {
         }
 
         boolean gitItemsAdded = addStandardGitMenuItems(menu, workspace);
-        // 只有非默认工作区才添加分隔符（因为后面还有重命名和删除选项）
+        // 只有非默认工作区才添加分隔符（因为后面还有重命名和移除选项）
         if (gitItemsAdded && !WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
             menu.addSeparator();
         }
@@ -472,7 +472,7 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     private void addManagementMenuItems(JPopupMenu menu, Workspace workspace) {
-        // 默认工作区不可重命名和删除
+        // 默认工作区不可重命名和移除
         if (!WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
             // 重命名
             JMenuItem renameItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_RENAME));
@@ -481,12 +481,12 @@ public class WorkspacePanel extends UiSingletonPanel {
             renameItem.addActionListener(e -> renameWorkspace(workspace));
             menu.add(renameItem);
 
-            // 删除
-            JMenuItem deleteItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_DELETE));
-            deleteItem.setIcon(IconUtil.createThemed("icons/close.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
-            deleteItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0));
-            deleteItem.addActionListener(e -> deleteWorkspace(workspace));
-            menu.add(deleteItem);
+            // 移除工作区记录，保留本地文件
+            JMenuItem removeItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOVE));
+            removeItem.setIcon(IconUtil.createThemed("icons/close.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+            removeItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0));
+            removeItem.addActionListener(e -> removeWorkspace(workspace));
+            menu.add(removeItem);
         }
     }
 
@@ -503,7 +503,7 @@ public class WorkspacePanel extends UiSingletonPanel {
         }
 
         if (e.getKeyCode() == KeyEvent.VK_DELETE || e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
-            deleteWorkspace(workspace);
+            removeWorkspace(workspace);
             e.consume();
         }
     }
@@ -706,35 +706,45 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     /**
-     * 删除工作区
+     * 移除工作区记录，本地目录及文件始终保留。
      */
-    private void deleteWorkspace(Workspace workspace) {
+    private void removeWorkspace(Workspace workspace) {
         String[] options = {
-                I18nUtil.getMessage(MessageKeys.WORKSPACE_DELETE),
+                I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOVE),
                 I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL)
         };
 
         int choice = JOptionPane.showOptionDialog(
                 this,
-                I18nUtil.getMessage(MessageKeys.WORKSPACE_DELETE_CONFIRM, workspace.getName()),
-                I18nUtil.getMessage(MessageKeys.WORKSPACE_DELETE),
+                I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOVE_CONFIRM,
+                        workspace.getName(), workspace.getPath()),
+                I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOVE),
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE,
                 null,
                 options,
-                options[0] // default option
+                options[1]
         );
 
-        if (choice == 0) { // 删除
+        if (choice == 0) {
+            // 检查是否移除的是当前工作区
+            boolean isRemovingCurrentWorkspace = workspaceService.getCurrentWorkspace() != null &&
+                    workspaceService.getCurrentWorkspace().getId().equals(workspace.getId());
+
             try {
-                // 检查是否删除的是当前工作区
-                boolean isDeletingCurrentWorkspace = workspaceService.getCurrentWorkspace() != null &&
-                        workspaceService.getCurrentWorkspace().getId().equals(workspace.getId());
+                if (isRemovingCurrentWorkspace) {
+                    saveCurrentWorkspaceScopedPanels();
+                }
+                workspaceService.removeWorkspace(workspace.getId());
+            } catch (Exception e) {
+                log.error("Failed to remove workspace", e);
+                showError(I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOVE_FAILED, e.getMessage()));
+                return;
+            }
 
-                workspaceService.deleteWorkspace(workspace.getId());
-
-                // 如果删除的是当前工作区，需要切换到新的当前工作区并刷新相关UI
-                if (isDeletingCurrentWorkspace) {
+            try {
+                // 如果移除的是当前工作区，需要切换到新的当前工作区并刷新相关UI
+                if (isRemovingCurrentWorkspace) {
                     Workspace newCurrentWorkspace = workspaceService.getCurrentWorkspace();
                     if (newCurrentWorkspace != null) {
                         // 切换环境变量文件
@@ -750,7 +760,8 @@ public class WorkspacePanel extends UiSingletonPanel {
                 refreshWorkspaceList();
                 UiSingletonFactory.getInstance(TopMenuBar.class).updateWorkspaceDisplay();
             } catch (Exception e) {
-                log.error("Failed to delete workspace", e);
+                log.error("Workspace was removed, but failed to refresh workspace UI", e);
+                showError(I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOVE_REFRESH_FAILED, e.getMessage()));
             }
         }
     }

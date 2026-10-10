@@ -14,8 +14,6 @@ import com.laker.postman.util.MessageKeys;
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 
 public class TopMenuBar extends UiSingletonMenuBar implements IRefreshable {
     private TopMenuWorkspaceControls workspaceControls;
@@ -42,34 +40,6 @@ public class TopMenuBar extends UiSingletonMenuBar implements IRefreshable {
     protected void registerListeners() {
         FlatDesktop.setAboutHandler(this::showAboutDialog);
         FlatDesktop.setQuitHandler(e -> BeanFactory.getBean(AppExitCoordinator.class).exitApplication());
-
-        // macOS Full Window Content 模式下，JMenuBar 空白区域不属于原生标题栏，
-        // 双击不会触发系统的最大化/恢复。需要手动监听双击事件来模拟该行为。
-        if (SystemInfo.isMacFullWindowContentSupported) {
-            addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e) && e.getSource() == TopMenuBar.this) {
-                        toggleMaximize();
-                    }
-                }
-            });
-        }
-    }
-
-    /**
-     * macOS 双击菜单栏空白处时切换最大化/还原窗口状态。
-     */
-    private void toggleMaximize() {
-        Window window = SwingUtilities.getWindowAncestor(this);
-        if (window instanceof Frame frame) {
-            int state = frame.getExtendedState();
-            if ((state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                frame.setExtendedState(state & ~Frame.MAXIMIZED_BOTH);
-            } else {
-                frame.setExtendedState(state | Frame.MAXIMIZED_BOTH);
-            }
-        }
     }
 
 

@@ -35,6 +35,7 @@ final class RequestEditorSaveCoordinator {
 
         if (!context.updateExistingRequest(currentItem)) {
             context.showUpdateExistingRequestFailed(currentItem);
+            return false;
         }
         return true;
     }

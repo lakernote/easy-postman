@@ -69,7 +69,7 @@ class MainFrameReadinessWatcher {
             return;
         }
         readyNotified = true;
-        AppLauncher.markStartupCheckpoint(waitForMainContent
+        AppLauncher.markStartupCheckpoint(contentReady
                 ? "main content ready"
                 : "startup shell painted");
         log.info("Main frame readiness satisfied; running startup continuation");

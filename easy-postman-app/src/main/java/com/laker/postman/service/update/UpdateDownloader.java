@@ -1,7 +1,7 @@
 package com.laker.postman.service.update;
 
-import com.laker.postman.common.UiSingletonFactory;
-import com.laker.postman.frame.MainFrame;
+import com.laker.postman.ioc.BeanFactory;
+import com.laker.postman.panel.lifecycle.AppExitCoordinator;
 import com.laker.postman.platform.update.WindowsRegistryChecker;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
@@ -9,8 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.WindowEvent;
-import java.awt.event.WindowListener;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -365,71 +363,10 @@ public class UpdateDownloader {
 
     /**
      * 调度应用退出（优雅关闭）
-     * 1. 触发窗口关闭事件（保存数据）
-     * 2. 等待资源释放
-     * 3. 退出应用
+     * 与窗口关闭、菜单退出共用保存确认和资源清理流程。
      */
     private void scheduleApplicationExit() {
-        Thread exitThread = new Thread(() -> {
-            try {
-                log.info("Preparing to exit application for update installation...");
-
-                // 1. 在 EDT 线程中触发窗口关闭事件
-                SwingUtilities.invokeAndWait(() -> {
-                    try {
-                        MainFrame mainFrame = UiSingletonFactory.getInstance(MainFrame.class);
-
-                        // 触发 WINDOW_CLOSING 事件（会调用 WindowListener.windowClosing）
-                        WindowEvent closingEvent = new WindowEvent(
-                                mainFrame,
-                                WindowEvent.WINDOW_CLOSING
-                        );
-
-                        // 分发事件给所有监听器
-                        for (WindowListener listener : mainFrame.getWindowListeners()) {
-                            listener.windowClosing(closingEvent);
-                        }
-
-                        log.info("Window closing event dispatched");
-                    } catch (Exception e) {
-                        log.warn("Error during window closing: {}", e.getMessage());
-                    }
-                });
-
-                // 2. 等待保存操作完成
-                Thread.sleep(500);
-
-                // 3. 强制关闭窗口
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        MainFrame mainFrame = UiSingletonFactory.getInstance(MainFrame.class);
-                        mainFrame.dispose();
-                        log.info("Main window disposed");
-                    } catch (Exception e) {
-                        log.warn("Error disposing window: {}", e.getMessage());
-                    }
-                });
-
-                // 4. 等待窗口完全关闭
-                Thread.sleep(500);
-
-                // 5. 退出应用
-                log.info("Exiting application for update installation...");
-                System.exit(0);
-
-            } catch (InterruptedException e) {
-                log.warn("Exit countdown interrupted", e);
-                Thread.currentThread().interrupt();
-                // 即使被中断也要退出（更新安装更重要）
-                System.exit(0);
-            } catch (Exception e) {
-                log.error("Error during application exit", e);
-                // 即使出错也要退出（更新安装更重要）
-                System.exit(0);
-            }
-        }, "UpdateExitThread");
-
-        // 不设置为 daemon 线程，确保退出逻辑一定执行
-        exitThread.start();
+        log.info("Preparing to exit application for update installation...");
+        SwingUtilities.invokeLater(() -> BeanFactory.getBean(AppExitCoordinator.class).exitApplication());
     }
 }

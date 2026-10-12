@@ -12,6 +12,7 @@ import com.laker.postman.common.constants.ConfigPathConstants;
 import com.laker.postman.functional.model.FunctionalCsvDataState;
 import com.laker.postman.ioc.Component;
 import com.laker.postman.ioc.PostConstruct;
+import com.laker.postman.ioc.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
@@ -24,6 +25,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 功能测试配置持久化服务
@@ -33,6 +39,11 @@ import java.util.Map;
 @Component
 public class FunctionalPersistenceService {
     private static final long MAX_FILE_SIZE = 2L * 1024 * 1024; // 2MB
+    private final ExecutorService saveExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "functional-config-save");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public FunctionalPersistenceService() {
     }
@@ -62,10 +73,11 @@ public class FunctionalPersistenceService {
      * 只保存请求ID引用，不保存完整配置，确保与集合中的请求保持同步
      */
     public void save(FunctionalConfigSnapshot snapshot) {
-        save(getConfigFilePath(), snapshot);
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> writeSnapshot(configPath, snapshot));
     }
 
-    private void save(Path configPath, FunctionalConfigSnapshot snapshot) {
+    private void writeSnapshot(Path configPath, FunctionalConfigSnapshot snapshot) {
         try {
             ensureDirExists(configPath);
             FunctionalConfigSnapshot safeSnapshot = snapshot == null ? FunctionalConfigSnapshot.empty() : snapshot;
@@ -90,11 +102,9 @@ public class FunctionalPersistenceService {
      * 异步保存配置
      */
     public void saveAsync(FunctionalConfigSnapshot snapshot) {
-        // 异步线程启动前先固定路径，防止用户切换 workspace 后把旧数据写到新 workspace。
+        // 提交保存任务前先固定路径，防止用户切换 workspace 后把旧数据写到新 workspace。
         Path configPath = getConfigFilePath();
-        Thread saveThread = new Thread(() -> save(configPath, snapshot), "functional-config-save");
-        saveThread.setDaemon(true);
-        saveThread.start();
+        saveExecutor.execute(() -> writeSnapshot(configPath, snapshot));
     }
 
     /**
@@ -149,9 +159,20 @@ public class FunctionalPersistenceService {
      * 清空配置
      */
     public void clear() {
-        File file = getConfigFilePath().toFile();
-        if (file.exists()) {
-            deleteFile(file);
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> deleteFile(configPath.toFile()));
+    }
+
+    private void writeAndWait(Runnable writeAction) {
+        // 最终保存和清空也排在旧的自动保存之后，避免旧快照覆盖最新配置。
+        Future<?> write = saveExecutor.submit(writeAction);
+        try {
+            write.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while saving functional config", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Failed to save functional config", e.getCause());
         }
     }
 
@@ -274,6 +295,19 @@ public class FunctionalPersistenceService {
         } catch (Exception e) {
             log.debug("Failed to resolve current workspace for functional config path", e);
             return null;
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        saveExecutor.shutdown();
+        try {
+            if (!saveExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                saveExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            saveExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 

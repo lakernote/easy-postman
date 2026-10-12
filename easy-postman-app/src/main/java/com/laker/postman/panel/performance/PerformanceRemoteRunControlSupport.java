@@ -35,9 +35,19 @@ import org.jfree.data.time.Millisecond;
 
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
+import java.time.Duration;
 import java.util.Date;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -48,6 +58,7 @@ import java.util.function.LongSupplier;
 final class PerformanceRemoteRunControlSupport {
     private static final long POLL_INTERVAL_MS = 1_000L;
     private static final long TIMEOUT_MS = 86_400_000L;
+    private static final Duration STOP_REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
     private final BooleanSupplier runningSupplier;
     private final Consumer<Boolean> runningSetter;
@@ -65,8 +76,8 @@ final class PerformanceRemoteRunControlSupport {
     private final PerformanceWorkerReportCollector reportCollector = new PerformanceWorkerReportCollector(workerClient);
     private final PerformanceJsonReportTrendWindowSampler trendWindowSampler = new PerformanceJsonReportTrendWindowSampler();
     private final AtomicBoolean stopping = new AtomicBoolean(false);
-    private volatile String currentRunId = "";
-    private volatile List<PerformanceWorkerEndpoint> currentWorkers = List.of();
+    private final Set<RemoteRunState> stoppingRuns = ConcurrentHashMap.newKeySet();
+    private volatile RemoteRunState currentRun;
     private volatile int currentTotalUsers;
     private volatile long lastTrendSampleAtMs;
     private volatile PerformanceJsonReport lastLiveReport;
@@ -96,68 +107,112 @@ final class PerformanceRemoteRunControlSupport {
         runUiController.initializeProgress(progressLabel, 0);
         runUiController.updateRunStatus(limitLabel, "0", PerformanceRunUiController.REQUEST_STATUS_ICON);
 
+        // 在线程启动前登记运行，确保用户立即停止或退出也能阻止后续分发。
+        RemoteRunState run = new RemoteRunState("gui-" + System.currentTimeMillis());
+        currentRun = run;
         Thread thread = PerformanceThreadFactory.newDaemonThread(
                 "PerformanceRemoteRun",
-                () -> runToCompletion(runPlan, safeWorkers, progressLabel, limitLabel)
+                () -> runToCompletion(runPlan, safeWorkers, run, progressLabel, limitLabel)
         );
         thread.start();
         return thread;
     }
 
     void stopRun() {
-        if (!runningSupplier.getAsBoolean()) {
-            return;
+        RemoteRunState run = currentRun;
+        if (run != null) {
+            stopping.set(true);
+            run.requestStop();
         }
+    }
+
+    boolean awaitStopOnExit(long timeout, TimeUnit unit) throws InterruptedException {
+        if (SwingUtilities.isEventDispatchThread()) {
+            throw new IllegalStateException("Remote worker shutdown must not block the EDT");
+        }
+        RemoteRunState run = currentRun;
         stopping.set(true);
-        sendStopAsync(currentRunId, currentWorkers);
+        try {
+            // 失败的停止也必须保留；新运行不能掩盖旧 worker 尚未成功停止。
+            Set<RemoteRunState> runs = new HashSet<>(stoppingRuns);
+            if (run != null) {
+                runs.add(run);
+            }
+            List<CompletableFuture<Void>> stops = new ArrayList<>();
+            for (RemoteRunState stoppingRun : runs) {
+                stops.add(stoppingRun.requestStop());
+            }
+            CompletableFuture.allOf(stops.toArray(CompletableFuture<?>[]::new)).get(timeout, unit);
+            return true;
+        } catch (ExecutionException | TimeoutException e) {
+            return false;
+        }
     }
 
     private void runToCompletion(PerformanceRunPlan runPlan,
                                  List<PerformanceWorkerEndpoint> workers,
+                                 RemoteRunState run,
                                  JLabel progressLabel,
                                  JLabel limitLabel) {
-        long startTime = System.currentTimeMillis();
-        String runId = "gui-" + startTime;
-        currentRunId = runId;
-        currentWorkers = workers;
+        String runId = run.runId;
         try {
-            int totalUsers = submitRun(runPlan, workers, runId);
+            int totalUsers = submitRun(runPlan, workers, run);
+            List<PerformanceWorkerEndpoint> submittedWorkers = run.submittedWorkers();
+            if (submittedWorkers.isEmpty()) {
+                finishStoppedBeforeSubmission(progressLabel, limitLabel);
+                return;
+            }
             currentTotalUsers = totalUsers;
             resetRemoteTrendSamplingWindow();
             runUiController.initializeProgress(progressLabel, totalUsers);
-            notifyStarted(workers.size(), runId);
-            updateRemoteProgress(progressLabel, limitLabel, RemoteProgressSnapshot.empty(totalUsers));
-            if (stopping.get()) {
-                sendStopAsync(runId, workers);
+            if (!stopping.get()) {
+                notifyStarted(submittedWorkers.size(), runId);
             }
-            waitForWorkers(workers, runId, progressLabel, limitLabel, totalUsers);
-            PerformanceJsonReport report = collectReport(workers, runId);
-            List<PerformanceWorkerResultDetail> details = collectDetails(workers, runId);
-            finishRun(report, details, workers.size(), totalUsers, progressLabel, limitLabel);
+            updateRemoteProgress(progressLabel, limitLabel, RemoteProgressSnapshot.empty(totalUsers));
+            waitForWorkers(submittedWorkers, runId, progressLabel, limitLabel, totalUsers);
+            PerformanceJsonReport report = collectReport(submittedWorkers, runId);
+            List<PerformanceWorkerResultDetail> details = collectDetails(submittedWorkers, runId);
+            finishRun(report, details, submittedWorkers.size(), totalUsers, progressLabel, limitLabel);
         } catch (Exception ex) {
-            sendStopAsync(runId, workers);
+            run.requestStop();
             log.error("Remote performance run failed", ex);
             finishFailed(ex, progressLabel, limitLabel);
         } finally {
-            currentRunId = "";
-            currentWorkers = List.of();
+            // 保留停止 future，运行线程结束后退出流程仍需等候在途停止请求。
+            run.markFinished();
         }
     }
 
     private int submitRun(PerformanceRunPlan runPlan,
                           List<PerformanceWorkerEndpoint> workers,
-                          String runId) throws Exception {
+                          RemoteRunState run) throws Exception {
         // GUI remote 只做 JMeter 风格的控制面分发；plan 中的本地资产路径由用户提前放到每台 worker。
-        validateWorkerProtocols(workers);
-        List<PerformanceWorkerAssignment> assignments = assignmentPlanner.plan(runPlan, workers, runId);
-        for (int i = 0; i < workers.size(); i++) {
-            workerClient.submitRun(workers.get(i), PerformanceWorkerRunRequest.builder()
-                    .runId(runId)
-                    .plan(runPlan)
-                    .assignment(assignments.get(i))
-                    .build());
+        for (PerformanceWorkerEndpoint worker : workers) {
+            if (run.isStopRequested()) {
+                return 0;
+            }
+            validateWorkerProtocols(List.of(worker));
         }
-        return totalAssignedUsers(assignments);
+        List<PerformanceWorkerAssignment> assignments = assignmentPlanner.plan(runPlan, workers, run.runId);
+        List<PerformanceWorkerAssignment> submittedAssignments = new ArrayList<>();
+        for (int i = 0; i < workers.size(); i++) {
+            PerformanceWorkerEndpoint worker = workers.get(i);
+            if (!run.beginSubmission(worker)) {
+                break;
+            }
+            try {
+                workerClient.submitRun(worker, PerformanceWorkerRunRequest.builder()
+                        .runId(run.runId)
+                        .plan(runPlan)
+                        .assignment(assignments.get(i))
+                        .build());
+                submittedAssignments.add(assignments.get(i));
+            } finally {
+                // 先完成提交再发送停止，避免 stop 比 POST /runs 更早到达 worker。
+                run.finishSubmission(worker);
+            }
+        }
+        return totalAssignedUsers(submittedAssignments);
     }
 
     private void validateWorkerProtocols(List<PerformanceWorkerEndpoint> workers) throws Exception {
@@ -408,20 +463,85 @@ final class PerformanceRemoteRunControlSupport {
         });
     }
 
-    private void sendStopAsync(String runId, List<PerformanceWorkerEndpoint> workers) {
-        if (runId == null || runId.isBlank() || workers == null || workers.isEmpty()) {
-            return;
-        }
+    private void finishStoppedBeforeSubmission(JLabel progressLabel, JLabel limitLabel) {
+        SwingUtilities.invokeLater(() -> {
+            runningSetter.accept(false);
+            runUiController.markIdle();
+            runUiController.updateProgressAsync(progressLabel, 0, 0);
+            updateRemoteStatusLabel(limitLabel, 0L);
+            NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.PERFORMANCE_REMOTE_MSG_STOPPED));
+        });
+    }
+
+    private CompletableFuture<Void> sendStopAsync(String runId, PerformanceWorkerEndpoint worker) {
+        CompletableFuture<Void> completion = new CompletableFuture<>();
         Thread thread = PerformanceThreadFactory.newDaemonThread("PerformanceRemoteStop", () -> {
-            for (PerformanceWorkerEndpoint worker : workers) {
-                try {
-                    workerClient.stop(worker, runId);
-                } catch (Exception ex) {
-                    log.warn("Failed to stop remote worker {}", endpointLabel(worker), ex);
-                }
+            try {
+                workerClient.stop(worker, runId, STOP_REQUEST_TIMEOUT);
+                completion.complete(null);
+            } catch (Exception ex) {
+                log.warn("Failed to stop remote worker {}", endpointLabel(worker), ex);
+                completion.completeExceptionally(ex);
             }
         });
         thread.start();
+        return completion;
+    }
+
+    @RequiredArgsConstructor
+    private final class RemoteRunState {
+        private final String runId;
+        private final Map<PerformanceWorkerEndpoint, CompletableFuture<Void>> submissions = new LinkedHashMap<>();
+        private final Map<PerformanceWorkerEndpoint, CompletableFuture<Void>> workerStops = new LinkedHashMap<>();
+        private boolean stopRequested;
+        private boolean finished;
+
+        synchronized boolean isStopRequested() {
+            return stopRequested;
+        }
+
+        synchronized boolean beginSubmission(PerformanceWorkerEndpoint worker) {
+            if (stopRequested) {
+                return false;
+            }
+            submissions.put(worker, new CompletableFuture<>());
+            return true;
+        }
+
+        synchronized void finishSubmission(PerformanceWorkerEndpoint worker) {
+            submissions.get(worker).complete(null);
+        }
+
+        synchronized List<PerformanceWorkerEndpoint> submittedWorkers() {
+            return List.copyOf(submissions.keySet());
+        }
+
+        synchronized CompletableFuture<Void> requestStop() {
+            if (finished && !stopRequested) {
+                return CompletableFuture.completedFuture(null);
+            }
+            stopRequested = true;
+            stoppingRuns.add(this);
+            List<CompletableFuture<Void>> stops = new ArrayList<>();
+            for (Map.Entry<PerformanceWorkerEndpoint, CompletableFuture<Void>> submission : submissions.entrySet()) {
+                CompletableFuture<Void> stop = workerStops.get(submission.getKey());
+                if (stop == null || stop.isCompletedExceptionally()) {
+                    stop = submission.getValue().thenCompose(ignored -> sendStopAsync(runId, submission.getKey()));
+                    workerStops.put(submission.getKey(), stop);
+                }
+                stops.add(stop);
+            }
+            CompletableFuture<Void> completion = CompletableFuture.allOf(stops.toArray(CompletableFuture<?>[]::new));
+            return completion.whenComplete((ignored, failure) -> {
+                if (failure == null) {
+                    stoppingRuns.remove(this);
+                }
+            });
+        }
+
+        synchronized void markFinished() {
+            finished = true;
+        }
     }
 
     private boolean isTerminal(String status) {

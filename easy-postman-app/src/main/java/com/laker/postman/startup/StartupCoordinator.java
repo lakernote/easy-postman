@@ -170,8 +170,11 @@ public class StartupCoordinator {
 
     private void showMainFrameOnEdt(MainFrame mainFrame) {
         log.info("Showing main frame on EDT");
-        mainFrame.whenMainContentLoaded(() -> log.info("GUI main content ready in {} ms since launch entry",
-                (System.nanoTime() - launchStartedAtNanos) / 1_000_000));
+        mainFrame.whenMainContentLoaded(() -> {
+            AppLauncher.markStartupCheckpoint("main content ready");
+            log.info("GUI main content ready in {} ms since launch entry",
+                    (System.nanoTime() - launchStartedAtNanos) / 1_000_000);
+        });
         mainFrame.setVisible(true);
         AppLauncher.markStartupCheckpoint("main frame made visible");
         AppSingleInstanceController.registerReadyMainFrame(mainFrame);

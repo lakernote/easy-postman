@@ -96,8 +96,8 @@
         <maxFlushTime>5000</maxFlushTime>
         <!-- 阻塞时不丢失日志 -->
         <neverBlock>false</neverBlock>
-        <!-- 包含调用者信息（性能影响，生产环境可关闭） -->
-        <includeCallerData>false</includeCallerData>
+        <!-- 与各输出格式中的行号保持一致，在入队前采集调用者信息。 -->
+        <includeCallerData>true</includeCallerData>
     </appender>
 
     <!-- HTTP 请求日志 appender - 专门记录网络请求 -->

@@ -1,5 +1,6 @@
 package com.laker.postman.startup;
 
+import ch.qos.logback.classic.LoggerContext;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.laker.postman.common.themes.SimpleThemeManager;
 import com.laker.postman.http.runtime.app.AppHttpRuntimeBootstrap;
@@ -10,6 +11,7 @@ import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.AppRuntimeLayout;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.io.IOException;
@@ -131,7 +133,7 @@ public class AppLauncher {
             return;
         }
         // IOC 与主题并行初始化；插件就绪后再创建并显示主窗口。
-        new NoSplashStartupWorker(startupCoordinator).execute();
+        new NoSplashStartupWorker(startupCoordinator).start();
     }
 
     private void startWithSplash(StartupCoordinator startupCoordinator) {
@@ -142,22 +144,30 @@ public class AppLauncher {
 
     private void registerShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("JVM shutdown hook started: lastStartupCheckpoint={}", startupCheckpoint);
-            if (skipHostRuntimeShutdown) {
-                closeSingleInstanceCoordinator();
-                return;
-            }
             try {
-                // 退出时先关闭插件运行时，再销毁宿主 IOC，避免插件回调访问已释放的 Bean。
-                PluginRuntime.shutdown();
-                BeanFactory.destroy();
+                log.info("JVM shutdown hook started: lastStartupCheckpoint={}", startupCheckpoint);
+                if (!skipHostRuntimeShutdown) {
+                    // 退出时先关闭插件运行时，再销毁宿主 IOC，避免插件回调访问已释放的 Bean。
+                    runShutdownStep("plugin runtime", PluginRuntime::shutdown);
+                    runShutdownStep("host IOC container", BeanFactory::destroy);
+                }
+                runShutdownStep("single-instance coordinator", AppLauncher::closeSingleInstanceCoordinator);
                 log.info("Application shutdown completed");
-            } catch (Exception e) {
-                log.error("Error during application shutdown", e);
             } finally {
-                closeSingleInstanceCoordinator();
+                // 最后停止日志上下文，触发 AsyncAppender 的有界 flush，保留关闭阶段日志。
+                if (LoggerFactory.getILoggerFactory() instanceof LoggerContext loggerContext) {
+                    loggerContext.stop();
+                }
             }
         }, "ShutdownHook"));
+    }
+
+    private void runShutdownStep(String resource, Runnable shutdown) {
+        try {
+            shutdown.run();
+        } catch (Throwable e) {
+            log.error("Error shutting down {}", resource, e);
+        }
     }
 
     private void closeSingleInstanceCoordinator() {

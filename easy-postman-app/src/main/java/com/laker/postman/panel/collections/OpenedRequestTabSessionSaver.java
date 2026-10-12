@@ -87,10 +87,13 @@ public class OpenedRequestTabSessionSaver {
                 options[0]);
     }
 
-    private static void saveUnsavedTabs(RequestEditorPanel editPanel, JTabbedPane tabbedPane, List<Integer> unsavedTabs) {
+    static void saveUnsavedTabs(RequestEditorPanel editPanel, JTabbedPane tabbedPane, List<Integer> unsavedTabs) {
         for (Integer i : unsavedTabs) {
             tabbedPane.setSelectedIndex(i);
-            editPanel.saveCurrentRequest();
+            if (!editPanel.saveCurrentRequest()) {
+                // 保留失败或取消保存的标签供用户继续编辑，不能将其视为已保存后退出。
+                throw new CancelException();
+            }
         }
     }
 }

@@ -39,7 +39,11 @@ public class TopMenuBar extends UiSingletonMenuBar implements IRefreshable {
     @Override
     protected void registerListeners() {
         FlatDesktop.setAboutHandler(this::showAboutDialog);
-        FlatDesktop.setQuitHandler(e -> BeanFactory.getBean(AppExitCoordinator.class).exitApplication());
+        FlatDesktop.setQuitHandler(e -> {
+            // 由应用统一处理保存、取消及异步清理，阻止 macOS 直接结束进程。
+            e.cancelQuit();
+            BeanFactory.getBean(AppExitCoordinator.class).exitApplication();
+        });
     }
 
 

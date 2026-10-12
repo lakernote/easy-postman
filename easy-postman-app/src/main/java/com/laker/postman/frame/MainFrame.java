@@ -7,7 +7,6 @@ import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.ioc.BeanFactory;
 import com.laker.postman.panel.MainPanel;
 import com.laker.postman.panel.lifecycle.AppExitCoordinator;
-import com.laker.postman.panel.performance.PerformancePanel;
 import com.laker.postman.panel.topmenu.TopMenuBar;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
@@ -27,6 +26,7 @@ public class MainFrame extends JFrame {
     private final transient MainFrameStartupLifecycle startupLifecycle;
     private final transient MainWindowStateController windowStateController;
     private transient JPanel startupShellPanel;
+    private boolean closing;
 
     // 单例模式，确保只有一个实例
     private MainFrame() {
@@ -79,6 +79,9 @@ public class MainFrame extends JFrame {
         }
         // 主内容延后到启动壳显示后加载，避免首次展示窗口时被完整工作区初始化阻塞。
         Runnable task = () -> {
+            if (closing) {
+                return;
+            }
             try {
                 log.info("Main content initialization started");
                 replaceStartupShellWithContent(UiSingletonFactory.getInstance(MainPanel.class));
@@ -146,26 +149,18 @@ public class MainFrame extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                // 清理资源并保存状态
-                cleanup();
-                windowStateController.saveWindowState();
                 BeanFactory.getBean(AppExitCoordinator.class).exitApplication();
             }
         });
     }
 
     /**
-     * 清理资源（在窗口关闭时调用）
+     * 用户确认退出后保存窗口状态并停止窗口后台活动。
      */
-    private void cleanup() {
+    public void prepareForExit() {
+        closing = true;
         windowStateController.stop();
-
-        // 清理性能测试面板资源（停止定时器等）
-        try {
-            UiSingletonFactory.getExistingInstance(PerformancePanel.class)
-                    .ifPresent(PerformancePanel::cleanup);
-        } catch (Exception e) {
-            log.warn("清理 PerformancePanel 资源时出错: {}", e.getMessage());
-        }
+        windowStateController.saveWindowState();
+        setEnabled(false);
     }
 }

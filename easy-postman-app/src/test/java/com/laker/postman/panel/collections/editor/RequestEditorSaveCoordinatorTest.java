@@ -64,7 +64,7 @@ public class RequestEditorSaveCoordinatorTest {
     }
 
     @Test
-    public void shouldUpdateExistingRequestAndReportFailure() {
+    public void shouldReturnFalseWhenExistingRequestUpdateFails() {
         RequestEditorSaveCoordinator coordinator = new RequestEditorSaveCoordinator();
         FakeSaveContext context = new FakeSaveContext();
         context.currentRequest.setId("request-1");
@@ -73,10 +73,24 @@ public class RequestEditorSaveCoordinatorTest {
 
         boolean saved = coordinator.saveCurrentRequest(context);
 
-        assertTrue(saved);
+        assertFalse(saved);
         assertTrue(context.existingRequestUpdated);
         assertSame(context.updatedExistingRequest, context.currentRequest);
         assertSame(context.updateFailureRequest, context.currentRequest);
+    }
+
+    @Test
+    public void shouldReturnTrueWhenExistingRequestUpdateSucceeds() {
+        RequestEditorSaveCoordinator coordinator = new RequestEditorSaveCoordinator();
+        FakeSaveContext context = new FakeSaveContext();
+        context.currentRequest.setId("request-1");
+        context.currentRequest.setName("Persisted");
+
+        boolean saved = coordinator.saveCurrentRequest(context);
+
+        assertTrue(saved);
+        assertTrue(context.existingRequestUpdated);
+        assertSame(context.updatedExistingRequest, context.currentRequest);
     }
 
     private static final class FakeSaveContext implements RequestEditorSaveCoordinator.SaveContext {

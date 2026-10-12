@@ -27,6 +27,7 @@ import org.testng.annotations.Test;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,11 +35,93 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 import static org.testng.Assert.*;
 
 public class PerformancePersistenceServiceTest {
+
+    @Test(description = "退出同步保存必须等待旧的异步保存，最终文件保留最新工作区")
+    public void synchronousWorkspaceSaveShouldFollowQueuedAsyncSave() throws Exception {
+        Path configPath = Files.createTempDirectory("performance-final-save").resolve("performance_config.json");
+        TestablePerformancePersistenceService service = new TestablePerformancePersistenceService(configPath);
+
+        writeAfterBlockedAsyncSave(service, target -> target.saveWorkspace(namedWorkspace("latest")));
+
+        assertEquals(service.loadWorkspace().getActivePlan().getName(), "latest");
+    }
+
+    @Test(description = "同步更新配置必须基于前一个异步保存完成后的工作区")
+    public void configurationSaveShouldFollowQueuedAsyncSave() throws Exception {
+        Path configPath = Files.createTempDirectory("performance-final-configuration").resolve("performance_config.json");
+        TestablePerformancePersistenceService service = new TestablePerformancePersistenceService(configPath);
+
+        writeAfterBlockedAsyncSave(service, target -> target.saveConfiguration(PerformancePlanConfiguration.builder()
+                .efficientMode(true)
+                .build()));
+
+        assertEquals(service.loadWorkspace().getActivePlan().getName(), "old");
+        assertTrue(service.loadConfiguration().isEfficientMode());
+    }
+
+    @Test(description = "清空配置必须排在已经调度的自动保存之后，不能被旧保存重建")
+    public void clearShouldFollowQueuedAsyncSave() throws Exception {
+        Path configPath = Files.createTempDirectory("performance-final-clear").resolve("performance_config.json");
+        TestablePerformancePersistenceService service = new TestablePerformancePersistenceService(configPath);
+
+        writeAfterBlockedAsyncSave(service, PerformancePersistenceService::clear);
+
+        assertFalse(Files.exists(configPath));
+    }
+
+    private static PerformancePlanWorkspace namedWorkspace(String name) {
+        return PerformancePlanWorkspace.builder()
+                .activePlanId("plan")
+                .plans(List.of(PerformanceSavedPlan.builder().id("plan").name(name).build()))
+                .build();
+    }
+
+    private static void writeAfterBlockedAsyncSave(PerformancePersistenceService service,
+                                                   Consumer<PerformancePersistenceService> finalWrite) throws Exception {
+        Field executorField = PerformancePersistenceService.class.getDeclaredField("saveExecutor");
+        executorField.setAccessible(true);
+        ExecutorService saveExecutor = (ExecutorService) executorField.get(service);
+        CountDownLatch releaseOldSave = new CountDownLatch(1);
+        CountDownLatch finalWriteStarted = new CountDownLatch(1);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            saveExecutor.execute(() -> {
+                try {
+                    releaseOldSave.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            service.saveWorkspaceAsync(namedWorkspace("old"));
+            Future<?> latestWrite = caller.submit(() -> {
+                finalWriteStarted.countDown();
+                finalWrite.accept(service);
+            });
+            assertTrue(finalWriteStarted.await(2, TimeUnit.SECONDS));
+            try {
+                latestWrite.get(100, TimeUnit.MILLISECONDS);
+                fail("Synchronous write returned before the queued older save completed");
+            } catch (TimeoutException expected) {
+                // 必须等旧保存完成，不能绕过保存队列。
+            }
+            releaseOldSave.countDown();
+            latestWrite.get(2, TimeUnit.SECONDS);
+        } finally {
+            releaseOldSave.countDown();
+            caller.shutdownNow();
+            service.shutdown();
+        }
+    }
 
     @Test(description = "默认配置路径应跟随当前工作区，便于 Git 工作区同步性能测试方案")
     public void shouldResolveConfigPathFromCurrentWorkspace() throws IOException {

@@ -82,6 +82,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 左侧多层级树（用户组-请求-断言-定时器），右侧属性区，底部Tab结果区
@@ -1343,8 +1344,11 @@ public class PerformancePanel extends UiSingletonPanel {
      */
     public void cleanup() {
         // 1. 停止运行中的测试
-        if (running) {
-            stopRun();
+        if (remoteRunControlSupport != null) {
+            remoteRunControlSupport.stopRun();
+        }
+        if (running && !isRemoteExecutionSelected()) {
+            runControlSupport.stopRun();
         }
 
         // 2. 停止定时器
@@ -1358,6 +1362,14 @@ public class PerformancePanel extends UiSingletonPanel {
         if (performanceResultTablePanel != null) {
             performanceResultTablePanel.dispose();
         }
+    }
+
+    /**
+     * 在后台等待所有远程 worker 的停止请求完成，共用一个退出超时预算。
+     */
+    public boolean awaitRemoteStopOnExit(long timeout, TimeUnit unit)
+            throws InterruptedException {
+        return remoteRunControlSupport == null || remoteRunControlSupport.awaitStopOnExit(timeout, unit);
     }
 
     private void clearCachedPerformanceResults() {

@@ -16,6 +16,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -53,15 +55,13 @@ public class PerformancePersistenceService {
     }
 
     public void saveConfiguration(PerformancePlanConfiguration configuration) {
-        saveConfiguration(getConfigFilePath(), configuration);
-    }
-
-    private void saveConfiguration(Path configPath, PerformancePlanConfiguration configuration) {
-        planStorage.saveConfiguration(configPath, configuration);
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> planStorage.saveConfiguration(configPath, configuration));
     }
 
     public void saveWorkspace(PerformancePlanWorkspace workspace) {
-        planStorage.saveWorkspace(getConfigFilePath(), workspace);
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> planStorage.saveWorkspace(configPath, workspace));
     }
 
     public void saveWorkspaceAsync(PerformancePlanWorkspace workspace) {
@@ -81,7 +81,21 @@ public class PerformancePersistenceService {
      * 清空配置
      */
     public void clear() {
-        planStorage.clear(getConfigFilePath());
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> planStorage.clear(configPath));
+    }
+
+    private void writeAndWait(Runnable writeAction) {
+        // 所有写入共用同一个队列，退出时的最终保存必须排在旧的自动保存之后。
+        Future<?> write = saveExecutor.submit(writeAction);
+        try {
+            write.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while saving performance config", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Failed to save performance config", e.getCause());
+        }
     }
 
     protected Path getConfigFilePath() {

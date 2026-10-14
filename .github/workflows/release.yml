@@ -106,7 +106,7 @@ jobs:
         run: mvn -B clean package -DskipTests
 
       - name: Upload JAR for reuse（上传 JAR 供其他 job 复用）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-jar
           path: easy-postman-app/target/easy-postman-${{ needs.get-version.outputs.version }}.jar
@@ -133,7 +133,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -242,7 +242,7 @@ jobs:
           Write-Host "✅ Created portable version: $zipName"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-Windows-Portable
           path: dist/*-portable.zip
@@ -269,7 +269,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -439,7 +439,7 @@ jobs:
           }
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-Windows-EXE
           path: dist/*.exe
@@ -465,7 +465,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -541,7 +541,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-x86_64.dmg"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-macOS-Intel-DMG
           path: dist/*-macos-x86_64.dmg
@@ -567,7 +567,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -643,7 +643,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-arm64.dmg"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: dist/*-macos-arm64.dmg
@@ -657,13 +657,13 @@ jobs:
 
     steps:
       - name: Download JAR artifact（下载已构建的 JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: dist
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-Standalone-JAR
           path: dist/*.jar
@@ -689,7 +689,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -779,7 +779,7 @@ jobs:
           ls -1 "$TARGET_DEB"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-Ubuntu-DEB-amd64
           path: dist/*-linux-amd64.deb
@@ -805,7 +805,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -902,7 +902,7 @@ jobs:
           ar t "$COMPAT_DEB"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-Ubuntu-DEB-arm64
           path: |
@@ -930,7 +930,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -998,7 +998,7 @@ jobs:
           jpackage "${JPACKAGE_ARGS[@]}"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-RPM-amd64
           path: dist/*.rpm
@@ -1024,7 +1024,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar
           path: target
@@ -1092,7 +1092,7 @@ jobs:
           jpackage "${JPACKAGE_ARGS[@]}"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EasyPostman-RPM-arm64
           path: dist/*.rpm
@@ -1110,7 +1110,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all release artifacts（下载所有平台构建产物）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: all-artifacts
           pattern: EasyPostman-*
@@ -1187,28 +1187,28 @@ jobs:
     steps:
       - name: Download standalone JAR artifact（下载独立 JAR 产物）
         if: needs.build-jar.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-Standalone-JAR
           path: verify/jar
 
       - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
         if: needs.build-windows-portable.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-Windows-Portable
           path: verify/windows-portable
 
       - name: Download Windows EXE artifact（下载 Windows EXE 产物）
         if: needs.build-windows-exe.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-Windows-EXE
           path: verify/windows-exe
 
       - name: Download macOS ARM artifact（下载 macOS ARM 产物）
         if: needs.build-macos-arm.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: verify/macos-arm
@@ -1380,7 +1380,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download standalone JAR artifact（下载独立 JAR 产物）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-Standalone-JAR
           path: artifacts
@@ -1406,7 +1406,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-Windows-Portable
           path: artifacts
@@ -1432,7 +1432,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download Windows EXE artifact（下载 Windows EXE 产物）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-Windows-EXE
           path: artifacts
@@ -1458,7 +1458,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download macOS ARM artifact（下载 macOS ARM 产物）
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: artifacts

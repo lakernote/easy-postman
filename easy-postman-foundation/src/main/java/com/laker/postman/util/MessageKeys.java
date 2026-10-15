@@ -490,6 +490,9 @@ public final class MessageKeys {
     public static final String REQUEST_ASSISTANT_COLLAPSE = "request.assistant.collapse";
     public static final String REQUEST_ASSISTANT_CODE_SNIPPET_TITLE = "request.assistant.code_snippet.title";
     public static final String REQUEST_ASSISTANT_CODE_COPIED = "request.assistant.code_snippet.copied";
+    public static final String REQUEST_ASSISTANT_CODE_RESOLVE_VARIABLES = "request.assistant.code_snippet.resolve_variables";
+    public static final String REQUEST_ASSISTANT_CODE_RESOLVE_VARIABLES_TOOLTIP = "request.assistant.code_snippet.resolve_variables.tooltip";
+    public static final String REQUEST_ASSISTANT_CODE_DIGEST_UNSUPPORTED = "request.assistant.code_snippet.digest_unsupported";
     public static final String JSON_MODEL_GENERATOR_TITLE = "json.model_generator.title";
     public static final String JSON_MODEL_GENERATOR_HINT = "json.model_generator.hint";
     public static final String JSON_MODEL_GENERATOR_LANGUAGE = "json.model_generator.language";

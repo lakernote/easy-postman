@@ -27,6 +27,7 @@ final class RequestCodeSnippetPanel extends JPanel {
     private static final int ACTION_BUTTON_SIZE = 28;
 
     private final JComboBox<RequestCodeSnippetLanguage> languageComboBox;
+    private final JCheckBox resolveVariablesCheckBox;
     private final RSyntaxTextArea codeArea;
     private HttpRequestItem currentRequest;
 
@@ -36,7 +37,7 @@ final class RequestCodeSnippetPanel extends JPanel {
         setBorder(new EmptyBorder(10, 12, 10, 12));
 
         JLabel titleLabel = createTitleLabel();
-        JButton refreshButton = createActionButton(new RefreshButton());
+        JButton refreshButton = createActionButton(new RefreshButton(IconUtil.SIZE_SMALL));
         refreshButton.addActionListener(e -> refreshAction.run());
 
         JButton collapseButton = createCollapseButton();
@@ -47,6 +48,14 @@ final class RequestCodeSnippetPanel extends JPanel {
         languageComboBox.setPreferredSize(new Dimension(220, 30));
         SettingsInputStyle.apply(languageComboBox);
         languageComboBox.addActionListener(e -> regenerateCode());
+
+        resolveVariablesCheckBox = new JCheckBox(
+                I18nUtil.getMessage(MessageKeys.REQUEST_ASSISTANT_CODE_RESOLVE_VARIABLES), true);
+        resolveVariablesCheckBox.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
+        resolveVariablesCheckBox.setOpaque(false);
+        resolveVariablesCheckBox.setToolTipText(
+                I18nUtil.getMessage(MessageKeys.REQUEST_ASSISTANT_CODE_RESOLVE_VARIABLES_TOOLTIP));
+        resolveVariablesCheckBox.addActionListener(e -> refreshAction.run());
 
         JButton copyButton = createActionButton(new CopyButton());
         copyButton.addActionListener(e -> copyCode());
@@ -63,7 +72,8 @@ final class RequestCodeSnippetPanel extends JPanel {
         controls.add(languageComboBox, BorderLayout.CENTER);
         controls.add(copyButton, BorderLayout.EAST);
         toolbar.add(header, BorderLayout.NORTH);
-        toolbar.add(controls, BorderLayout.SOUTH);
+        toolbar.add(controls, BorderLayout.CENTER);
+        toolbar.add(resolveVariablesCheckBox, BorderLayout.SOUTH);
 
         codeArea = createCodeArea();
         SyntaxEditorScrollPane scrollPane = new SyntaxEditorScrollPane(codeArea);
@@ -124,7 +134,7 @@ final class RequestCodeSnippetPanel extends JPanel {
             language = RequestCodeSnippetLanguage.CURL;
         }
         codeArea.setSyntaxEditingStyle(language.getSyntaxStyle());
-        String code = RequestCodeSnippetGenerator.generate(currentRequest, language);
+        String code = RequestCodeSnippetGenerator.generate(currentRequest, language, resolveVariablesCheckBox.isSelected());
         if (code.equals(codeArea.getText())) {
             return;
         }

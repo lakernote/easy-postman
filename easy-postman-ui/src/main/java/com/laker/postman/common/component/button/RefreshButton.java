@@ -13,7 +13,11 @@ import java.awt.*;
  */
 public class RefreshButton extends JButton {
     public RefreshButton() {
-        setIcon(IconUtil.createThemed("icons/refresh.svg", 20, 20));
+        this(IconUtil.SIZE_MEDIUM);
+    }
+
+    public RefreshButton(int iconSize) {
+        setIcon(IconUtil.createThemed("icons/refresh.svg", iconSize, iconSize));
         setToolTipText(CommonI18n.get(CommonMessageKeys.BUTTON_REFRESH));
         setFocusable(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

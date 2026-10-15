@@ -93,7 +93,7 @@ public class RequestSideAssistantLogicTest {
 
         String snippet = RequestCodeSnippetGenerator.generate(item, RequestCodeSnippetLanguage.PYTHON_REQUESTS);
 
-        assertTrue(snippet.contains("payload = 'grant%20type=a%26b%3Dc'"));
+        assertTrue(snippet.contains("payload = 'grant+type=a%26b%3Dc'"));
     }
 
     @Test

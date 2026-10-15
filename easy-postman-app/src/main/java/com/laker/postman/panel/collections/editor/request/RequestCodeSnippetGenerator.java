@@ -1,38 +1,48 @@
 package com.laker.postman.panel.collections.editor.request;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.laker.postman.http.request.AppRequestHeaderDefaults;
-import com.laker.postman.request.model.AuthApiKeyPlacement;
+import com.laker.postman.codegen.request.CSharpRequestCodeGenerator;
+import com.laker.postman.codegen.request.GoRequestCodeGenerator;
+import com.laker.postman.http.request.RequestCodeSnippetPreparer;
 import com.laker.postman.request.model.HttpFormData;
-import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpRequestItem;
-import com.laker.postman.request.model.RequestAuthTypes;
 import com.laker.postman.request.model.RequestBodyTypes;
-import com.laker.postman.request.util.HttpUrlUtil;
 import com.laker.postman.util.FileMimeTypeUtil;
+import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.MessageKeys;
 import lombok.experimental.UtilityClass;
 
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
+
+import static com.laker.postman.codegen.request.RequestCodeSnippetSupport.*;
 
 @UtilityClass
 class RequestCodeSnippetGenerator {
-    private static final String CONTENT_TYPE = "Content-Type";
-    private static final String FORM_URLENCODED_CONTENT_TYPE = "application/x-www-form-urlencoded";
-
     static String generate(HttpRequestItem request, RequestCodeSnippetLanguage language) {
+        return generate(request, language, false);
+    }
+
+    static String generate(HttpRequestItem request, RequestCodeSnippetLanguage language, boolean resolveVariables) {
         if (request == null) {
             return "";
         }
-        return switch (language) {
-            case CURL -> generateCurl(request);
-            case JAVA_OKHTTP -> generateJavaOkHttp(request);
-            case JAVASCRIPT_FETCH -> generateJavaScriptFetch(request);
-            case PYTHON_REQUESTS -> generatePythonRequests(request);
+        HttpRequestItem snapshot = RequestCodeSnippetPreparer.prepare(request, resolveVariables);
+        String code = switch (language) {
+            case CURL -> generateCurl(snapshot);
+            case JAVA_OKHTTP -> generateJavaOkHttp(snapshot);
+            case JAVASCRIPT_FETCH -> generateJavaScriptFetch(snapshot);
+            case PYTHON_REQUESTS -> generatePythonRequests(snapshot);
+            case GO_NET_HTTP -> GoRequestCodeGenerator.generate(snapshot);
+            case CSHARP_HTTP_CLIENT -> CSharpRequestCodeGenerator.generate(snapshot);
         };
+        if (usesDigestAuth(snapshot)
+                && (language == RequestCodeSnippetLanguage.JAVA_OKHTTP
+                || language == RequestCodeSnippetLanguage.JAVASCRIPT_FETCH
+                || language == RequestCodeSnippetLanguage.GO_NET_HTTP)) {
+            return "// " + I18nUtil.getMessage(MessageKeys.REQUEST_ASSISTANT_CODE_DIGEST_UNSUPPORTED) + "\n\n" + code;
+        }
+        return code;
     }
 
     private static String generateCurl(HttpRequestItem request) {
@@ -48,6 +58,12 @@ class RequestCodeSnippetGenerator {
         for (HttpHeader header : effectiveHeaders(request)) {
             code.append(" \\\n  -H ").append(shellQuote(header.getKey() + ": " + nullToEmpty(header.getValue())));
         }
+        if (usesDigestAuth(request)) {
+            code.append(" \\\n  --digest");
+        }
+        if (usesDigestAuth(request) || usesTemplatedBasicAuth(request)) {
+            code.append(" \\\n  --user ").append(shellQuote(request.getAuthUsername() + ":" + nullToEmpty(request.getAuthPassword())));
+        }
 
         if (hasBinaryBody(request)) {
             code.append(" \\\n  --data-binary ").append(shellQuote("@" + request.getBody()));
@@ -59,12 +75,9 @@ class RequestCodeSnippetGenerator {
                 code.append(" \\\n  -F ").append(shellQuote(value));
             }
         } else if (RequestBodyTypes.BODY_TYPE_FORM_URLENCODED.equals(request.getBodyType())) {
-            for (HttpFormUrlencoded item : enabledUrlencoded(request)) {
-                code.append(" \\\n  --data-urlencode ")
-                        .append(shellQuote(item.getKey() + "=" + nullToEmpty(item.getValue())));
-            }
-        } else if (CharSequenceUtil.isNotBlank(request.getBody())) {
-            code.append(" \\\n  --data-raw ").append(shellQuote(request.getBody()));
+            code.append(" \\\n  --data-raw ").append(shellQuote(bodyPayload(request)));
+        } else if (CharSequenceUtil.isNotBlank(bodyPayload(request))) {
+            code.append(" \\\n  --data-raw ").append(shellQuote(bodyPayload(request)));
         }
         return code.toString();
     }
@@ -136,6 +149,13 @@ class RequestCodeSnippetGenerator {
                     .append(javaString(nullToEmpty(header.getValue())))
                     .append(")");
         }
+        if (usesTemplatedBasicAuth(request)) {
+            code.append("\n    .addHeader(\"Authorization\", Credentials.basic(")
+                    .append(javaString(request.getAuthUsername()))
+                    .append(", ")
+                    .append(javaString(request.getAuthPassword()))
+                    .append(", java.nio.charset.StandardCharsets.UTF_8))");
+        }
         code.append("\n    .build();\n")
                 .append("Response response = client.newCall(request).execute();");
         return code.toString();
@@ -171,7 +191,8 @@ class RequestCodeSnippetGenerator {
                 .append("  method: ")
                 .append(jsString(method(request)));
         List<HttpHeader> headers = effectiveHeaders(request);
-        if (!headers.isEmpty()) {
+        boolean templatedBasicAuth = usesTemplatedBasicAuth(request);
+        if (!headers.isEmpty() || templatedBasicAuth) {
             code.append(",\n  headers: {\n");
             for (int i = 0; i < headers.size(); i++) {
                 HttpHeader header = headers.get(i);
@@ -179,10 +200,15 @@ class RequestCodeSnippetGenerator {
                         .append(jsString(header.getKey()))
                         .append(": ")
                         .append(jsString(nullToEmpty(header.getValue())));
-                if (i < headers.size() - 1) {
+                if (i < headers.size() - 1 || templatedBasicAuth) {
                     code.append(",");
                 }
                 code.append("\n");
+            }
+            if (templatedBasicAuth) {
+                code.append("    \"Authorization\": \"Basic \" + btoa(Array.from(new TextEncoder().encode(")
+                        .append(jsString(request.getAuthUsername() + ":" + nullToEmpty(request.getAuthPassword())))
+                        .append("), byte => String.fromCharCode(byte)).join(\"\"))\n");
             }
             code.append("  }");
         }
@@ -198,7 +224,11 @@ class RequestCodeSnippetGenerator {
     }
 
     private static String generatePythonRequests(HttpRequestItem request) {
-        StringBuilder code = new StringBuilder("import requests\n\n");
+        StringBuilder code = new StringBuilder("import requests\n");
+        if (usesDigestAuth(request)) {
+            code.append("from requests.auth import HTTPDigestAuth\n");
+        }
+        code.append("\n");
         code.append("url = ").append(pyString(urlWithParams(request))).append("\n");
         List<HttpHeader> headers = effectiveHeaders(request);
         if (!headers.isEmpty()) {
@@ -256,6 +286,15 @@ class RequestCodeSnippetGenerator {
         if (!headers.isEmpty()) {
             code.append(",\n    headers=headers");
         }
+        if (usesDigestAuth(request)) {
+            code.append(",\n    auth=HTTPDigestAuth(")
+                    .append(pyString(request.getAuthUsername())).append(", ")
+                    .append(pyString(request.getAuthPassword())).append(")");
+        } else if (usesTemplatedBasicAuth(request)) {
+            code.append(",\n    auth=(")
+                    .append(pyString(request.getAuthUsername())).append(".encode('utf-8'), ")
+                    .append(pyString(request.getAuthPassword())).append(".encode('utf-8'))");
+        }
         if (hasFormData) {
             if (enabledFormData(request).stream().anyMatch(HttpFormData::isText)) {
                 code.append(",\n    data=data");
@@ -270,159 +309,6 @@ class RequestCodeSnippetGenerator {
         }
         code.append("\n)\n\nprint(response.text)");
         return code.toString();
-    }
-
-    private static List<HttpHeader> effectiveHeaders(HttpRequestItem request) {
-        List<HttpHeader> headers = new ArrayList<>();
-        if (request.getHeadersList() != null) {
-            for (HttpHeader header : request.getHeadersList()) {
-                if (header != null && header.isEnabled() && CharSequenceUtil.isNotBlank(header.getKey())) {
-                    if (isGeneratedDefaultHeader(header)) {
-                        continue;
-                    }
-                    headers.add(new HttpHeader(true, header.getKey(), nullToEmpty(header.getValue()), header.getDescription()));
-                }
-            }
-        }
-        HttpHeader authHeader = authHeader(request);
-        if (authHeader != null
-                && headers.stream().noneMatch(header -> authHeader.getKey().equalsIgnoreCase(header.getKey()))) {
-            headers.add(authHeader);
-        }
-        if (headers.stream().noneMatch(header -> CONTENT_TYPE.equalsIgnoreCase(header.getKey()))) {
-            String payload = bodyPayload(request);
-            if (CharSequenceUtil.isNotBlank(payload)
-                    || RequestBodyTypes.BODY_TYPE_FORM_URLENCODED.equals(request.getBodyType())
-                    || hasBinaryBody(request)) {
-                headers.add(new HttpHeader(true, CONTENT_TYPE, contentType(request), ""));
-            }
-        }
-        return headers;
-    }
-
-    private static HttpHeader authHeader(HttpRequestItem request) {
-        String authType = request.getAuthType();
-        if (RequestAuthTypes.AUTH_TYPE_BEARER.equals(authType) && CharSequenceUtil.isNotBlank(request.getAuthToken())) {
-            return new HttpHeader(true, "Authorization", "Bearer " + request.getAuthToken(), "");
-        }
-        if (RequestAuthTypes.AUTH_TYPE_BASIC.equals(authType) && CharSequenceUtil.isNotBlank(request.getAuthUsername())) {
-            String credentials = request.getAuthUsername() + ":" + nullToEmpty(request.getAuthPassword());
-            String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
-            return new HttpHeader(true, "Authorization", "Basic " + encoded, "");
-        }
-        if (RequestAuthTypes.AUTH_TYPE_API_KEY.equals(authType)
-                && AuthApiKeyPlacement.HEADER == AuthApiKeyPlacement.fromConstant(request.getAuthApiKeyPlacement())
-                && CharSequenceUtil.isNotBlank(request.getAuthApiKeyName())
-                && CharSequenceUtil.isNotBlank(request.getAuthApiKeyValue())) {
-            return new HttpHeader(true, request.getAuthApiKeyName(), request.getAuthApiKeyValue(), "");
-        }
-        return null;
-    }
-
-    private static String bodyPayload(HttpRequestItem request) {
-        if (RequestBodyTypes.BODY_TYPE_FORM_URLENCODED.equals(request.getBodyType())) {
-            StringBuilder payload = new StringBuilder();
-            for (HttpFormUrlencoded item : enabledUrlencoded(request)) {
-                if (!payload.isEmpty()) {
-                    payload.append("&");
-                }
-                payload.append(HttpUrlUtil.encodeComponent(nullToEmpty(item.getKey())))
-                        .append("=")
-                        .append(HttpUrlUtil.encodeComponent(nullToEmpty(item.getValue())));
-            }
-            return payload.toString();
-        }
-        if (RequestBodyTypes.BODY_TYPE_RAW.equals(request.getBodyType())) {
-            return nullToEmpty(request.getBody());
-        }
-        return "";
-    }
-
-    private static boolean hasBinaryBody(HttpRequestItem request) {
-        return RequestBodyTypes.BODY_TYPE_BINARY.equals(request.getBodyType())
-                && CharSequenceUtil.isNotBlank(request.getBody());
-    }
-
-    private static boolean isFormDataBody(HttpRequestItem request) {
-        return RequestBodyTypes.BODY_TYPE_FORM_DATA.equals(request.getBodyType());
-    }
-
-    private static boolean hasFormDataBody(HttpRequestItem request) {
-        return isFormDataBody(request) && !enabledFormData(request).isEmpty();
-    }
-
-    private static String contentType(HttpRequestItem request) {
-        String existing = effectiveHeadersWithoutDefaults(request).stream()
-                .filter(header -> CONTENT_TYPE.equalsIgnoreCase(header.getKey()))
-                .map(HttpHeader::getValue)
-                .filter(CharSequenceUtil::isNotBlank)
-                .findFirst()
-                .orElse(null);
-        if (existing != null) {
-            return existing;
-        }
-        if (RequestBodyTypes.BODY_TYPE_FORM_URLENCODED.equals(request.getBodyType())) {
-            return FORM_URLENCODED_CONTENT_TYPE;
-        }
-        if (RequestBodyTypes.BODY_TYPE_BINARY.equals(request.getBodyType())) {
-            return FileMimeTypeUtil.detectMimeType(request.getBody());
-        }
-        return "application/json";
-    }
-
-    private static List<HttpHeader> effectiveHeadersWithoutDefaults(HttpRequestItem request) {
-        if (request.getHeadersList() == null) {
-            return List.of();
-        }
-        return request.getHeadersList().stream()
-                .filter(header -> header != null && header.isEnabled() && CharSequenceUtil.isNotBlank(header.getKey()))
-                .toList();
-    }
-
-    private static List<HttpFormData> enabledFormData(HttpRequestItem request) {
-        if (request.getFormDataList() == null) {
-            return List.of();
-        }
-        return request.getFormDataList().stream()
-                .filter(item -> item != null && item.isEnabled() && CharSequenceUtil.isNotBlank(item.getKey()))
-                .toList();
-    }
-
-    private static List<HttpFormUrlencoded> enabledUrlencoded(HttpRequestItem request) {
-        if (request.getUrlencodedList() == null) {
-            return List.of();
-        }
-        return request.getUrlencodedList().stream()
-                .filter(item -> item != null && item.isEnabled() && CharSequenceUtil.isNotBlank(item.getKey()))
-                .toList();
-    }
-
-    private static String urlWithParams(HttpRequestItem request) {
-        return HttpUrlUtil.buildEncodedUrl(nullToEmpty(request.getUrl()), request.getParamsList());
-    }
-
-    private static boolean isGeneratedDefaultHeader(HttpHeader header) {
-        for (HttpHeader generatedHeader : AppRequestHeaderDefaults.generatedHeaders()) {
-            if (sameHeaderName(header.getKey(), generatedHeader.getKey())
-                    && nullToEmpty(header.getValue()).equals(nullToEmpty(generatedHeader.getValue()))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean sameHeaderName(String left, String right) {
-        return nullToEmpty(left).trim().equalsIgnoreCase(nullToEmpty(right).trim());
-    }
-
-    private static String method(HttpRequestItem request) {
-        return CharSequenceUtil.isBlank(request.getMethod()) ? "GET" : request.getMethod().trim().toUpperCase();
-    }
-
-    private static boolean methodRequiresBody(String method) {
-        return "POST".equalsIgnoreCase(method)
-                || "PUT".equalsIgnoreCase(method)
-                || "PATCH".equalsIgnoreCase(method);
     }
 
     private static String shellQuote(String value) {
@@ -441,17 +327,18 @@ class RequestCodeSnippetGenerator {
         String escaped = nullToEmpty(value)
                 .replace("\\", "\\\\")
                 .replace("'", "\\'")
-                .replace("\n", "\\n");
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
         return "'" + escaped + "'";
     }
 
     private static String escapeCommon(String value) {
         return nullToEmpty(value)
                 .replace("\\", "\\\\")
-                .replace("\"", "\\\"");
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
 }

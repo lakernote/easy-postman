@@ -168,9 +168,10 @@ public class OkHttpRequestBuilder {
     }
 
     /**
-     * 处理请求体内容（如去除 JSON5 注释）
+     * Normalize raw content for both transport and code snippet generation.
+     * JSON comments are removed only when parsing succeeds; other content is preserved.
      */
-    private static String processBodyContent(String body, String contentType) {
+    public static String processBodyContent(String body, String contentType) {
         if (isJsonContentType(contentType) && containsJsonComment(body)) {
             return cleanJsonComments(body);
         }

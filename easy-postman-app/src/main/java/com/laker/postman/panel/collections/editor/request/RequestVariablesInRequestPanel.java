@@ -110,7 +110,7 @@ final class RequestVariablesInRequestPanel extends JPanel {
         titleLabel.setForeground(ModernColors.getTextPrimary());
         header.add(titleLabel, BorderLayout.CENTER);
 
-        JButton refreshButton = createActionButton(new RefreshButton());
+        JButton refreshButton = createActionButton(new RefreshButton(IconUtil.SIZE_SMALL));
         refreshButton.addActionListener(e -> refreshAction.run());
 
         JButton collapseButton = createCollapseButton();

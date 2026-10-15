@@ -97,7 +97,6 @@ public class WebDavSyncQuickActionController {
         execute(() -> syncService.restoreSnapshot(settings), result -> {
             long timestamp = Instant.now().toEpochMilli();
             SettingManager.setWebDavSyncLastSyncTime(timestamp);
-            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT));
             WebDavSyncSettingsPanel.showRestoreRestartPrompt(dialogParent, result.backupPath().toString());
             finish();
         });

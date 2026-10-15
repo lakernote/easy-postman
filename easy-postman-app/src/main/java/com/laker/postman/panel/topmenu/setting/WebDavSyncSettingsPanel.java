@@ -392,7 +392,6 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                             MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS,
                             result.backupPath().toString()
                     ));
-                    NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT));
                     showRestoreRestartPrompt(this, result.backupPath().toString());
                 },
                 this::showRestoreFailurePrompt
@@ -414,12 +413,14 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     }
 
     static void showRestoreRestartPrompt(Component parent, String backupPath) {
-        JOptionPane.showMessageDialog(
-                parent,
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE, backupPath),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE),
-                JOptionPane.INFORMATION_MESSAGE
-        );
+        String message = I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE, backupPath);
+        String title = I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE);
+        Window owner = parent instanceof Window window ? window : SwingUtilities.getWindowAncestor(parent);
+        JOptionPane pane = new JOptionPane(message, JOptionPane.INFORMATION_MESSAGE);
+        JDialog dialog = pane.createDialog(owner == null ? parent : owner, title);
+        dialog.setLocationRelativeTo(owner == null ? parent : owner);
+        dialog.setVisible(true);
+        dialog.dispose();
     }
 
     private <T> void runAsync(String busyMessage, SyncTask<T> task, SyncSuccess<T> success) {

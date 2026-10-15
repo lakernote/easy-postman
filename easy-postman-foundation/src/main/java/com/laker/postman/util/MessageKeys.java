@@ -2582,7 +2582,6 @@ public final class MessageKeys {
     public static final String SETTINGS_WEBDAV_SYNC_TEST_SUCCESS = "settings.webdav_sync.test.success";
     public static final String SETTINGS_WEBDAV_SYNC_UPLOAD_SUCCESS = "settings.webdav_sync.upload.success";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS = "settings.webdav_sync.restore.success";
-    public static final String SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT = "settings.webdav_sync.restore.success.short";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE = "settings.webdav_sync.restore.restart.title";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE = "settings.webdav_sync.restore.restart.message";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_FAILED_TITLE = "settings.webdav_sync.restore.failed.title";

@@ -282,7 +282,7 @@ public class RequestTreePopupMenu {
         // 彩色图标列表：这些图标本身有品牌色或渐变色，不应该跟随主题变化
         // - postman.svg: Postman 品牌橙色
         // - group.svg: 蓝色文件夹 (#007AFF)
-        // - curl.svg: cURL 官方深蓝/绿色符号
+        // - curl.svg: cURL 命令行图标，深蓝终端搭配绿色命令提示符
         boolean isColoredIcon = iconPath.contains("postman.svg")
                              || iconPath.contains("group.svg")
                              || iconPath.contains("curl.svg");

@@ -32,8 +32,10 @@ public class NetworkLogPanel extends JPanel {
     private final JTabbedPane tabbedPane;
     private final JTextPane requestDetailsPane;
     private final JTextPane responseDetailsPane;
+    private final JButton copyCurrentTabButton;
     private final JButton copyActualCurlButton;
     private PreparedRequest currentRequest;
+    private boolean hasResponseDetails;
 
     // 性能优化配置 - 降低限制防止卡顿
     private static final int MAX_LINE_LENGTH = 500; // 单行最大长度
@@ -46,12 +48,14 @@ public class NetworkLogPanel extends JPanel {
         // 设置边距
         setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 5));
 
+        copyCurrentTabButton = createCopyCurrentTabButton();
         copyActualCurlButton = createCopyActualCurlButton();
         add(createToolbar(), BorderLayout.NORTH);
 
         // 创建 TabbedPane
         tabbedPane = new JTabbedPane(SwingConstants.LEFT);
         ToolWindowSurfaceStyle.applyTabbedPaneCard(tabbedPane);
+        tabbedPane.addChangeListener(e -> updateCopyCurrentTabButtonState());
 
         // 1. Network Log Tab
         logArea = new NetworkLogTextPane();
@@ -83,26 +87,42 @@ public class NetworkLogPanel extends JPanel {
     }
 
     private JPanel createToolbar() {
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JPanel toolbar = new JPanel();
+        toolbar.setLayout(new BoxLayout(toolbar, BoxLayout.X_AXIS));
         ToolWindowSurfaceStyle.applySectionHeader(toolbar, 0, 0, 4, 0);
+        toolbar.add(Box.createHorizontalGlue());
+        toolbar.add(copyCurrentTabButton);
+        toolbar.add(Box.createHorizontalStrut(1));
         toolbar.add(copyActualCurlButton);
         return toolbar;
     }
 
+    private JButton createCopyCurrentTabButton() {
+        String label = I18nUtil.getMessage(MessageKeys.BUTTON_COPY);
+        JButton button = new JButton(IconUtil.createThemed("icons/copy.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        configureToolbarButton(button, label,
+                I18nUtil.getMessage(MessageKeys.NETWORK_LOG_COPY_CURRENT_TAB_TOOLTIP));
+        button.setEnabled(false);
+        button.addActionListener(e -> copyCurrentTabToClipboard());
+        return button;
+    }
+
     private JButton createCopyActualCurlButton() {
         String label = I18nUtil.getMessage(MessageKeys.NETWORK_LOG_COPY_ACTUAL_CURL);
-        JButton button = new JButton(IconUtil.createThemed("icons/copy.svg", 16, 16));
-        button.setPreferredSize(new Dimension(30, 30));
-        button.setMaximumSize(new Dimension(30, 30));
-        button.setFocusable(false);
-        button.setMargin(new Insets(0, 0, 0, 0));
-        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        button.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
-        button.setToolTipText(label + " - " + I18nUtil.getMessage(MessageKeys.NETWORK_LOG_COPY_ACTUAL_CURL_TOOLTIP));
-        button.getAccessibleContext().setAccessibleName(label);
+        JButton button = new JButton(IconUtil.create("icons/curl.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        configureToolbarButton(button, label,
+                I18nUtil.getMessage(MessageKeys.NETWORK_LOG_COPY_ACTUAL_CURL_TOOLTIP));
         button.setEnabled(false);
         button.addActionListener(e -> copyActualCurlToClipboard());
         return button;
+    }
+
+    private void configureToolbarButton(JButton button, String label, String tooltip) {
+        button.setFocusable(false);
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        button.setToolTipText(tooltip);
+        button.getAccessibleContext().setAccessibleName(label);
     }
 
     /**
@@ -206,6 +226,7 @@ public class NetworkLogPanel extends JPanel {
 
                 // 自动滚动到底部
                 logArea.setCaretPosition(doc.getLength());
+                updateCopyCurrentTabButtonState();
             } catch (BadLocationException e) {
                 // ignore
             }
@@ -268,6 +289,7 @@ public class NetworkLogPanel extends JPanel {
             try {
                 doc.remove(0, doc.getLength());
                 logArea.clearDecoration();
+                updateCopyCurrentTabButtonState();
             } catch (BadLocationException e) {
                 // ignore
             }
@@ -283,11 +305,13 @@ public class NetworkLogPanel extends JPanel {
         updateCopyActualCurlButtonState();
         if (request == null) {
             requestDetailsPane.setText(I18nUtil.getMessage(MessageKeys.HISTORY_EMPTY_BODY));
+            updateCopyCurrentTabButtonState();
             return;
         }
         String html = HttpHtmlRenderer.renderRequest(request);
         requestDetailsPane.setText(html);
         requestDetailsPane.setCaretPosition(0);
+        updateCopyCurrentTabButtonState();
     }
 
     /**
@@ -295,13 +319,16 @@ public class NetworkLogPanel extends JPanel {
      */
     public void setResponseDetails(HttpResponse response) {
         if (responseDetailsPane == null) return;
+        hasResponseDetails = response != null;
         if (response == null) {
             responseDetailsPane.setText(I18nUtil.getMessage(MessageKeys.HISTORY_EMPTY_BODY));
+            updateCopyCurrentTabButtonState();
             return;
         }
         String html = HttpHtmlRenderer.renderResponse(response);
         responseDetailsPane.setText(html);
         responseDetailsPane.setCaretPosition(0);
+        updateCopyCurrentTabButtonState();
     }
 
     /**
@@ -309,6 +336,7 @@ public class NetworkLogPanel extends JPanel {
      */
     public void clearAllDetails() {
         currentRequest = null;
+        hasResponseDetails = false;
         updateCopyActualCurlButtonState();
         if (requestDetailsPane != null) {
             requestDetailsPane.setText("");
@@ -316,12 +344,53 @@ public class NetworkLogPanel extends JPanel {
         if (responseDetailsPane != null) {
             responseDetailsPane.setText("");
         }
+        updateCopyCurrentTabButtonState();
     }
 
     private void updateCopyActualCurlButtonState() {
         if (copyActualCurlButton != null) {
             copyActualCurlButton.setEnabled(CurlParser.canExportActualCurl(currentRequest));
         }
+    }
+
+    private void updateCopyCurrentTabButtonState() {
+        if (copyCurrentTabButton == null || tabbedPane == null) {
+            return;
+        }
+        boolean hasContent = switch (tabbedPane.getSelectedIndex()) {
+            case 0 -> doc != null && doc.getLength() > 0;
+            case 1 -> currentRequest != null;
+            case 2 -> hasResponseDetails;
+            default -> false;
+        };
+        copyCurrentTabButton.setEnabled(hasContent);
+    }
+
+    private void copyCurrentTabToClipboard() {
+        try {
+            String content = getSelectedTabText();
+            if (content.isBlank()) {
+                return;
+            }
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(content), null);
+            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.NETWORK_LOG_COPY_CURRENT_TAB_SUCCESS));
+        } catch (Exception ex) {
+            NotificationCenter.showError(I18nUtil.getMessage(
+                    MessageKeys.NETWORK_LOG_COPY_CURRENT_TAB_FAIL, ex.getMessage()));
+        }
+    }
+
+    private String getSelectedTabText() throws BadLocationException {
+        JTextPane selectedPane = switch (tabbedPane.getSelectedIndex()) {
+            case 0 -> logArea;
+            case 1 -> requestDetailsPane;
+            case 2 -> responseDetailsPane;
+            default -> null;
+        };
+        if (selectedPane == null) {
+            return "";
+        }
+        return selectedPane.getDocument().getText(0, selectedPane.getDocument().getLength()).strip();
     }
 
     private void copyActualCurlToClipboard() {

@@ -379,6 +379,9 @@ public final class MessageKeys {
     public static final String NETWORK_LOG_COPY_ACTUAL_CURL_TOOLTIP = "network_log.copy_actual_curl.tooltip";
     public static final String NETWORK_LOG_COPY_ACTUAL_CURL_SUCCESS = "network_log.copy_actual_curl.success";
     public static final String NETWORK_LOG_COPY_ACTUAL_CURL_FAIL = "network_log.copy_actual_curl.fail";
+    public static final String NETWORK_LOG_COPY_CURRENT_TAB_TOOLTIP = "network_log.copy_current_tab.tooltip";
+    public static final String NETWORK_LOG_COPY_CURRENT_TAB_SUCCESS = "network_log.copy_current_tab.success";
+    public static final String NETWORK_LOG_COPY_CURRENT_TAB_FAIL = "network_log.copy_current_tab.fail";
     public static final String NETWORK_LOG_STAGE_PREFIX = "network_log.stage.";
     public static final String NETWORK_LOG_CONTENT_TRUNCATED = "network_log.content_truncated";
     public static final String NETWORK_LOG_LINES_OMITTED = "network_log.lines_omitted";

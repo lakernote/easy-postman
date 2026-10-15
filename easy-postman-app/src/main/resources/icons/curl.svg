@@ -1,14 +1,5 @@
-<svg width="24" height="24" viewBox="0 0 1021 854" xmlns="http://www.w3.org/2000/svg">
- <g fill="none" stroke="#093754" stroke-width="34" transform="translate(17 17)">
-  <circle cx="58" cy="529" r="58"/>
-  <circle cx="58" cy="263" r="58"/>
-  <path stroke-width="100" d="M596 101 234 721"/>
-  <circle cx="210" cy="762" r="58"/>
-  <circle cx="621" cy="58" r="58"/>
-  <g stroke="#0f564d">
-   <path stroke-width="100" d="M904 101 542 721"/>
-   <circle cx="929" cy="58" r="58"/>
-   <circle cx="518" cy="762" r="58"/>
-  </g>
- </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="4" width="18" height="16" rx="3" stroke="#093754" stroke-width="2"/>
+  <path d="m7 9 3 3-3 3" stroke="#093754" stroke-width="2"/>
+  <path d="M13 15h4" stroke="#0f8a70" stroke-width="2.5"/>
 </svg>

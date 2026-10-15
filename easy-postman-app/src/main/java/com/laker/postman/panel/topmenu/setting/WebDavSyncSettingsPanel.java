@@ -477,31 +477,11 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     }
 
     private boolean confirmUpload(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                I18nUtil.getMessage(
-                        MessageKeys.SETTINGS_WEBDAV_SYNC_UPLOAD_CONFIRM_MESSAGE,
-                        remoteSnapshotText(remoteSnapshot)
-                ),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_UPLOAD_CONFIRM_TITLE),
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE
-        );
-        return result == JOptionPane.YES_OPTION;
+        return WebDavSyncConfirmationDialog.confirmUpload(this, remoteSnapshot);
     }
 
     private boolean confirmRestore(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                I18nUtil.getMessage(
-                        MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_CONFIRM_MESSAGE,
-                        remoteSnapshotText(remoteSnapshot)
-                ),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_CONFIRM_TITLE),
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE
-        );
-        return result == JOptionPane.YES_OPTION;
+        return WebDavSyncConfirmationDialog.confirmRestore(this, remoteSnapshot);
     }
 
     static String remoteSnapshotText(Optional<WebDavRemoteSnapshot> remoteSnapshot) {

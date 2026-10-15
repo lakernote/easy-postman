@@ -11,13 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.HttpUrl;
 
 import javax.swing.JButton;
-import javax.swing.JTextArea;
-import javax.swing.JOptionPane;
 import javax.swing.SwingWorker;
-import javax.swing.SwingUtilities;
-import java.awt.Window;
 import java.awt.Component;
-import java.awt.Font;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -103,42 +98,9 @@ public class WebDavSyncQuickActionController {
     }
 
     private boolean confirm(Action action, Optional<WebDavRemoteSnapshot> remoteSnapshot) {
-        String messageKey = action == Action.UPLOAD
-                ? MessageKeys.SETTINGS_WEBDAV_SYNC_UPLOAD_CONFIRM_MESSAGE
-                : MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_CONFIRM_MESSAGE;
-        String titleKey = action == Action.UPLOAD
-                ? MessageKeys.SETTINGS_WEBDAV_SYNC_UPLOAD_CONFIRM_TITLE
-                : MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_CONFIRM_TITLE;
-        JTextArea message = new JTextArea(
-                I18nUtil.getMessage(messageKey, WebDavSyncSettingsPanel.remoteSnapshotText(remoteSnapshot)),
-                8,
-                48
-        );
-        message.setEditable(false);
-        message.setFocusable(false);
-        message.setLineWrap(true);
-        message.setWrapStyleWord(true);
-        message.setOpaque(false);
-        message.setFont(javax.swing.UIManager.getFont("Label.font").deriveFont(Font.PLAIN));
-        message.setBorder(null);
-
-        Object[] options = {
-                I18nUtil.getMessage(MessageKeys.TOP_MENU_WEBDAV_CONFIRM_NO),
-                I18nUtil.getMessage(MessageKeys.TOP_MENU_WEBDAV_CONFIRM_YES)
-        };
-        Window owner = SwingUtilities.getWindowAncestor(dialogParent);
-        Component parent = owner == null ? dialogParent : owner;
-        int result = JOptionPane.showOptionDialog(
-                parent,
-                message,
-                I18nUtil.getMessage(titleKey),
-                JOptionPane.DEFAULT_OPTION,
-                JOptionPane.WARNING_MESSAGE,
-                null,
-                options,
-                options[0]
-        );
-        return result == 1;
+        return action == Action.UPLOAD
+                ? WebDavSyncConfirmationDialog.confirmUpload(dialogParent, remoteSnapshot)
+                : WebDavSyncConfirmationDialog.confirmRestore(dialogParent, remoteSnapshot);
     }
 
     private <T> void execute(SyncTask<T> task, SyncSuccess<T> success) {

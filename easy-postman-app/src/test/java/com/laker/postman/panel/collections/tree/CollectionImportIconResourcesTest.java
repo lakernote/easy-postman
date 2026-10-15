@@ -39,14 +39,14 @@ public class CollectionImportIconResourcesTest {
     }
 
     @Test
-    public void collectionImportIconsShouldKeepBrandSourceVectors() throws IOException {
+    public void collectionImportIconsShouldKeepExpectedSourceVectors() throws IOException {
         assertIconContains("postman.svg", "viewBox=\"0 0 115 115\"", "#FF6C37", "M63.7963 0.464959");
         assertIconContains("swagger.svg", "viewBox=\"0 0 101 101\"", "#85EA2D", "M31.802,33.854");
         assertIconContains("openapi.svg", "viewBox=\"34 118 132 128\"", "#93D500", "M153.276,128.706");
         assertIconContains("insomnia.svg", "viewBox=\"-96 -96 960 960\"", "#5849be", "M316.487,141.518");
         assertIconContains("idea-http.svg", "viewBox=\"-7.5 -7.5 75 75\"", "#07C3F2", "M0 0v22.6326");
         assertIconContains("apipost.svg", "viewBox=\"-11.75 -11.75 117.5 117.5\"", "#FF780C", "M64.599 62.959");
-        assertIconContains("curl.svg", "viewBox=\"0 0 1021 854\"", "#093754", "#0f564d");
+        assertIconContains("curl.svg", "viewBox=\"0 0 24 24\"", "#093754", "#0f8a70", "d=\"m7 9 3 3-3 3\"");
     }
 
     @Test

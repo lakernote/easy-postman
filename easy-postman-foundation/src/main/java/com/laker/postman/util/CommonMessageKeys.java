@@ -39,4 +39,6 @@ public final class CommonMessageKeys {
     public static final String BUTTON_SEND = "button.send";
     public static final String BUTTON_START = "button.start";
     public static final String BUTTON_STOP = "button.stop";
+    public static final String BUTTON_YES = "button.yes";
+    public static final String BUTTON_NO = "button.no";
 }

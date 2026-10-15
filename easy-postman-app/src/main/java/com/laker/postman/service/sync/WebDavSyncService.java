@@ -1,5 +1,6 @@
 package com.laker.postman.service.sync;
 
+import lombok.extern.slf4j.Slf4j;
 import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
 import com.laker.postman.request.util.HttpUrlUtil;
 import com.laker.postman.util.JsonUtil;
@@ -17,8 +18,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 
+@Slf4j
 public class WebDavSyncService {
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     private static final int READ_TIMEOUT_MS = 60_000;
@@ -74,7 +77,7 @@ public class WebDavSyncService {
         WebDavSyncSettings validatedSettings = validate(settings);
         SYNC_LOCK.lock();
         try {
-            uploadSnapshotInternal(validatedSettings);
+            uploadSnapshotInternal(validatedSettings, newOperationId());
         } finally {
             SYNC_LOCK.unlock();
         }
@@ -91,7 +94,7 @@ public class WebDavSyncService {
             return false;
         }
         try {
-            uploadSnapshotInternal(validatedSettings);
+            uploadSnapshotInternal(validatedSettings, newOperationId());
             return true;
         } finally {
             SYNC_LOCK.unlock();
@@ -109,7 +112,8 @@ public class WebDavSyncService {
             return AutoUploadResult.SKIPPED_BUSY;
         }
         try {
-            Optional<WebDavRemoteSnapshot> remoteSnapshot = fetchRemoteSnapshotInternal(validatedSettings);
+            String operationId = newOperationId();
+            Optional<WebDavRemoteSnapshot> remoteSnapshot = fetchRemoteSnapshotInternal(validatedSettings, operationId);
             if (remoteSnapshot.isPresent()) {
                 OptionalLong remoteCreatedAt = remoteCreatedAt(remoteSnapshot.get());
                 if (remoteCreatedAt.isEmpty()) {
@@ -119,37 +123,93 @@ public class WebDavSyncService {
                     return AutoUploadResult.SKIPPED_REMOTE_NEWER;
                 }
             }
-            uploadSnapshotInternal(validatedSettings);
+            uploadSnapshotInternal(validatedSettings, operationId);
             return AutoUploadResult.UPLOADED;
         } finally {
             SYNC_LOCK.unlock();
         }
     }
 
-    private void uploadSnapshotInternal(WebDavSyncSettings validatedSettings) throws IOException {
-        Path snapshot = Files.createTempFile("easypostman-webdav-upload-", ".zip");
+    private void uploadSnapshotInternal(WebDavSyncSettings validatedSettings, String operationId) throws IOException {
+        long startedAt = System.nanoTime();
+        String stage = "create_snapshot";
+        long snapshotBytes = -1;
+        Path snapshot = null;
+        log.info("WebDAV upload started: operationId={}, endpoint={}", operationId, safeServerEndpoint(validatedSettings));
         try {
+            snapshot = Files.createTempFile("easypostman-webdav-upload-", ".zip");
             snapshotService.createSnapshot(dataRoot, snapshot);
-            long snapshotBytes = Files.size(snapshot);
-            WebDavClient client = createClient(validatedSettings);
+            snapshotBytes = Files.size(snapshot);
+            log.info("WebDAV upload snapshot created: operationId={}, bytes={}", operationId, snapshotBytes);
+            WebDavClient client = createClient(validatedSettings, operationId);
+            stage = "check_remote_directory";
             client.testConnection();
+            stage = "upload_snapshot_archive";
             client.uploadSnapshot(snapshot);
-            client.uploadManifest(createManifest(snapshotBytes));
+            stage = "upload_manifest";
+            String manifest = createManifest(snapshotBytes);
+            log.info("WebDAV upload manifest prepared: operationId={}, schemaVersion=1, appVersion={}, snapshotBytes={}",
+                    operationId, SystemUtil.getCurrentVersion(), snapshotBytes);
+            client.uploadManifest(manifest);
+            log.info("WebDAV upload completed: operationId={}, snapshotBytes={}, elapsedMs={}",
+                    operationId, snapshotBytes, elapsedMillis(startedAt));
+        } catch (IOException | RuntimeException e) {
+            log.error("WebDAV upload failed: operationId={}, stage={}, snapshotBytes={}, elapsedMs={}",
+                    operationId, stage, snapshotBytes, elapsedMillis(startedAt), e);
+            throw e;
         } finally {
-            Files.deleteIfExists(snapshot);
+            if (snapshot != null) {
+                Files.deleteIfExists(snapshot);
+            }
         }
     }
 
     public WebDavRestoreResult restoreSnapshot(WebDavSyncSettings settings) throws IOException {
         SYNC_LOCK.lock();
+        String operationId = newOperationId();
+        long startedAt = System.nanoTime();
+        String stage = "load_manifest";
         try {
-            WebDavClient client = createClient(validate(settings));
-            Path snapshot = Files.createTempFile("easypostman-webdav-restore-", ".zip");
             try {
-                client.downloadSnapshot(snapshot);
-                return snapshotService.restoreSnapshot(snapshot, dataRoot);
-            } finally {
-                Files.deleteIfExists(snapshot);
+                log.info("WebDAV restore started: operationId={}, endpoint={}", operationId, safeServerEndpoint(settings));
+                WebDavSyncSettings validatedSettings = validate(settings);
+                WebDavClient client = createClient(validatedSettings, operationId);
+                Optional<WebDavRemoteSnapshot> remoteSnapshot = fetchRemoteSnapshotInternal(validatedSettings, operationId);
+                if (remoteSnapshot.isPresent()) {
+                    WebDavRemoteSnapshot manifest = remoteSnapshot.get();
+                    log.info(
+                            "WebDAV restore manifest loaded: operationId={}, schemaVersion={}, createdAt={}, appVersion={}, expectedBytes={}",
+                            operationId, manifest.schemaVersion(), manifest.createdAt(), manifest.appVersion(), manifest.snapshotBytes()
+                    );
+                } else {
+                    log.info("WebDAV restore manifest is missing: operationId={}, continuing without a size check", operationId);
+                }
+                Path snapshot = Files.createTempFile("easypostman-webdav-restore-", ".zip");
+                try {
+                    stage = "download_snapshot_archive";
+                    client.downloadSnapshot(snapshot);
+                    long downloadedBytes = Files.size(snapshot);
+                    log.info("WebDAV restore snapshot downloaded: operationId={}, bytes={}", operationId, downloadedBytes);
+                    if (remoteSnapshot.isPresent() && remoteSnapshot.get().snapshotBytes() > 0) {
+                        long expectedBytes = remoteSnapshot.get().snapshotBytes();
+                        if (downloadedBytes != expectedBytes) {
+                            log.warn("WebDAV restore snapshot size mismatch: operationId={}, expectedBytes={}, actualBytes={}",
+                                    operationId, expectedBytes, downloadedBytes);
+                            throw WebDavSnapshotValidationException.sizeMismatch(expectedBytes, downloadedBytes);
+                        }
+                    }
+                    stage = "validate_and_apply_snapshot";
+                    WebDavRestoreResult result = snapshotService.restoreSnapshot(snapshot, dataRoot, operationId);
+                    log.info("WebDAV restore completed: operationId={}, backupPath={}, snapshotBytes={}, elapsedMs={}",
+                            operationId, result.backupPath(), downloadedBytes, elapsedMillis(startedAt));
+                    return result;
+                } finally {
+                    Files.deleteIfExists(snapshot);
+                }
+            } catch (IOException | RuntimeException e) {
+                log.error("WebDAV restore failed: operationId={}, stage={}, elapsedMs={}",
+                        operationId, stage, elapsedMillis(startedAt), e);
+                throw e;
             }
         } finally {
             SYNC_LOCK.unlock();
@@ -157,22 +217,40 @@ public class WebDavSyncService {
     }
 
     private WebDavClient createClient(WebDavSyncSettings settings) {
+        return createClient(settings, newOperationId());
+    }
+
+    private WebDavClient createClient(WebDavSyncSettings settings, String operationId) {
         return clientFactory.create(
                 settings.serverUrl(),
                 settings.remoteDirectory(),
                 settings.username(),
-                settings.password()
+                settings.password(),
+                operationId
         );
     }
 
     private Optional<WebDavRemoteSnapshot> fetchRemoteSnapshotInternal(WebDavSyncSettings settings) throws IOException {
-        WebDavClient client = createClient(settings);
+        return fetchRemoteSnapshotInternal(settings, newOperationId());
+    }
+
+    private Optional<WebDavRemoteSnapshot> fetchRemoteSnapshotInternal(WebDavSyncSettings settings,
+                                                                       String operationId) throws IOException {
+        WebDavClient client = createClient(settings, operationId);
         Optional<byte[]> manifest = client.downloadManifestIfPresent();
         if (manifest.isEmpty()) {
+            log.info("WebDAV remote snapshot manifest not found: operationId={}", operationId);
             return Optional.empty();
         }
         try {
-            return Optional.of(WebDavRemoteSnapshot.fromJson(new String(manifest.get(), StandardCharsets.UTF_8)));
+            WebDavRemoteSnapshot snapshot = WebDavRemoteSnapshot.fromJson(
+                    new String(manifest.get(), StandardCharsets.UTF_8)
+            );
+            log.info("WebDAV remote snapshot manifest parsed: operationId={}, manifestBytes={}, schemaVersion={}, " +
+                            "createdAt={}, appVersion={}, snapshotBytes={}",
+                    operationId, manifest.get().length, snapshot.schemaVersion(), snapshot.createdAt(),
+                    snapshot.appVersion(), snapshot.snapshotBytes());
+            return Optional.of(snapshot);
         } catch (RuntimeException e) {
             throw new IOException("Invalid WebDAV manifest", e);
         }
@@ -219,6 +297,31 @@ public class WebDavSyncService {
         return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
     }
 
+    private static String newOperationId() {
+        return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private static long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
+    }
+
+    private static String safeServerEndpoint(WebDavSyncSettings settings) {
+        if (settings == null || settings.serverUrl() == null || settings.serverUrl().isBlank()) {
+            return "<unconfigured>";
+        }
+        HttpUrl parsedUrl = HttpUrl.parse(HttpUrlUtil.normalizeIpv6Url(settings.serverUrl().trim()));
+        if (parsedUrl == null) {
+            return "<invalid-url>";
+        }
+        return parsedUrl.newBuilder()
+                .username("")
+                .password("")
+                .query(null)
+                .fragment(null)
+                .build()
+                .toString();
+    }
+
     private static String createManifest(long snapshotBytes) {
         ObjectNode root = JsonUtil.createJsonNode();
         root.put("schemaVersion", 1);
@@ -232,5 +335,10 @@ public class WebDavSyncService {
     @FunctionalInterface
     interface WebDavClientFactory {
         WebDavClient create(String serverUrl, String remoteDirectory, String username, String password);
+
+        default WebDavClient create(String serverUrl, String remoteDirectory, String username, String password,
+                                    String operationId) {
+            return create(serverUrl, remoteDirectory, username, password).withOperationId(operationId);
+        }
     }
 }

@@ -1,18 +1,22 @@
 package com.laker.postman.panel.topmenu.setting;
 
 import com.laker.postman.common.component.EasyPasswordField;
+import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.notification.NotificationCenter;
 import com.laker.postman.common.component.setting.SettingsFieldRow;
 import com.laker.postman.ioc.BeanFactory;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.service.sync.WebDavRemoteSnapshot;
 import com.laker.postman.service.sync.WebDavSnapshotPreflightException;
+import com.laker.postman.service.sync.WebDavSnapshotValidationException;
 import com.laker.postman.service.sync.WebDavSyncScheduler;
 import com.laker.postman.service.sync.WebDavSyncService;
 import com.laker.postman.service.sync.WebDavSyncSettings;
+import com.laker.postman.panel.topmenu.TopMenuBar;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.HttpUrl;
 
 import javax.swing.*;
@@ -27,6 +31,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+@Slf4j
 public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private static final int FIELD_SPACING = 8;
     private static final int SECTION_SPACING = 12;
@@ -275,6 +280,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         try {
             SettingManager.setWebDavSyncSettings(formSettings());
             reloadAutoUploadSchedule();
+            refreshWebDavToolbar();
             trackWebDavFormState();
             setHasUnsavedChanges(false);
             NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_SUCCESS_MESSAGE));
@@ -388,7 +394,8 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                     ));
                     NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT));
                     showRestoreRestartPrompt(result.backupPath().toString());
-                }
+                },
+                this::showRestoreFailurePrompt
         );
     }
 
@@ -396,6 +403,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         try {
             SettingManager.setWebDavSyncSettings(formSettings());
             reloadAutoUploadSchedule();
+            refreshWebDavToolbar();
             trackWebDavFormState();
             setHasUnsavedChanges(false);
             return true;
@@ -415,6 +423,13 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     }
 
     private <T> void runAsync(String busyMessage, SyncTask<T> task, SyncSuccess<T> success) {
+        runAsync(busyMessage, task, success, null);
+    }
+
+    private <T> void runAsync(String busyMessage,
+                              SyncTask<T> task,
+                              SyncSuccess<T> success,
+                              SyncFailure failure) {
         setBusy(true);
         setStatus(busyMessage);
         new SwingWorker<T, Void>() {
@@ -431,7 +446,12 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                 } catch (Exception ex) {
                     String message = actionErrorMessage(ex);
                     setStatus(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_ACTION_FAILED, message));
-                    NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_ACTION_FAILED, message));
+                    log.error("WebDAV settings operation failed: {}", busyMessage, ex);
+                    if (failure != null) {
+                        failure.accept(ex);
+                    } else {
+                        NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_ACTION_FAILED, message));
+                    }
                 }
             }
         }.execute();
@@ -483,7 +503,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         return result == JOptionPane.YES_OPTION;
     }
 
-    private String remoteSnapshotText(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
+    static String remoteSnapshotText(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
         if (remoteSnapshot == null || remoteSnapshot.isEmpty()) {
             return I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_REMOTE_SNAPSHOT_NONE);
         }
@@ -496,13 +516,13 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         );
     }
 
-    private String valueOrUnknown(String value) {
+    private static String valueOrUnknown(String value) {
         return value == null || value.isBlank()
                 ? I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_REMOTE_SNAPSHOT_UNKNOWN)
                 : value;
     }
 
-    private String formatRemoteCreatedAt(String createdAt) {
+    private static String formatRemoteCreatedAt(String createdAt) {
         if (createdAt == null || createdAt.isBlank()) {
             return "";
         }
@@ -513,7 +533,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         }
     }
 
-    private String formatBytes(long bytes) {
+    private static String formatBytes(long bytes) {
         if (bytes < 1024) {
             return bytes + " B";
         }
@@ -663,6 +683,11 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         }
     }
 
+    private void refreshWebDavToolbar() {
+        UiSingletonFactory.getExistingInstance(TopMenuBar.class)
+                .ifPresent(TopMenuBar::updateWorkspaceDisplay);
+    }
+
     private static boolean isHttpScheme(String scheme) {
         return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
     }
@@ -692,11 +717,21 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private String actionErrorMessage(Exception ex) {
-        Throwable current = ex;
-        if (current instanceof java.util.concurrent.ExecutionException && current.getCause() != null) {
-            current = current.getCause();
+    static String actionErrorMessage(Exception ex) {
+        WebDavSnapshotValidationException validationException = findSnapshotValidationException(ex);
+        if (validationException != null) {
+            if (validationException.reason() == WebDavSnapshotValidationException.Reason.SIZE_MISMATCH) {
+                return I18nUtil.getMessage(
+                        MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SIZE_MISMATCH,
+                        formatBytes(validationException.expectedBytes()),
+                        formatBytes(validationException.actualBytes())
+                );
+            }
+            return I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_INVALID_SNAPSHOT);
         }
+        Throwable current = ex instanceof java.util.concurrent.ExecutionException && ex.getCause() != null
+                ? ex.getCause()
+                : ex;
         if (current instanceof WebDavSnapshotPreflightException preflight) {
             return I18nUtil.getMessage(
                     MessageKeys.SETTINGS_WEBDAV_SYNC_SNAPSHOT_PRECHECK_FAILED,
@@ -711,6 +746,26 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         return rootMessage(ex);
     }
 
+    private static WebDavSnapshotValidationException findSnapshotValidationException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof WebDavSnapshotValidationException validationException) {
+                return validationException;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private void showRestoreFailurePrompt(Exception exception) {
+        JOptionPane.showMessageDialog(
+                this,
+                actionErrorMessage(exception),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_FAILED_TITLE),
+                JOptionPane.ERROR_MESSAGE
+        );
+    }
+
     @FunctionalInterface
     private interface SyncTask<T> {
         T run() throws Exception;
@@ -719,6 +774,11 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     @FunctionalInterface
     private interface SyncSuccess<T> {
         void accept(T result);
+    }
+
+    @FunctionalInterface
+    private interface SyncFailure {
+        void accept(Exception exception);
     }
 
     private record AutoUploadIntervalOption(int minutes, String label) {

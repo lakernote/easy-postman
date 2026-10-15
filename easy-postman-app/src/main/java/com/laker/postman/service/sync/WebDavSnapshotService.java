@@ -1,5 +1,6 @@
 package com.laker.postman.service.sync;
 
+import lombok.extern.slf4j.Slf4j;
 import com.laker.postman.util.JsonUtil;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
@@ -7,6 +8,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
@@ -24,9 +26,12 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+@Slf4j
 public class WebDavSnapshotService {
     static final long DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES = 100L * 1024L * 1024L;
     static final long DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES = 1_000L;
@@ -101,9 +106,17 @@ public class WebDavSnapshotService {
     }
 
     public WebDavRestoreResult restoreSnapshot(Path snapshotPath, Path dataRoot) throws IOException {
+        return restoreSnapshot(snapshotPath, dataRoot, "unknown");
+    }
+
+    WebDavRestoreResult restoreSnapshot(Path snapshotPath, Path dataRoot, String operationId) throws IOException {
         Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
         Files.createDirectories(normalizedRoot);
+        int restorableEntries = validateSnapshot(snapshotPath);
+        log.info("Validated WebDAV snapshot archive: operationId={}, restorableEntries={}", operationId, restorableEntries);
+        log.info("Creating pre-restore local backup: operationId={}, dataRoot={}", operationId, normalizedRoot);
         Path backupPath = createBackup(normalizedRoot);
+        log.info("Pre-restore local backup created: operationId={}, backupPath={}", operationId, backupPath);
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(snapshotPath))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -128,6 +141,32 @@ public class WebDavSnapshotService {
             }
         }
         return new WebDavRestoreResult(backupPath);
+    }
+
+    private int validateSnapshot(Path snapshotPath) throws IOException {
+        boolean hasRestorableEntry = false;
+        int restorableEntries = 0;
+        try (ZipFile zip = new ZipFile(snapshotPath.toFile())) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (!entry.isDirectory() && policy.shouldRestoreEntry(entry.getName())) {
+                    hasRestorableEntry = true;
+                    restorableEntries++;
+                    try (InputStream content = zip.getInputStream(entry)) {
+                        content.transferTo(OutputStream.nullOutputStream());
+                    }
+                }
+            }
+        } catch (ZipException e) {
+            log.warn("Rejected invalid WebDAV snapshot archive: validation=zip_integrity", e);
+            throw WebDavSnapshotValidationException.invalidArchive(e);
+        }
+        if (!hasRestorableEntry) {
+            log.warn("Rejected WebDAV snapshot archive: validation=no_restorable_entries");
+            throw WebDavSnapshotValidationException.invalidArchive(null);
+        }
+        return restorableEntries;
     }
 
     private Path createBackup(Path dataRoot) throws IOException {

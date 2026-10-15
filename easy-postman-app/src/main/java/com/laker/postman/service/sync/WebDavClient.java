@@ -21,6 +21,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Slf4j
 public class WebDavClient {
@@ -39,16 +40,22 @@ public class WebDavClient {
     private final String remoteDirectory;
     private final String username;
     private final String password;
+    private String operationId;
 
     public WebDavClient(String serverUrl, String remoteDirectory, String username, String password) {
         // Keep this standalone constructor IPv6-capable too. The normal sync
         // path injects the centrally configured runtime client, but this
         // public convenience path must not regress to a plain OkHttp client.
         this(new OkHttpClient.Builder().fastFallback(true).build(),
-                serverUrl, remoteDirectory, username, password);
+                serverUrl, remoteDirectory, username, password, UUID.randomUUID().toString());
     }
 
     WebDavClient(OkHttpClient client, String serverUrl, String remoteDirectory, String username, String password) {
+        this(client, serverUrl, remoteDirectory, username, password, UUID.randomUUID().toString());
+    }
+
+    WebDavClient(OkHttpClient client, String serverUrl, String remoteDirectory, String username, String password,
+                 String operationId) {
         String normalizedServerUrl = HttpUrlUtil.normalizeIpv6Url(serverUrl == null ? "" : serverUrl.trim());
         HttpUrl parsedUrl = HttpUrl.parse(normalizedServerUrl);
         if (parsedUrl == null) {
@@ -59,6 +66,12 @@ public class WebDavClient {
         this.remoteDirectory = remoteDirectory == null ? "" : remoteDirectory.trim();
         this.username = username == null ? "" : username;
         this.password = password == null ? "" : password;
+        this.operationId = operationId == null || operationId.isBlank() ? UUID.randomUUID().toString() : operationId;
+    }
+
+    WebDavClient withOperationId(String operationId) {
+        this.operationId = operationId == null || operationId.isBlank() ? UUID.randomUUID().toString() : operationId;
+        return this;
     }
 
     public void testConnection() throws IOException {
@@ -185,6 +198,13 @@ public class WebDavClient {
             }
             try (InputStream inputStream = response.body().byteStream()) {
                 Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                long downloadedBytes = Files.exists(targetPath) ? Files.size(targetPath) : 0;
+                log.info("WebDAV download stream failed: operationId={}, action=GET {}, endpoint={}, downloadedBytes={}, " +
+                                "failureType={}, message={}",
+                        operationId, fileName, safeEndpoint(request.url()), downloadedBytes,
+                        e.getClass().getSimpleName(), e.getMessage());
+                throw e;
             }
         }
     }
@@ -279,23 +299,54 @@ public class WebDavClient {
     }
 
     private Response execute(String operation, Request request) throws IOException {
-        String endpoint = request.url().toString();
-        log.debug("WebDAV {} started: {} {}", operation, request.method(), endpoint);
+        String endpoint = safeEndpoint(request.url());
+        long startedAt = System.nanoTime();
+        long requestBytes = -1;
+        try {
+            if (request.body() != null) {
+                requestBytes = request.body().contentLength();
+            }
+        } catch (IOException ignored) {
+            // Request execution will report the original failure with its operation context.
+        }
+        log.info("WebDAV request started: operationId={}, action={}, method={}, endpoint={}, requestBytes={}",
+                operationId, operation, request.method(), endpoint, requestBytes);
         try {
             Response response = client.newCall(request).execute();
-            log.debug("WebDAV {} completed: HTTP {} ({})", operation, response.code(), endpoint);
+            long elapsedMs = elapsedMillis(startedAt);
+            long responseBytes = response.body() == null ? 0 : response.body().contentLength();
+            log.info("WebDAV request completed: operationId={}, action={}, method={}, endpoint={}, httpStatus={}, " +
+                            "elapsedMs={}, responseBytes={}, contentType={}",
+                    operationId, operation, request.method(), endpoint, response.code(), elapsedMs,
+                    responseBytes, response.header("Content-Type", ""));
             return response;
         } catch (IOException e) {
-            log.error("WebDAV {} failed: {} {}: {}", operation, request.method(), endpoint, e.getMessage(), e);
+            log.info("WebDAV request failed: operationId={}, action={}, method={}, endpoint={}, elapsedMs={}, " +
+                            "failureType={}, message={}",
+                    operationId, operation, request.method(), endpoint, elapsedMillis(startedAt),
+                    e.getClass().getSimpleName(), e.getMessage());
             throw new IOException(operation + " failed: " + e.getMessage(), e);
         }
     }
 
     private IOException responseException(String message, Response response) {
         IOException exception = new IOException(
-                message + ": HTTP " + response.code() + " (" + response.request().url() + ")"
+                message + ": HTTP " + response.code() + " (" + safeEndpoint(response.request().url()) + ")"
         );
-        log.error("{}", exception.getMessage());
         return exception;
+    }
+
+    private static String safeEndpoint(HttpUrl url) {
+        return url.newBuilder()
+                .username("")
+                .password("")
+                .query(null)
+                .fragment(null)
+                .build()
+                .toString();
+    }
+
+    private static long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 }

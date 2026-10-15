@@ -13,9 +13,11 @@ import com.laker.postman.panel.env.EnvironmentPanel;
 import com.laker.postman.panel.functional.FunctionalPanel;
 import com.laker.postman.panel.mock.MockServerPanel;
 import com.laker.postman.panel.performance.PerformancePanel;
+import com.laker.postman.panel.topmenu.setting.WebDavSyncQuickActionController;
 import com.laker.postman.panel.workspace.components.GitOperationDialog;
 import com.laker.postman.panel.workspace.components.GitOperationPresentation;
 import com.laker.postman.service.WorkspaceService;
+import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
@@ -60,6 +62,7 @@ class TopMenuWorkspaceControls {
 
     void addTo(JMenuBar menuBar) {
         reloadComboBoxes();
+        addWebDavSyncShortcutIfEnabled(menuBar);
         addGitToolbarIfNeeded(menuBar);
 
         menuBar.add(createToolbarIconLabel("icons/workspace.svg"));
@@ -144,6 +147,30 @@ class TopMenuWorkspaceControls {
         }
     }
 
+    private void addWebDavSyncShortcutIfEnabled(JMenuBar menuBar) {
+        if (!SettingManager.getWebDavSyncSettings().enabled()) {
+            return;
+        }
+        JButton uploadButton = createToolbarButton(
+                I18nUtil.getMessage(MessageKeys.TOP_MENU_WEBDAV_UPLOAD_ALL),
+                "icons/upload.svg",
+                null
+        );
+        JButton restoreButton = createToolbarButton(
+                I18nUtil.getMessage(MessageKeys.TOP_MENU_WEBDAV_RESTORE_ALL),
+                "icons/download.svg",
+                null
+        );
+        WebDavSyncQuickActionController quickActions = new WebDavSyncQuickActionController(
+                dialogParent, uploadButton, restoreButton);
+        uploadButton.addActionListener(e -> quickActions.uploadAllWorkspaces());
+        restoreButton.addActionListener(e -> quickActions.restoreAllWorkspaces());
+        menuBar.add(uploadButton);
+        menuBar.add(Box.createHorizontalStrut(6));
+        menuBar.add(restoreButton);
+        menuBar.add(Box.createHorizontalStrut(8));
+    }
+
     private void switchToWorkspace(Workspace workspace) {
         try {
             WorkspaceService workspaceService = WorkspaceService.getInstance();
@@ -190,7 +217,7 @@ class TopMenuWorkspaceControls {
         toolbar.setLayout(new BoxLayout(toolbar, BoxLayout.X_AXIS));
         toolbar.setOpaque(false);
 
-        toolbar.add(createGitButton(
+        toolbar.add(createToolbarButton(
                 I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_COMMIT),
                 GitOperationPresentation.getIconName(GitOperation.COMMIT),
                 e -> performGitOperation(workspace, GitOperation.COMMIT)
@@ -214,13 +241,13 @@ class TopMenuWorkspaceControls {
                     if (toolbar.getParent() == null || !remoteStatus.hasRemote) {
                         return;
                     }
-                    toolbar.add(createGitButton(
+                    toolbar.add(createToolbarButton(
                             I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_PULL),
                             GitOperationPresentation.getIconName(GitOperation.PULL),
                             e -> performGitOperation(workspace, GitOperation.PULL)
                     ));
                     if (remoteStatus.hasUpstream) {
-                        toolbar.add(createGitButton(
+                        toolbar.add(createToolbarButton(
                                 I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_PUSH),
                                 GitOperationPresentation.getIconName(GitOperation.PUSH),
                                 e -> performGitOperation(workspace, GitOperation.PUSH)
@@ -237,7 +264,7 @@ class TopMenuWorkspaceControls {
         }.execute();
     }
 
-    private JButton createGitButton(String tooltip, String iconPath, ActionListener action) {
+    private JButton createToolbarButton(String tooltip, String iconPath, ActionListener action) {
         JButton button = new JButton();
         button.setIcon(IconUtil.createThemed(iconPath, 18, 18));
         button.setToolTipText(tooltip);

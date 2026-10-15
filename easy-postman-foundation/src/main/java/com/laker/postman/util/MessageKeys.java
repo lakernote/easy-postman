@@ -382,6 +382,10 @@ public final class MessageKeys {
     public static final String NETWORK_LOG_COPY_CURRENT_TAB_TOOLTIP = "network_log.copy_current_tab.tooltip";
     public static final String NETWORK_LOG_COPY_CURRENT_TAB_SUCCESS = "network_log.copy_current_tab.success";
     public static final String NETWORK_LOG_COPY_CURRENT_TAB_FAIL = "network_log.copy_current_tab.fail";
+    public static final String TOP_MENU_WEBDAV_UPLOAD_ALL = "top_menu.webdav_sync.upload_all";
+    public static final String TOP_MENU_WEBDAV_RESTORE_ALL = "top_menu.webdav_sync.restore_all";
+    public static final String TOP_MENU_WEBDAV_CONFIRM_YES = "top_menu.webdav_sync.confirm_yes";
+    public static final String TOP_MENU_WEBDAV_CONFIRM_NO = "top_menu.webdav_sync.confirm_no";
     public static final String NETWORK_LOG_STAGE_PREFIX = "network_log.stage.";
     public static final String NETWORK_LOG_CONTENT_TRUNCATED = "network_log.content_truncated";
     public static final String NETWORK_LOG_LINES_OMITTED = "network_log.lines_omitted";
@@ -2581,6 +2585,9 @@ public final class MessageKeys {
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT = "settings.webdav_sync.restore.success.short";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE = "settings.webdav_sync.restore.restart.title";
     public static final String SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE = "settings.webdav_sync.restore.restart.message";
+    public static final String SETTINGS_WEBDAV_SYNC_RESTORE_FAILED_TITLE = "settings.webdav_sync.restore.failed.title";
+    public static final String SETTINGS_WEBDAV_SYNC_RESTORE_INVALID_SNAPSHOT = "settings.webdav_sync.restore.invalid_snapshot";
+    public static final String SETTINGS_WEBDAV_SYNC_RESTORE_SIZE_MISMATCH = "settings.webdav_sync.restore.size_mismatch";
     public static final String SETTINGS_WEBDAV_SYNC_ACTION_FAILED = "settings.webdav_sync.action.failed";
     public static final String SETTINGS_WEBDAV_SYNC_SNAPSHOT_PRECHECK_FAILED = "settings.webdav_sync.snapshot.precheck.failed";
     public static final String SETTINGS_WEBDAV_SYNC_VALIDATION_REQUIRED = "settings.webdav_sync.validation.required";

@@ -393,7 +393,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                             result.backupPath().toString()
                     ));
                     NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT));
-                    showRestoreRestartPrompt(result.backupPath().toString());
+                    showRestoreRestartPrompt(this, result.backupPath().toString());
                 },
                 this::showRestoreFailurePrompt
         );
@@ -413,9 +413,9 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         }
     }
 
-    private void showRestoreRestartPrompt(String backupPath) {
+    static void showRestoreRestartPrompt(Component parent, String backupPath) {
         JOptionPane.showMessageDialog(
-                this,
+                parent,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE, backupPath),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE),
                 JOptionPane.INFORMATION_MESSAGE

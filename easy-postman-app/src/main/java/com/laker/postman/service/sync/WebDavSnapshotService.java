@@ -112,7 +112,7 @@ public class WebDavSnapshotService {
     WebDavRestoreResult restoreSnapshot(Path snapshotPath, Path dataRoot, String operationId) throws IOException {
         Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
         Files.createDirectories(normalizedRoot);
-        int restorableEntries = validateSnapshot(snapshotPath);
+        int restorableEntries = validateSnapshot(snapshotPath, operationId);
         log.info("Validated WebDAV snapshot archive: operationId={}, restorableEntries={}", operationId, restorableEntries);
         log.info("Creating pre-restore local backup: operationId={}, dataRoot={}", operationId, normalizedRoot);
         Path backupPath = createBackup(normalizedRoot);
@@ -143,7 +143,7 @@ public class WebDavSnapshotService {
         return new WebDavRestoreResult(backupPath);
     }
 
-    private int validateSnapshot(Path snapshotPath) throws IOException {
+    private int validateSnapshot(Path snapshotPath, String operationId) throws IOException {
         boolean hasRestorableEntry = false;
         int restorableEntries = 0;
         try (ZipFile zip = new ZipFile(snapshotPath.toFile())) {
@@ -159,11 +159,11 @@ public class WebDavSnapshotService {
                 }
             }
         } catch (ZipException e) {
-            log.warn("Rejected invalid WebDAV snapshot archive: validation=zip_integrity", e);
+            log.warn("Rejected invalid WebDAV snapshot archive: operationId={}, validation=zip_integrity", operationId, e);
             throw WebDavSnapshotValidationException.invalidArchive(e);
         }
         if (!hasRestorableEntry) {
-            log.warn("Rejected WebDAV snapshot archive: validation=no_restorable_entries");
+            log.warn("Rejected WebDAV snapshot archive: operationId={}, validation=no_restorable_entries", operationId);
             throw WebDavSnapshotValidationException.invalidArchive(null);
         }
         return restorableEntries;

@@ -67,6 +67,8 @@ public class WebDavSnapshotServiceTest {
         assertTrue(entries.containsKey("shortcuts.properties"));
         assertTrue(entries.containsKey("easy_postman_settings.properties"));
         assertTrue(entries.containsKey("user_settings.json"));
+        assertTrue(entries.containsKey("current_workspace.json"));
+        assertTrue(entries.get("current_workspace.json").contains("default-workspace"));
 
         assertFalse(entries.containsKey("workspaces/default/.git/config"));
         assertFalse(entries.containsKey("workspaces/default/session.tmp"));
@@ -116,6 +118,53 @@ public class WebDavSnapshotServiceTest {
         String restoredWorkspaces = Files.readString(targetRoot.resolve("workspaces.json"));
         assertTrue(restoredWorkspaces.contains(targetRoot.resolve("workspaces/default").toString()));
         assertFalse(restoredWorkspaces.contains("$EASY_POSTMAN_DATA$"));
+    }
+
+    @Test
+    public void restoreShouldApplyCurrentWorkspaceAndPreserveOtherLocalWorkspaceSettings() throws Exception {
+        Path sourceRoot = Files.createTempDirectory("webdav-workspace-selection-source");
+        write(sourceRoot.resolve("workspaces/source-workspace/collections.json"), "{}");
+        write(sourceRoot.resolve("workspaces.json"), """
+                [{"id":"source-workspace","name":"Source","path":"%s"}]
+                """.formatted(sourceRoot.resolve("workspaces/source-workspace").toString()));
+        write(sourceRoot.resolve("workspace_settings.json"),
+                "{\"currentWorkspaceId\":\"source-workspace\",\"localOnlySetting\":\"keep\"}");
+        Path snapshot = Files.createTempFile("webdav-workspace-selection", ".zip");
+        WebDavSnapshotService service = new WebDavSnapshotService();
+        service.createSnapshot(sourceRoot, snapshot);
+
+        Path targetRoot = Files.createTempDirectory("webdav-workspace-selection-target");
+        write(targetRoot.resolve("workspaces.json"), "[]");
+        write(targetRoot.resolve("workspace_settings.json"),
+                "{\"currentWorkspaceId\":\"old-workspace\",\"localOnlySetting\":\"keep\"}");
+
+        service.restoreSnapshot(snapshot, targetRoot);
+
+        String restoredSettings = Files.readString(targetRoot.resolve("workspace_settings.json"));
+        assertTrue(restoredSettings.contains("\"currentWorkspaceId\": \"source-workspace\""));
+        assertTrue(restoredSettings.contains("\"localOnlySetting\": \"keep\""));
+    }
+
+    @Test
+    public void restoreShouldKeepLocalWorkspaceSelectionWhenLegacySnapshotHasNoSelectionMetadata() throws Exception {
+        Path sourceRoot = Files.createTempDirectory("webdav-legacy-workspace-source");
+        write(sourceRoot.resolve("workspaces/default/collections.json"), "{}");
+        write(sourceRoot.resolve("workspaces.json"), """
+                [{"id":"default-workspace","name":"Default","path":"%s"}]
+                """.formatted(sourceRoot.resolve("workspaces/default").toString()));
+        Path snapshot = Files.createTempFile("webdav-legacy-workspace", ".zip");
+        WebDavSnapshotService service = new WebDavSnapshotService();
+        service.createSnapshot(sourceRoot, snapshot);
+
+        Path targetRoot = Files.createTempDirectory("webdav-legacy-workspace-target");
+        write(targetRoot.resolve("workspace_settings.json"),
+                "{\"currentWorkspaceId\":\"local-workspace\",\"localOnlySetting\":\"keep\"}");
+
+        service.restoreSnapshot(snapshot, targetRoot);
+
+        String restoredSettings = Files.readString(targetRoot.resolve("workspace_settings.json"));
+        assertTrue(restoredSettings.contains("local-workspace"));
+        assertTrue(restoredSettings.contains("localOnlySetting"));
     }
 
     @Test

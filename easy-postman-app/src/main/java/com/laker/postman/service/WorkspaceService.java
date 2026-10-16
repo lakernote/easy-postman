@@ -338,21 +338,27 @@ public class WorkspaceService {
         try {
             workspaces = WorkspaceStorageUtil.loadWorkspaces();
 
-            String currentWorkspaceId = WorkspaceStorageUtil.getCurrentWorkspace();
-            if (currentWorkspaceId != null) {
+            String storedCurrentWorkspaceId = WorkspaceStorageUtil.getCurrentWorkspace();
+            if (storedCurrentWorkspaceId != null) {
                 currentWorkspace = workspaces.stream()
-                        .filter(w -> w.getId().equals(currentWorkspaceId))
+                        .filter(w -> w.getId().equals(storedCurrentWorkspaceId))
                         .findFirst()
                         .orElse(null);
             }
 
             // 如果没有当前工作区但有工作区列表，设置第一个为当前工作区
+            boolean storedWorkspaceSelected = currentWorkspace != null;
             if (currentWorkspace == null && !workspaces.isEmpty()) {
                 currentWorkspace = workspaces.get(0);
                 WorkspaceStorageUtil.saveCurrentWorkspace(currentWorkspace.getId());
             }
 
-            log.info("Loaded {} workspaces", workspaces.size());
+            String selectionSource = storedWorkspaceSelected
+                    ? "saved_workspace"
+                    : storedCurrentWorkspaceId == null ? "first_available_workspace" : "saved_workspace_not_found";
+            log.info("Loaded workspaces: count={}, storedCurrentWorkspaceId={}, selectedCurrentWorkspaceId={}, selectionSource={}",
+                    workspaces.size(), storedCurrentWorkspaceId,
+                    currentWorkspace == null ? null : currentWorkspace.getId(), selectionSource);
         } catch (Exception e) {
             log.error("Failed to load workspaces", e);
             workspaces = new ArrayList<>();

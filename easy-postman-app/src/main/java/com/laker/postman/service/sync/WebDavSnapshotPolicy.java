@@ -14,12 +14,14 @@ public class WebDavSnapshotPolicy {
             "global_variables.json",
             "shortcuts.properties",
             "easy_postman_settings.properties",
-            "user_settings.json"
+            "user_settings.json",
+            "current_workspace.json"
     );
     private static final Set<String> ROOT_LOCAL_STATE_FILES = Set.of(
             "request_history.json",
             "opened_requests.json",
             "workspace_settings.json",
+            "current_workspace.json",
             "client_certificates.json",
             "elasticsearch_connection_profiles.json",
             "influxdb_connection_profiles.json"

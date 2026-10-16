@@ -39,6 +39,8 @@ public class WebDavSnapshotService {
     private static final DateTimeFormatter BACKUP_TIMESTAMP_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final String WORKSPACES_JSON = "workspaces.json";
+    private static final String CURRENT_WORKSPACE_JSON = "current_workspace.json";
+    private static final String WORKSPACE_SETTINGS_JSON = "workspace_settings.json";
     private static final String APP_SETTINGS = "easy_postman_settings.properties";
     private static final String USER_SETTINGS = "user_settings.json";
     private static final String MANAGED_WORKSPACES_DIR = "workspaces";
@@ -101,6 +103,10 @@ public class WebDavSnapshotService {
                 writeSnapshotEntry(zip, writtenEntries, entryName,
                         snapshotContent(normalizedRoot, entryName, file, workspacePlan));
             }
+            byte[] currentWorkspace = snapshotCurrentWorkspace(normalizedRoot);
+            if (currentWorkspace != null) {
+                writeSnapshotEntry(zip, writtenEntries, CURRENT_WORKSPACE_JSON, currentWorkspace);
+            }
             writeExternalWorkspaceEntries(zip, writtenEntries, normalizedRoot, workspacePlan.externalWorkspaces());
         }
     }
@@ -117,6 +123,10 @@ public class WebDavSnapshotService {
         log.info("Creating pre-restore local backup: operationId={}, dataRoot={}", operationId, normalizedRoot);
         Path backupPath = createBackup(normalizedRoot);
         log.info("Pre-restore local backup created: operationId={}, backupPath={}", operationId, backupPath);
+        String restoredCurrentWorkspaceId = null;
+        boolean currentWorkspaceMetadataFound = false;
+        int restoredEntries = 0;
+        long restoredBytes = 0;
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(snapshotPath))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -124,11 +134,19 @@ public class WebDavSnapshotService {
                     continue;
                 }
                 String entryName = policy.restoreEntryName(entry.getName());
+                byte[] content = zip.readAllBytes();
+                if (CURRENT_WORKSPACE_JSON.equals(entryName)) {
+                    currentWorkspaceMetadataFound = true;
+                    restoredCurrentWorkspaceId = parseCurrentWorkspaceId(content);
+                    if (restoredCurrentWorkspaceId == null) {
+                        log.warn("WebDAV current workspace metadata is invalid: operationId={}", operationId);
+                    }
+                    continue;
+                }
                 Path target = normalizedRoot.resolve(entryName).normalize();
                 if (!target.startsWith(normalizedRoot)) {
                     continue;
                 }
-                byte[] content = zip.readAllBytes();
                 if (WORKSPACES_JSON.equals(entryName)) {
                     content = restorePortableWorkspacePaths(new String(content, StandardCharsets.UTF_8), normalizedRoot)
                             .getBytes(StandardCharsets.UTF_8);
@@ -137,10 +155,115 @@ public class WebDavSnapshotService {
                 if (parent != null) {
                     Files.createDirectories(parent);
                 }
-                Files.write(target, content);
+                try {
+                    Files.write(target, content);
+                } catch (IOException e) {
+                    log.error("Failed to restore WebDAV snapshot entry: operationId={}, entry={}, bytes={}",
+                            operationId, entryName, content.length, e);
+                    throw e;
+                }
+                restoredEntries++;
+                restoredBytes += content.length;
             }
         }
+        boolean currentWorkspaceApplied = applyRestoredCurrentWorkspace(
+                normalizedRoot, restoredCurrentWorkspaceId, operationId);
+        log.info("WebDAV snapshot files applied: operationId={}, entries={}, bytes={}, currentWorkspaceMetadataFound={}, currentWorkspaceApplied={}",
+                operationId, restoredEntries, restoredBytes, currentWorkspaceMetadataFound, currentWorkspaceApplied);
         return new WebDavRestoreResult(backupPath);
+    }
+
+    private byte[] snapshotCurrentWorkspace(Path dataRoot) {
+        Path settingsPath = dataRoot.resolve(WORKSPACE_SETTINGS_JSON);
+        Path workspacesPath = dataRoot.resolve(WORKSPACES_JSON);
+        if (!Files.isRegularFile(settingsPath) || !Files.isRegularFile(workspacesPath)) {
+            return null;
+        }
+        try {
+            String currentWorkspaceId = parseCurrentWorkspaceId(Files.readAllBytes(settingsPath));
+            if (currentWorkspaceId == null || !containsWorkspaceId(Files.readString(workspacesPath), currentWorkspaceId)) {
+                log.info("Omitting current workspace from WebDAV snapshot: reason=current_workspace_not_in_workspace_list");
+                return null;
+            }
+            ObjectNode selection = JsonUtil.createJsonNode();
+            selection.put("currentWorkspaceId", currentWorkspaceId);
+            return JsonUtil.toJsonPrettyStr(selection).getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.warn("Omitting current workspace from WebDAV snapshot because local workspace settings could not be read", e);
+            return null;
+        }
+    }
+
+    private String parseCurrentWorkspaceId(byte[] content) {
+        try {
+            JsonNode root = JsonUtil.readTree(new String(content, StandardCharsets.UTF_8));
+            JsonNode id = root == null ? null : root.get("currentWorkspaceId");
+            if (id == null || !id.isTextual() || id.asText().isBlank()) {
+                return null;
+            }
+            return id.asText();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean containsWorkspaceId(String workspacesJson, String workspaceId) {
+        try {
+            JsonNode root = JsonUtil.readTree(workspacesJson);
+            if (!(root instanceof ArrayNode workspaces)) {
+                return false;
+            }
+            for (JsonNode workspace : workspaces) {
+                JsonNode id = workspace.get("id");
+                if (id != null && id.isTextual() && workspaceId.equals(id.asText())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            // An invalid workspace list must not cause the local workspace selection to be overwritten.
+        }
+        return false;
+    }
+
+    private boolean applyRestoredCurrentWorkspace(Path dataRoot, String workspaceId, String operationId) {
+        if (workspaceId == null) {
+            log.info("WebDAV snapshot has no current workspace metadata; preserving legacy workspace selection behavior: operationId={}",
+                    operationId);
+            return false;
+        }
+        Path workspacesPath = dataRoot.resolve(WORKSPACES_JSON);
+        if (!Files.isRegularFile(workspacesPath)) {
+            log.warn("WebDAV current workspace was not applied because the restored workspace list is missing: operationId={}",
+                    operationId);
+            return false;
+        }
+        try {
+            if (!containsWorkspaceId(Files.readString(workspacesPath), workspaceId)) {
+                log.warn("WebDAV current workspace was not applied because it is absent from the restored list: operationId={}",
+                        operationId);
+                return false;
+            }
+            Path settingsPath = dataRoot.resolve(WORKSPACE_SETTINGS_JSON);
+            ObjectNode settings;
+            if (Files.isRegularFile(settingsPath)) {
+                JsonNode existingSettings = JsonUtil.readTree(Files.readString(settingsPath));
+                if (!(existingSettings instanceof ObjectNode objectNode)) {
+                    log.warn("WebDAV current workspace was not applied because local workspace settings are not a JSON object: operationId={}",
+                            operationId);
+                    return false;
+                }
+                settings = objectNode;
+            } else {
+                settings = JsonUtil.createJsonNode();
+            }
+            settings.put("currentWorkspaceId", workspaceId);
+            Files.writeString(settingsPath, JsonUtil.toJsonPrettyStr(settings), StandardCharsets.UTF_8);
+            log.info("WebDAV current workspace restored: operationId={}, workspaceId={}", operationId, workspaceId);
+            return true;
+        } catch (Exception e) {
+            log.warn("WebDAV current workspace could not be applied: operationId={}", operationId, e);
+            return false;
+        }
     }
 
     private int validateSnapshot(Path snapshotPath, String operationId) throws IOException {
@@ -151,7 +274,9 @@ public class WebDavSnapshotService {
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 if (!entry.isDirectory() && policy.shouldRestoreEntry(entry.getName())) {
-                    hasRestorableEntry = true;
+                    if (!CURRENT_WORKSPACE_JSON.equals(policy.restoreEntryName(entry.getName()))) {
+                        hasRestorableEntry = true;
+                    }
                     restorableEntries++;
                     try (InputStream content = zip.getInputStream(entry)) {
                         content.transferTo(OutputStream.nullOutputStream());

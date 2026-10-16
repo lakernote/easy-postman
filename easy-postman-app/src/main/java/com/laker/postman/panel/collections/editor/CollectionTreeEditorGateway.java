@@ -47,6 +47,10 @@ public final class CollectionTreeEditorGateway {
         return collectionTreePanel().deleteResponseForRequest(requestId, responseId);
     }
 
+    public HttpRequestItem findRequestContainingResponse(String responseId) {
+        return collectionTreePanel().findRequestContainingResponse(responseId);
+    }
+
     private CollectionTreePanel collectionTreePanel() {
         return UiSingletonFactory.getInstance(CollectionTreePanel.class);
     }

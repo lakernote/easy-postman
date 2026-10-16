@@ -53,9 +53,7 @@ class RequestViewFactory {
         RequestSettingsPanel requestSettingsPanel = new RequestSettingsPanel(protocol);
         IndicatorTabComponent settingsTabIndicator = new IndicatorTabComponent(I18nUtil.getMessage(MessageKeys.TAB_SETTINGS));
 
-        boolean enableSaveButton = protocol.isHttpProtocol()
-                && panelType != RequestEditSubPanelType.SAVED_RESPONSE
-                && !requestOnlySnapshot;
+        boolean enableSaveButton = protocol.isHttpProtocol() && !requestOnlySnapshot;
         ResponsePanel responsePanel = requestOnlySnapshot ? null : new ResponsePanel(protocol, enableSaveButton);
 
         boolean isVertical = SettingManager.isLayoutVertical();

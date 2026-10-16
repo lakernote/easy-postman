@@ -317,6 +317,10 @@ public class CollectionTreePanel extends UiSingletonPanel {
         return true;
     }
 
+    public HttpRequestItem findRequestContainingResponse(String responseId) {
+        return SwingCollectionTreeQueries.findRequestContainingResponse(rootTreeNode, responseId);
+    }
+
     public boolean deleteResponseForRequest(String requestId, String responseId) {
         SwingCollectionRequestSaveCoordinator.RequestSaveResult result = requestSaveCoordinator
                 .removeSavedResponse(requestId, responseId)

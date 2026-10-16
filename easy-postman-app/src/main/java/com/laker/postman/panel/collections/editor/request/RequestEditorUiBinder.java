@@ -93,7 +93,7 @@ class RequestEditorUiBinder {
             return;
         }
         if (protocol.isHttpProtocol()
-                && panelType != RequestEditSubPanelType.SAVED_RESPONSE
+                && panelType != RequestEditSubPanelType.PERFORMANCE_SNAPSHOT
                 && responsePanel.getSaveResponseButton() != null) {
             responsePanel.getSaveResponseButton().addActionListener(saveAction);
         }

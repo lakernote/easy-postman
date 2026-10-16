@@ -70,6 +70,22 @@ public class SavedResponseSnapshotMapper {
         }
     }
 
+    public SavedResponse.OriginalRequest toOriginalRequest(HttpRequestItem item) {
+        SavedResponse.OriginalRequest original = new SavedResponse.OriginalRequest();
+        if (item == null) return original;
+        original.setMethod(item.getMethod());
+        original.setUrl(item.getUrl());
+        original.setHeaders(item.getHeadersList() != null ? new ArrayList<>(item.getHeadersList()) : new ArrayList<>());
+        original.setPathVariables(item.getPathVariablesList() != null ? new ArrayList<>(item.getPathVariablesList()) : new ArrayList<>());
+        original.setParams(item.getParamsList() != null ? new ArrayList<>(item.getParamsList()) : new ArrayList<>());
+        original.setBodyType(item.getBodyType());
+        original.setBody(item.getBody());
+        original.setFormDataList(item.getFormDataList() != null ? new ArrayList<>(item.getFormDataList()) : new ArrayList<>());
+        original.setUrlencodedList(item.getUrlencodedList() != null ? new ArrayList<>(item.getUrlencodedList()) : new ArrayList<>());
+        sanitizeOriginalRequest(original);
+        return original;
+    }
+
     public void sanitizeSavedResponse(SavedResponse savedResponse) {
         if (savedResponse == null) {
             return;

@@ -44,8 +44,8 @@ final class RequestEditorSaveController {
             }
 
             @Override
-            public void showSavedResponseReadonly() {
-                NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.SAVED_RESPONSE_READONLY));
+            public boolean saveSavedResponseRequest() {
+                return currentSubPanel != null && currentSubPanel.saveSavedResponseRequest();
             }
 
             @Override

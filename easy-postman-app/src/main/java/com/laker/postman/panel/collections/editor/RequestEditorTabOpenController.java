@@ -118,7 +118,8 @@ final class RequestEditorTabOpenController {
         }
 
         transientTabManager.validate();
-        RequestEditSubPanel newPanel = new RequestEditSubPanel(savedResponse);
+        RequestEditSubPanel newPanel = new RequestEditSubPanel(
+                savedResponse, collectionGateway.findRequestContainingResponse(savedResponseId));
         newPanel.loadSavedResponse(savedResponse);
         transientTabManager.showOrReplace(newPanel, savedResponse.getName(), RequestItemProtocolEnum.SAVED_RESPONSE);
     }
@@ -138,7 +139,8 @@ final class RequestEditorTabOpenController {
             return;
         }
 
-        RequestEditSubPanel newPanel = new RequestEditSubPanel(savedResponse);
+        RequestEditSubPanel newPanel = new RequestEditSubPanel(
+                savedResponse, collectionGateway.findRequestContainingResponse(savedResponseId));
         newPanel.loadSavedResponse(savedResponse);
         insertFixedTab(savedResponse.getName(), newPanel,
                 new ClosableTabComponent(savedResponse.getName(), RequestItemProtocolEnum.SAVED_RESPONSE, false));

@@ -2,6 +2,7 @@ package com.laker.postman.panel.collections.tree.adapter;
 
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.service.collections.CollectionTreeNodes;
+import com.laker.postman.request.model.SavedResponse;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
@@ -37,6 +38,25 @@ public class SwingCollectionTreeQueries {
             }
         }
 
+        return null;
+    }
+
+    public HttpRequestItem findRequestContainingResponse(DefaultMutableTreeNode node, String responseId) {
+        if (node == null || responseId == null || responseId.isBlank()) {
+            return null;
+        }
+        HttpRequestItem request = CollectionTreeNodes.request(node).orElse(null);
+        if (request != null && request.getResponse() != null) {
+            for (SavedResponse response : request.getResponse()) {
+                if (response != null && responseId.equals(response.getId())) {
+                    return request;
+                }
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            HttpRequestItem result = findRequestContainingResponse((DefaultMutableTreeNode) node.getChildAt(i), responseId);
+            if (result != null) return result;
+        }
         return null;
     }
 

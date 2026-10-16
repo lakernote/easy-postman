@@ -374,6 +374,10 @@ public final class MessageKeys {
     public static final String TAB_UNSAVED_CHANGES_TITLE = "tab.unsaved_changes.title";
     public static final String TAB_CLOSE_CURRENT = "tab.close_current";
     public static final String SAVED_RESPONSE_READONLY = "saved_response.readonly";
+    public static final String SAVED_RESPONSE_UPDATE_EXAMPLE = "saved_response.update_example";
+    public static final String SAVED_RESPONSE_SAVE_AS_NEW = "saved_response.save_as_new";
+    public static final String SAVED_RESPONSE_SAVE_CHOICE = "saved_response.save_choice";
+    public static final String SAVED_RESPONSE_UPDATED = "saved_response.updated";
     public static final String SAVED_RESPONSE_ORIGINAL_BODY_TRUNCATED = "saved_response.original_body_truncated";
     public static final String NETWORK_LOG_COPY_ACTUAL_CURL = "network_log.copy_actual_curl";
     public static final String NETWORK_LOG_COPY_ACTUAL_CURL_TOOLTIP = "network_log.copy_actual_curl.tooltip";

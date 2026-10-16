@@ -11,8 +11,7 @@ final class RequestEditorSaveCoordinator {
 
     boolean saveCurrentRequest(SaveContext context) {
         if (context.isSavedResponseTab()) {
-            context.showSavedResponseReadonly();
-            return false;
+            return context.saveSavedResponseRequest();
         }
 
         context.pinTransientTab();
@@ -61,7 +60,7 @@ final class RequestEditorSaveCoordinator {
     interface SaveContext {
         boolean isSavedResponseTab();
 
-        void showSavedResponseReadonly();
+        boolean saveSavedResponseRequest();
 
         void pinTransientTab();
 

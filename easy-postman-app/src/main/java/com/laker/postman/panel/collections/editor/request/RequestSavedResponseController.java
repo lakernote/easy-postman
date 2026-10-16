@@ -13,6 +13,7 @@ import com.laker.postman.common.component.notification.NotificationCenter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import javax.swing.JOptionPane;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.util.function.Consumer;
@@ -31,6 +32,8 @@ final class RequestSavedResponseController {
     private final Supplier<PreparedRequest> lastRequestSupplier;
     private final Supplier<HttpResponse> lastResponseSupplier;
     private final Supplier<HttpRequestItem> originalRequestSupplier;
+    private final Supplier<SavedResponse> savedResponseSupplier;
+    private final Supplier<HttpRequestItem> savedResponseOwnerSupplier;
     private final RequestEditorBinder requestEditorBinder;
     private final RequestEditorDefaultTabSelector requestEditorDefaultTabSelector;
     private final Supplier<RequestItemProtocolEnum> effectiveProtocolSupplier;
@@ -43,6 +46,30 @@ final class RequestSavedResponseController {
         HttpResponse lastResponse = lastResponseSupplier.get();
         if (lastResponse == null) {
             NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.RESPONSE_SAVE_NO_RESPONSE));
+            return;
+        }
+
+        SavedResponse currentExample = savedResponseSupplier.get();
+        HttpRequestItem owner = savedResponseOwnerSupplier.get();
+        if (currentExample != null && owner != null) {
+            Object[] choices = {
+                    I18nUtil.getMessage(MessageKeys.SAVED_RESPONSE_UPDATE_EXAMPLE),
+                    I18nUtil.getMessage(MessageKeys.SAVED_RESPONSE_SAVE_AS_NEW)
+            };
+            int choice = JOptionPane.showOptionDialog(dialogParent,
+                    I18nUtil.getMessage(MessageKeys.SAVED_RESPONSE_SAVE_CHOICE),
+                    I18nUtil.getMessage(MessageKeys.RESPONSE_SAVE_DIALOG_TITLE),
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, choices, choices[0]);
+            if (choice == 0) {
+                savedResponseUiController.updateExampleResponse(owner, currentExample,
+                        lastRequestSupplier.get(), lastResponse);
+            } else if (choice == 1) {
+                String name = savedResponseUiController.promptResponseName(dialogParent);
+                if (name != null && !name.trim().isEmpty()) {
+                    savedResponseUiController.saveNewExample(owner, name.trim(),
+                            lastRequestSupplier.get(), lastResponse);
+                }
+            }
             return;
         }
 

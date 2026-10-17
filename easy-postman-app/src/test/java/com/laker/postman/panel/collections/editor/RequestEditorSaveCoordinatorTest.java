@@ -97,6 +97,7 @@ public class RequestEditorSaveCoordinatorTest {
         private final HttpRequestItem currentRequest = new HttpRequestItem();
         private final TreeModel groupTreeModel = new DefaultTreeModel(null);
         private boolean savedResponseTab;
+        private boolean savedResponseRequestSaved;
         private boolean pinnedTransientTab;
         private String validationError;
         private String settingsValidationErrorShown;
@@ -118,7 +119,8 @@ public class RequestEditorSaveCoordinatorTest {
         }
 
         @Override
-        public void showSavedResponseReadonly() {
+        public boolean saveSavedResponseRequest() {
+            return savedResponseRequestSaved;
         }
 
         @Override

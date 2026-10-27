@@ -68,8 +68,8 @@ public class WorkspacePanelTest {
                 "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java");
         String source = Files.readString(sourcePath);
         String method = source.substring(
-                source.indexOf("private boolean addStandardGitMenuItems"),
-                source.indexOf("\n    private void addManagementMenuItems", source.indexOf("private boolean addStandardGitMenuItems"))
+                source.indexOf("private void addGitMenuItems"),
+                source.indexOf("\n    private void addManagementMenuItems", source.indexOf("private void addGitMenuItems"))
         );
 
         assertFalse(method.contains("MessageKeys.WORKSPACE_GIT_BRANCHES"));
@@ -82,8 +82,8 @@ public class WorkspacePanelTest {
                 "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java");
         String source = Files.readString(sourcePath);
         String method = source.substring(
-                source.indexOf("private boolean addStandardGitMenuItems"),
-                source.indexOf("\n    private void addManagementMenuItems", source.indexOf("private boolean addStandardGitMenuItems"))
+                source.indexOf("private void addGitMenuItems"),
+                source.indexOf("\n    private void addManagementMenuItems", source.indexOf("private void addGitMenuItems"))
         );
 
         assertFalse(method.contains("MessageKeys.WORKSPACE_GIT_DIFF"));
@@ -96,8 +96,8 @@ public class WorkspacePanelTest {
                 "easy-postman-app/src/main/java/com/laker/postman/panel/workspace/WorkspacePanel.java");
         String source = Files.readString(sourcePath);
         String method = source.substring(
-                source.indexOf("private boolean addStandardGitMenuItems"),
-                source.indexOf("\n    private void addManagementMenuItems", source.indexOf("private boolean addStandardGitMenuItems"))
+                source.indexOf("private void addGitMenuItems"),
+                source.indexOf("\n    private void addManagementMenuItems", source.indexOf("private void addGitMenuItems"))
         );
 
         assertFalse(method.contains("MessageKeys.WORKSPACE_GIT_COMMIT"));
@@ -110,7 +110,7 @@ public class WorkspacePanelTest {
         assertFalse(method.contains("showGitHistory(workspace)"));
         assertFalse(method.contains("MessageKeys.WORKSPACE_REMOTE_CONFIG_TITLE"));
         assertFalse(method.contains("configureRemoteRepository(workspace)"));
-        assertTrue(method.contains("MessageKeys.WORKSPACE_GIT_AUTH_UPDATE"));
+        assertFalse(method.contains("updateGitAuthentication"));
     }
 
     @Test

@@ -58,6 +58,12 @@ public interface GitPluginService {
         addRemoteRepository(workspace, remoteUrl, remoteBranch, authType, username, password, token);
     }
 
+    default List<String> testRemoteConnection(String remoteUrl, GitAuthType authType,
+                                              String username, String password, String token,
+                                              String sshPrivateKeyPath, String sshPassphrase) throws Exception {
+        throw new UnsupportedOperationException("Remote connection testing is not supported by this Git service");
+    }
+
     RemoteStatus getRemoteStatus(Workspace workspace) throws Exception;
 
     void convertLocalToGit(Workspace workspace, String localBranch) throws Exception;

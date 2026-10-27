@@ -9,9 +9,7 @@ import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.PlusButton;
 import com.laker.postman.common.component.dialog.TextInputDialog;
 import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.model.GitAuthType;
 import com.laker.postman.model.GitOperation;
-import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.RemoteStatus;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
@@ -434,41 +432,18 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     private void addGitMenuItems(JPopupMenu menu, Workspace workspace) {
-        if (workspace.getType() != WorkspaceType.GIT) {
-            // 所有本地工作区都可以转换为Git工作区（包括默认工作区）
-            // 默认工作区位于 workspaces/default/ 子目录，与其他工作区平级，根目录不参与 git
-            JMenuItem convertToGitItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_CONVERT_TO_GIT));
-            convertToGitItem.setIcon(IconUtil.create("icons/git.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
-            convertToGitItem.addActionListener(e -> convertToGitWorkspace(workspace));
-            menu.add(convertToGitItem);
-            // 只有非默认工作区才添加分隔符（因为后面还有重命名和删除选项）
-            if (!WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
-                menu.addSeparator();
-            }
+        if (workspace.getType() == WorkspaceType.GIT) {
             return;
         }
 
-        boolean gitItemsAdded = addStandardGitMenuItems(menu, workspace);
-        // 只有非默认工作区才添加分隔符（因为后面还有重命名和移除选项）
-        if (gitItemsAdded && !WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
+        // 所有本地工作区都可以转换为 Git 工作区（包括默认工作区）。
+        JMenuItem convertToGitItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_CONVERT_TO_GIT));
+        convertToGitItem.setIcon(IconUtil.create("icons/git.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        convertToGitItem.addActionListener(e -> convertToGitWorkspace(workspace));
+        menu.add(convertToGitItem);
+        if (!WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
             menu.addSeparator();
         }
-    }
-
-    private boolean addStandardGitMenuItems(JPopupMenu menu, Workspace workspace) {
-        try {
-            RemoteStatus remoteStatus = workspaceService.getRemoteStatus(workspace.getId());
-            if (remoteStatus.hasRemote) {
-                JMenuItem updateAuthItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_AUTH_UPDATE));
-                updateAuthItem.setIcon(IconUtil.createThemed("icons/security.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
-                updateAuthItem.addActionListener(e -> updateGitAuthentication(workspace));
-                menu.add(updateAuthItem);
-                return true;
-            }
-        } catch (Exception ex) {
-            log.warn("Failed to check remote repository for workspace: {}", workspace.getId(), ex);
-        }
-        return false;
     }
 
     private void addManagementMenuItems(JPopupMenu menu, Workspace workspace) {
@@ -818,27 +793,6 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     /**
-     * 更新 Git 认证信息
-     */
-    private void updateGitAuthentication(Workspace workspace) {
-        UpdateAuthDialog dialog = new UpdateAuthDialog(
-                SwingUtilities.getWindowAncestor(this), workspace);
-        dialog.setVisible(true);
-
-        if (dialog.isConfirmed()) {
-            refreshWorkspaceList();
-            String logMessage = "Git authentication updated successfully for workspace: " + workspace.getName();
-
-            // 如果更新了SSH密钥，添加额外提示
-            if (dialog.getAuthType() == GitAuthType.SSH_KEY) {
-                logMessage += " (SSH session cache cleared)";
-            }
-
-            log.info(logMessage);
-        }
-    }
-
-    /**
      * 刷新工作区列表
      */
     private void refreshWorkspaceList() {
@@ -956,11 +910,7 @@ public class WorkspacePanel extends UiSingletonPanel {
 
         Runnable pullAction = hasRemote ? () -> performGitPull(workspace) : null;
         Runnable pushAction = hasRemote && hasUpstream ? () -> performGitPush(workspace) : null;
-        Runnable remoteConfigAction = remoteStatusKnown
-                && !hasRemote
-                && workspace.getGitRepoSource() == GitRepoSource.INITIALIZED
-                ? () -> configureRemoteRepository(workspace)
-                : null;
+        Runnable remoteConfigAction = remoteStatusKnown ? () -> configureRemoteRepository(workspace) : null;
         return new WorkspaceDetailPanel.GitActions(
                 () -> performGitCommit(workspace),
                 pullAction,

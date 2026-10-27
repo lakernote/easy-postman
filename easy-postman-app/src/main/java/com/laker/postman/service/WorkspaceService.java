@@ -381,7 +381,7 @@ public class WorkspaceService {
     }
 
     /**
-     * 为 INITIALIZED 工作区添加远程仓库
+     * 为 Git 工作区新增远程仓库或更新已有 origin。
      */
     public void addRemoteRepository(String workspaceId, String remoteUrl, String remoteBranch,
                                     GitAuthType authType, String username, String password, String token) throws Exception {
@@ -397,61 +397,19 @@ public class WorkspaceService {
         saveWorkspaces();
     }
 
+    public List<String> testRemoteConnection(String remoteUrl, GitAuthType authType,
+                                             String username, String password, String token,
+                                             String sshPrivateKeyPath, String sshPassphrase) throws Exception {
+        return requireGitService().testRemoteConnection(remoteUrl, authType, username, password, token,
+                sshPrivateKeyPath, sshPassphrase);
+    }
+
     /**
      * 获取远程仓库状态信息
      */
     public RemoteStatus getRemoteStatus(String workspaceId) throws Exception {
         Workspace workspace = getWorkspaceById(workspaceId);
         return requireGitService().getRemoteStatus(workspace);
-    }
-
-    /**
-     * 更新工作区的 Git 认证信息
-     */
-    public void updateGitAuthentication(String workspaceId, GitAuthType authType,
-                                        String username, String password, String token,
-                                        String sshKeyPath, String sshPassphrase) {
-        Workspace workspace = getWorkspaceById(workspaceId);
-        if (workspace.getType() != WorkspaceType.GIT) {
-            throw new IllegalStateException("Not a Git workspace");
-        }
-
-        if (workspace.getGitRemoteUrl() == null || workspace.getGitRemoteUrl().isEmpty()) {
-            throw new IllegalStateException("Workspace does not have a remote repository configured");
-        }
-
-        // 更新工作区的认证信息
-        workspace.setGitAuthType(authType);
-        workspace.setGitUsername(username);
-
-        if (authType == GitAuthType.PASSWORD) {
-            workspace.setGitPassword(password);
-            workspace.setGitToken(null);
-            workspace.setSshPrivateKeyPath(null);
-            workspace.setSshPassphrase(null);
-        } else if (authType == GitAuthType.TOKEN) {
-            workspace.setGitToken(token);
-            workspace.setGitPassword(null);
-            workspace.setSshPrivateKeyPath(null);
-            workspace.setSshPassphrase(null);
-        } else if (authType == GitAuthType.SSH_KEY) {
-            workspace.setSshPrivateKeyPath(sshKeyPath);
-            workspace.setSshPassphrase(sshPassphrase);
-            workspace.setGitPassword(null);
-            workspace.setGitToken(null);
-            workspace.setGitUsername(null);
-        } else if (authType == GitAuthType.NONE) {
-            workspace.setGitPassword(null);
-            workspace.setGitToken(null);
-            workspace.setGitUsername(null);
-            workspace.setSshPrivateKeyPath(null);
-            workspace.setSshPassphrase(null);
-        }
-
-        workspace.setUpdatedAt(System.currentTimeMillis());
-        saveWorkspaces();
-
-        log.info("Updated Git authentication for workspace: {}, authType: {}", workspace.getName(), authType);
     }
 
     /**

@@ -21,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -66,10 +68,17 @@ public class GitOperationDialog extends JDialog {
     // 操作选择
     private JPanel optionsPanel;
     private ButtonGroup optionGroup;
+    private JButton retryButton;
+    private JButton cancelButton;
+    private JLabel actionHintLabel;
+    private JPanel footerFeedbackPanel;
+    private CardLayout footerFeedbackLayout;
 
     // 进度和按钮
     private JProgressBar progressBar;
     private JButton executeButton;
+    private boolean checkingStatus;
+    private boolean operationRunning;
 
     // 检测结果
     private GitStatusCheck statusCheck;
@@ -288,16 +297,23 @@ public class GitOperationDialog extends JDialog {
         applyIdeaSection(panel);
         panel.add(createSectionTitle(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK)), BorderLayout.NORTH);
 
-        JPanel statusInfoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        JPanel statusInfoPanel = new JPanel(new BorderLayout(8, 0));
         statusInfoPanel.setOpaque(false);
+        JPanel statusMessagePanel = new JPanel(new BorderLayout(8, 0));
+        statusMessagePanel.setOpaque(false);
         // Use theme-adapted icon that automatically adjusts to dark/light theme
         statusIcon = new JLabel(IconUtil.createThemed("icons/refresh.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
         statusMessage = new JLabel(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_CHECKING_STATUS));
         statusMessage.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
         statusMessage.setBorder(new EmptyBorder(0, 6, 0, 0));
 
-        statusInfoPanel.add(statusIcon);
-        statusInfoPanel.add(statusMessage);
+        statusMessagePanel.add(statusIcon, BorderLayout.WEST);
+        statusMessagePanel.add(statusMessage, BorderLayout.CENTER);
+        statusInfoPanel.add(statusMessagePanel, BorderLayout.CENTER);
+        retryButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_RETRY_CHECK), false);
+        retryButton.setVisible(false);
+        retryButton.addActionListener(e -> performPreOperationCheck());
+        statusInfoPanel.add(retryButton, BorderLayout.EAST);
 
         detailsArea = new JEditorPane();
         detailsArea.setEditable(false);
@@ -417,26 +433,53 @@ public class GitOperationDialog extends JDialog {
         JPanel panel = new JPanel(new BorderLayout(12, 0));
         ToolWindowSurfaceStyle.applyDialogFooter(panel);
 
-        // 进度条
+        // 状态提示与操作进度共用一块区域，避免禁用按钮看起来没有原因。
         progressBar = new JProgressBar();
         progressBar.setStringPainted(true);
         progressBar.setString("");
-        progressBar.setVisible(false);
+        actionHintLabel = new JLabel();
+        actionHintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        actionHintLabel.setForeground(ModernColors.getTextSecondary());
+        actionHintLabel.setBorder(new EmptyBorder(0, 4, 0, 4));
+        footerFeedbackLayout = new CardLayout();
+        footerFeedbackPanel = new JPanel(footerFeedbackLayout);
+        footerFeedbackPanel.setOpaque(false);
+        footerFeedbackPanel.add(actionHintLabel, "hint");
+        footerFeedbackPanel.add(progressBar, "progress");
+        footerFeedbackLayout.show(footerFeedbackPanel, "hint");
 
         // 按钮面板
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         buttonPanel.setOpaque(false);
 
-        JButton cancelButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL), false);
+        cancelButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL), false);
         cancelButton.addActionListener(e -> dispose());
 
         executeButton = createExecuteButton(operation);
         executeButton.addActionListener(new ExecuteActionListener());
+        if (operation == GitOperation.COMMIT) {
+            commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    updateExecuteButtonStateByChoice();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    updateExecuteButtonStateByChoice();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    updateExecuteButtonStateByChoice();
+                }
+            });
+        }
 
         buttonPanel.add(cancelButton);
         buttonPanel.add(executeButton);
 
-        panel.add(progressBar, BorderLayout.CENTER);
+        panel.add(footerFeedbackPanel, BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.EAST);
 
         return panel;
@@ -516,8 +559,22 @@ public class GitOperationDialog extends JDialog {
      * 执行操作前检查
      */
     private void performPreOperationCheck() {
+        checkingStatus = true;
+        statusCheck = null;
+        updateExecuteButtonStateByChoice();
         stepIndicator.setCurrentStep(0);
         updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_CHECKING_STATUS_AND_CONFLICT), "icons/refresh.svg", ModernColors.getPrimary());
+        retryButton.setVisible(false);
+        detailsArea.setText(createHtmlStart(false)
+                + escapeHtml(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_CHECKING_STATUS_AND_CONFLICT))
+                + "</body></html>");
+        fileChangesArea.setText(createHtmlStart(true)
+                + escapeHtml(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_LOADING_FILE_CHANGES))
+                + "</body></html>");
+        optionsPanel.removeAll();
+        optionsPanel.setVisible(false);
+        optionsPanel.revalidate();
+        optionsPanel.repaint();
 
         // 禁用执行按钮，防止在检查期间执行操作
         executeButton.setEnabled(false);
@@ -542,13 +599,36 @@ public class GitOperationDialog extends JDialog {
                         displayStatusCheck(statusCheck);
                         displayFileChangesStatus();
                         stepIndicator.setCurrentStep(1);
-                        updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_DONE), "icons/check.svg", ModernColors.getSuccess());
+                        if (isRemoteStatusUnavailable(statusCheck)) {
+                            updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_REMOTE_STATUS_UNAVAILABLE),
+                                    "icons/warning.svg", ModernColors.getError());
+                            statusMessage.setToolTipText(statusCheck.warnings.isEmpty()
+                                    ? null : statusCheck.warnings.get(0));
+                            retryButton.setVisible(true);
+                        } else if (isPullUpToDate(statusCheck)) {
+                            updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_NO_REMOTE_CHANGES), "icons/check.svg", ModernColors.getSuccess());
+                        } else {
+                            updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_DONE), "icons/check.svg", ModernColors.getSuccess());
+                        }
                     } else {
-                        updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_FAILED, "Unknown error"), "icons/warning.svg", ModernColors.getError());
+                        updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_FAILED,
+                                I18nUtil.getMessage(MessageKeys.GIT_DIALOG_UNKNOWN)),
+                                "icons/warning.svg", ModernColors.getError());
+                        displayFileChangesStatus();
+                        retryButton.setVisible(true);
                     }
                 } catch (Exception e) {
                     log.error("Failed to perform pre-operation check", e);
-                    updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_FAILED, e.getMessage()), "icons/warning.svg", ModernColors.getError());
+                    updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_FAILED,
+                            e.getMessage() == null ? I18nUtil.getMessage(MessageKeys.GIT_DIALOG_UNKNOWN) : e.getMessage()),
+                            "icons/warning.svg", ModernColors.getError());
+                    displayFileChangesStatus();
+                    retryButton.setVisible(true);
+                } finally {
+                    checkingStatus = false;
+                    updateExecuteButtonStateByChoice();
+                    retryButton.getParent().revalidate();
+                    retryButton.getParent().repaint();
                 }
             }
         };
@@ -563,22 +643,32 @@ public class GitOperationDialog extends JDialog {
         statusIcon.setIcon(IconUtil.createColored(iconPath, IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL, color));
         statusMessage.setText(message);
         statusMessage.setForeground(color);
+        statusMessage.setToolTipText(null);
     }
 
     /**
      * 显示状态检查结果
      */
     private void displayStatusCheck(GitStatusCheck check) {
-        stepIndicator.setCurrentStep(2);
-
         // 显示详细的状态检查信息
         displayStatusDetails(check);
-
-        // 更新执行按钮状态
-        updateExecuteButtonState(check);
-
         // 显示操作选择（如果需要）
         updateActionChoices(check);
+        updateExecuteButtonStateByChoice();
+    }
+
+    private boolean isRemoteStatusUnavailable(GitStatusCheck check) {
+        return check != null && (check.hasAuthenticationIssue
+                || (check.hasRemoteRepository && !check.canConnectToRemote));
+    }
+
+    private boolean isPullUpToDate(GitStatusCheck check) {
+        return operation == GitOperation.PULL
+                && check.hasRemoteRepository
+                && check.hasUpstreamBranch
+                && check.canConnectToRemote
+                && !check.isRemoteRepositoryEmpty
+                && !check.hasRemoteCommits;
     }
 
     /**
@@ -634,6 +724,13 @@ public class GitOperationDialog extends JDialog {
         optionsPanel.removeAll();
         optionGroup = new ButtonGroup();
 
+        if (operation != GitOperation.COMMIT && isRemoteStatusUnavailable(check)) {
+            optionsPanel.setVisible(false);
+            optionsPanel.revalidate();
+            optionsPanel.repaint();
+            return;
+        }
+
         boolean showOptions = false;
 
         if (operation == GitOperation.COMMIT && check.canCommit) {
@@ -642,7 +739,7 @@ public class GitOperationDialog extends JDialog {
             addOption(OPTION_COMMIT_FIRST,
                     I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST),
                     I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_DESC), true);
-            if (!check.hasActualConflicts) {
+            if (!check.hasActualConflicts && !isRemoteStatusUnavailable(check)) {
                 addOption(OPTION_COMMIT_AND_PUSH,
                         I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_AND_PUSH),
                         I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_AND_PUSH_DESC), false);
@@ -662,16 +759,22 @@ public class GitOperationDialog extends JDialog {
                 // 如果可以自动合并，优先推荐提交后拉取
                 if (check.canAutoMerge) {
                     addOptionTitle(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_PULL_UNCOMMITTED_AUTO_MERGE_TITLE));
-                    addOption(OPTION_COMMIT_FIRST, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL_AUTO_MERGE_DESC), true);
+                    addOption(OPTION_COMMIT_FIRST, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL_AUTO_MERGE_DESC), false);
                     addOption(OPTION_FORCE, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PULL_DISCARD), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PULL_DISCARD_WARNING_DESC), false, ModernColors.getError());
                 } else {
                     addOptionTitle(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_PULL_UNCOMMITTED_CHOOSE_TITLE));
-                    addOption(OPTION_COMMIT_FIRST, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL_KEEP_DESC), true);
+                    addOption(OPTION_COMMIT_FIRST, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_COMMIT_FIRST_PULL_KEEP_DESC), false);
                     addOption(OPTION_STASH, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_STASH_PULL), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_STASH_PULL_DESC), false);
                     addOption(OPTION_FORCE, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PULL_DISCARD), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PULL_LOSE_DESC), false, ModernColors.getError());
                 }
             }
         } else if (operation == GitOperation.PUSH) {
+            if (!check.hasLocalCommits || check.localCommitsAhead <= 0) {
+                optionsPanel.setVisible(false);
+                optionsPanel.revalidate();
+                optionsPanel.repaint();
+                return;
+            }
             // 优先处理实际冲突
             if (check.hasActualConflicts) {
                 showOptions = true;
@@ -687,7 +790,7 @@ public class GitOperationDialog extends JDialog {
                     addOption(OPTION_FORCE, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PUSH_OVERWRITE), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PUSH_OVERWRITE_REMOTE_DESC), false, ModernColors.getError());
                 } else {
                     addOptionTitle(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_PUSH_REMOTE_CHOOSE_TITLE));
-                    addOption(OPTION_FORCE, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PUSH_OVERWRITE), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PUSH_OVERWRITE_REMOTE_DESC), true, ModernColors.getError());
+                    addOption(OPTION_FORCE, I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PUSH_OVERWRITE), I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPTION_FORCE_PUSH_OVERWRITE_REMOTE_DESC), false, ModernColors.getError());
                 }
             }
         }
@@ -758,9 +861,12 @@ public class GitOperationDialog extends JDialog {
                     canExecute = true;
                 } else if (OPTION_CANCEL.equals(choice)) {
                     canExecute = false;
+                } else if (statusCheck != null && statusCheck.hasUncommittedChanges) {
+                    // 有未提交变更时，要求用户明确选择提交、暂存或丢弃策略。
+                    canExecute = false;
                 } else {
                     // 默认按 canPull
-                    canExecute = statusCheck != null && statusCheck.canPull;
+                    canExecute = statusCheck != null && (statusCheck.canPull || statusCheck.isRemoteRepositoryEmpty);
                 }
             }
             case PUSH -> {
@@ -768,8 +874,11 @@ public class GitOperationDialog extends JDialog {
                     canExecute = true;
                 } else if (OPTION_CANCEL.equals(choice)) {
                     canExecute = false;
+                } else if (statusCheck != null && statusCheck.hasRemoteCommits) {
+                    // 远程有新提交时，禁止在未明确选择策略的情况下直接推送。
+                    canExecute = false;
                 } else {
-                    canExecute = statusCheck != null && statusCheck.canPush;
+                    canExecute = statusCheck != null && (statusCheck.canPush || statusCheck.isFirstPush);
                 }
             }
             case COMMIT -> {
@@ -781,38 +890,89 @@ public class GitOperationDialog extends JDialog {
                 }
             }
         }
+        if (checkingStatus || operationRunning || statusCheck == null
+                || (operation != GitOperation.COMMIT && isRemoteStatusUnavailable(statusCheck))) {
+            canExecute = false;
+        }
+        if (operation == GitOperation.PULL && statusCheck != null
+                && (!statusCheck.hasUpstreamBranch
+                || (!statusCheck.canPull && !statusCheck.isRemoteRepositoryEmpty))) {
+            canExecute = false;
+        }
+        if (operation == GitOperation.PUSH && statusCheck != null
+                && (!statusCheck.hasLocalCommits || statusCheck.localCommitsAhead <= 0
+                || statusCheck.hasUncommittedChanges)) {
+            canExecute = false;
+        }
         executeButton.setEnabled(canExecute);
+        String reason = getDisabledActionReason(choice);
+        actionHintLabel.setText(reason);
+        actionHintLabel.setToolTipText(reason.isBlank() ? null : reason);
+        actionHintLabel.setVisible(!reason.isBlank());
+        executeButton.setToolTipText(reason.isBlank() ? operation.getDisplayName() : reason);
+        footerFeedbackPanel.revalidate();
+        footerFeedbackPanel.repaint();
     }
 
-    /**
-     * 更新执行按钮状态
-     */
-    private void updateExecuteButtonState(GitStatusCheck check) {
-        boolean canExecute = false;
-
-        switch (operation) {
-            case COMMIT -> {
-                canExecute = check.canCommit;
-            }
-            case PUSH -> {
-                if (check.isFirstPush) {
-                    canExecute = true;
-                } else {
-                    canExecute = check.canPush;
-                }
-            }
-            case PULL -> {
-                if (check.isRemoteRepositoryEmpty) {
-                    canExecute = true;
-                } else {
-                    canExecute = check.canPull;
-                }
-            }
+    private String getDisabledActionReason(String choice) {
+        if (checkingStatus) {
+            return I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_CHECKING);
+        }
+        if (operationRunning) {
+            return "";
+        }
+        if (statusCheck == null) {
+            return I18nUtil.getMessage(MessageKeys.GIT_DIALOG_STATUS_CHECK_FAILED,
+                    I18nUtil.getMessage(MessageKeys.GIT_DIALOG_UNKNOWN));
+        }
+        if (operation != GitOperation.COMMIT && isRemoteStatusUnavailable(statusCheck)) {
+            return I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_REMOTE_UNAVAILABLE);
         }
 
-        executeButton.setEnabled(canExecute);
-
-        log.debug("Operation: {}, CanExecute: {}", operation, canExecute);
+        return switch (operation) {
+            case COMMIT -> {
+                if (!statusCheck.conflicting.isEmpty()) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_HAS_CONFLICTS);
+                }
+                if (!statusCheck.canCommit) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_NO_CHANGES);
+                }
+                if (commitMessageArea.getText().trim().isEmpty()) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_COMMIT_MESSAGE);
+                }
+                yield "";
+            }
+            case PULL -> {
+                if (!statusCheck.hasRemoteRepository) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_NO_REMOTE);
+                }
+                if (!statusCheck.hasUpstreamBranch) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_NO_UPSTREAM);
+                }
+                if (!statusCheck.canPull && !statusCheck.isRemoteRepositoryEmpty) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_NO_REMOTE_CHANGES);
+                }
+                if (OPTION_CANCEL.equals(choice) || (statusCheck.hasUncommittedChanges && "default".equals(choice))) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_CHOOSE_STRATEGY);
+                }
+                yield "";
+            }
+            case PUSH -> {
+                if (!statusCheck.hasRemoteRepository) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_NO_REMOTE);
+                }
+                if (statusCheck.hasUncommittedChanges) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_UNCOMMITTED_CHANGES);
+                }
+                if (!statusCheck.hasLocalCommits || statusCheck.localCommitsAhead <= 0) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_NO_LOCAL_COMMITS);
+                }
+                if (statusCheck.hasRemoteCommits && "default".equals(choice)) {
+                    yield I18nUtil.getMessage(MessageKeys.GIT_DIALOG_ACTION_REASON_CHOOSE_STRATEGY);
+                }
+                yield "";
+            }
+        };
     }
 
     /**
@@ -1024,15 +1184,13 @@ public class GitOperationDialog extends JDialog {
                 return;
             }
 
-            confirmed = true;
-
             if (operation == GitOperation.COMMIT) {
                 commitMessage = commitMessageArea.getText().trim();
             }
 
             String userChoice = getUserChoice();
 
-            stepIndicator.setCurrentStep(3);
+            stepIndicator.setCurrentStep(2);
             showProgress();
 
             SwingWorker<Void, String> worker = new SwingWorker<>() {
@@ -1054,6 +1212,7 @@ public class GitOperationDialog extends JDialog {
                     hideProgress();
                     try {
                         get();
+                        confirmed = true;
                         updateStatus(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPERATION_COMPLETED), "icons/check.svg", ModernColors.getSuccess());
 
                         NotificationCenter.showSuccess(
@@ -1074,6 +1233,7 @@ public class GitOperationDialog extends JDialog {
                         NotificationCenter.showError(
                                 I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPERATION_FAILED_MESSAGE, errorMessage)
                         );
+                        performPreOperationCheck();
                     }
                 }
 
@@ -1168,16 +1328,22 @@ public class GitOperationDialog extends JDialog {
         }
 
         private void showProgress() {
-            progressBar.setVisible(true);
+            operationRunning = true;
+            cancelButton.setEnabled(false);
+            setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+            footerFeedbackLayout.show(footerFeedbackPanel, "progress");
             progressBar.setIndeterminate(true);
             progressBar.setString(I18nUtil.getMessage(MessageKeys.GIT_DIALOG_OPERATION_EXECUTING));
             executeButton.setEnabled(false);
         }
 
         private void hideProgress() {
-            progressBar.setVisible(false);
+            operationRunning = false;
+            cancelButton.setEnabled(true);
+            setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+            footerFeedbackLayout.show(footerFeedbackPanel, "hint");
             progressBar.setIndeterminate(false);
-            executeButton.setEnabled(true);
+            updateExecuteButtonStateByChoice();
         }
     }
 

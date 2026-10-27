@@ -736,9 +736,6 @@ public final class MessageKeys {
     public static final String WORKSPACE_GIT_HISTORY = "workspace.git.history";
     public static final String WORKSPACE_GIT_DIFF = "workspace.git.diff";
     public static final String WORKSPACE_GIT_BRANCHES = "workspace.git.branches";
-    public static final String WORKSPACE_GIT_AUTH_UPDATE = "workspace.git.auth.update";
-    public static final String WORKSPACE_GIT_AUTH_UPDATE_SUCCESS = "workspace.git.auth.update.success";
-    public static final String WORKSPACE_GIT_AUTH_UPDATE_FAILED = "workspace.git.auth.update.failed";
 
     // Git History
     public static final String GIT_HISTORY_TITLE = "git.history.title";
@@ -2100,11 +2097,14 @@ public final class MessageKeys {
 
     // ============ 工作区远程配置相关 ============
     public static final String WORKSPACE_REMOTE_CONFIG_TITLE = "workspace.remote.config.title";
-    public static final String WORKSPACE_CONFIG_PROGRESS = "workspace.config.progress";
     public static final String WORKSPACE_CONFIG_PROGRESS_START = "workspace.config.progress.start";
     public static final String WORKSPACE_CONFIG_PROGRESS_VALIDATING = "workspace.config.progress.validating";
     public static final String WORKSPACE_CONFIG_PROGRESS_DONE = "workspace.config.progress.done";
     public static final String WORKSPACE_CONFIG_PROGRESS_FAILED = "workspace.config.progress.failed";
+    public static final String WORKSPACE_CONFIG_TEST_CONNECTION = "workspace.config.test.connection";
+    public static final String WORKSPACE_CONFIG_TEST_CONNECTION_TOOLTIP = "workspace.config.test.connection.tooltip";
+    public static final String WORKSPACE_CONFIG_TESTING_CONNECTION = "workspace.config.testing.connection";
+    public static final String WORKSPACE_CONFIG_TEST_CONNECTION_SUCCESS = "workspace.config.test.connection.success";
     public static final String WORKSPACE_VALIDATION_GIT_URL_INVALID = "workspace.validation.git.url.invalid";
 
     // ============ 自动更新设置相关 ============
@@ -2295,6 +2295,19 @@ public final class MessageKeys {
     public static final String GIT_DIALOG_CHECKING_STATUS_AND_CONFLICT = "git.dialog.checkingStatusAndConflict";
     public static final String GIT_DIALOG_STATUS_CHECK_DONE = "git.dialog.statusCheckDone";
     public static final String GIT_DIALOG_STATUS_CHECK_FAILED = "git.dialog.statusCheckFailed";
+    public static final String GIT_DIALOG_REMOTE_STATUS_UNAVAILABLE = "git.dialog.remoteStatusUnavailable";
+    public static final String GIT_DIALOG_RETRY_CHECK = "git.dialog.retryCheck";
+    public static final String GIT_DIALOG_ACTION_REASON_CHECKING = "git.dialog.actionReason.checking";
+    public static final String GIT_DIALOG_ACTION_REASON_NO_CHANGES = "git.dialog.actionReason.noChanges";
+    public static final String GIT_DIALOG_ACTION_REASON_HAS_CONFLICTS = "git.dialog.actionReason.hasConflicts";
+    public static final String GIT_DIALOG_ACTION_REASON_COMMIT_MESSAGE = "git.dialog.actionReason.commitMessage";
+    public static final String GIT_DIALOG_ACTION_REASON_REMOTE_UNAVAILABLE = "git.dialog.actionReason.remoteUnavailable";
+    public static final String GIT_DIALOG_ACTION_REASON_NO_REMOTE = "git.dialog.actionReason.noRemote";
+    public static final String GIT_DIALOG_ACTION_REASON_NO_UPSTREAM = "git.dialog.actionReason.noUpstream";
+    public static final String GIT_DIALOG_ACTION_REASON_NO_REMOTE_CHANGES = "git.dialog.actionReason.noRemoteChanges";
+    public static final String GIT_DIALOG_ACTION_REASON_NO_LOCAL_COMMITS = "git.dialog.actionReason.noLocalCommits";
+    public static final String GIT_DIALOG_ACTION_REASON_UNCOMMITTED_CHANGES = "git.dialog.actionReason.uncommittedChanges";
+    public static final String GIT_DIALOG_ACTION_REASON_CHOOSE_STRATEGY = "git.dialog.actionReason.chooseStrategy";
     public static final String GIT_DIALOG_STATUS_SUMMARY = "git.dialog.statusSummary";
     public static final String GIT_DIALOG_HAS_UNCOMMITTED_CHANGES = "git.dialog.hasUncommittedChanges";
     public static final String GIT_DIALOG_HAS_LOCAL_COMMITS = "git.dialog.hasLocalCommits";
@@ -2325,7 +2338,6 @@ public final class MessageKeys {
     // 步骤指示器相关
     public static final String STEP_CHECK_STATUS = "step.checkStatus";
     public static final String STEP_CONFIRM_CHANGE = "step.confirmChange";
-    public static final String STEP_SELECT_STRATEGY = "step.selectStrategy";
     public static final String STEP_EXECUTE_OPERATION = "step.executeOperation";
 
     // ============ GitOperationDialog 缺失的国际化键 ============

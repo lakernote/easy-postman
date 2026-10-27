@@ -16,6 +16,7 @@ import net.miginfocom.swing.MigLayout;
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import java.util.Locale;
 
 import static com.laker.postman.util.MessageKeys.WORKSPACE_CONFIG_PROGRESS_DONE;
 import static com.laker.postman.util.MessageKeys.WORKSPACE_CONFIG_PROGRESS_FAILED;
@@ -24,7 +25,7 @@ import static com.laker.postman.util.MessageKeys.WORKSPACE_CONFIG_PROGRESS_VALID
 import static com.laker.postman.util.MessageKeys.WORKSPACE_VALIDATION_GIT_URL_INVALID;
 
 /**
- * Embedded remote repository configuration panel for initialized Git workspaces.
+ * Remote repository configuration panel for Git workspaces.
  */
 @Slf4j
 public class RemoteConfigPanel extends JPanel {
@@ -38,6 +39,11 @@ public class RemoteConfigPanel extends JPanel {
     private static final int PROGRESS_BAR_WIDTH = 140;
     private static final int PROGRESS_BAR_HEIGHT = 4;
 
+    private record RemoteConfiguration(String url, String branch, GitAuthType authType,
+                                       String username, String password, String token,
+                                       String sshKeyPath, String sshPassphrase) {
+    }
+
     private final transient Workspace workspace;
     private final transient Runnable configuredAction;
     private JTextField remoteUrlField;
@@ -45,13 +51,39 @@ public class RemoteConfigPanel extends JPanel {
     private GitAuthPanel gitAuthPanel;
     private JLabel statusLabel;
     private JProgressBar progressBar;
+    private JButton testConnectionButton;
     private JButton saveButton;
 
     public RemoteConfigPanel(Workspace workspace, Runnable configuredAction) {
         this.workspace = workspace;
         this.configuredAction = configuredAction;
         initComponents();
+        loadWorkspaceRemoteSettings();
         initUI();
+    }
+
+    private void loadWorkspaceRemoteSettings() {
+        remoteUrlField.setText(workspace.getGitRemoteUrl() == null ? "" : workspace.getGitRemoteUrl());
+
+        GitAuthType authType = workspace.getGitAuthType() == null ? GitAuthType.NONE : workspace.getGitAuthType();
+        gitAuthPanel.getAuthTypeCombo().setSelectedItem(authType);
+        switch (authType) {
+            case PASSWORD -> {
+                gitAuthPanel.getPasswordUsernameField().setText(workspace.getGitUsername());
+                gitAuthPanel.getPasswordField().setText(workspace.getGitPassword());
+            }
+            case TOKEN -> {
+                gitAuthPanel.getTokenUsernameField().setText(workspace.getGitUsername());
+                gitAuthPanel.getTokenField().setText(workspace.getGitToken());
+            }
+            case SSH_KEY -> {
+                gitAuthPanel.getSshKeyPathField().setText(workspace.getSshPrivateKeyPath());
+                gitAuthPanel.getSshPassphraseField().setText(workspace.getSshPassphrase());
+            }
+            case NONE -> {
+                // No credentials to restore.
+            }
+        }
     }
 
     private void initComponents() {
@@ -64,7 +96,7 @@ public class RemoteConfigPanel extends JPanel {
 
         gitAuthPanel = new GitAuthPanel();
 
-        statusLabel = new JLabel(I18nUtil.getMessage(MessageKeys.PROGRESS_PANEL_FILL_CONFIG));
+        statusLabel = new JLabel();
         statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
         statusLabel.setForeground(ModernColors.getTextSecondary());
 
@@ -80,6 +112,14 @@ public class RemoteConfigPanel extends JPanel {
                 "icons/save.svg"
         );
         saveButton.addActionListener(e -> configureRemote());
+
+        testConnectionButton = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.WORKSPACE_CONFIG_TEST_CONNECTION),
+                false,
+                "icons/connect.svg"
+        );
+        testConnectionButton.setToolTipText(I18nUtil.getMessage(MessageKeys.WORKSPACE_CONFIG_TEST_CONNECTION_TOOLTIP));
+        testConnectionButton.addActionListener(e -> testRemoteConnection());
     }
 
     private void initUI() {
@@ -103,11 +143,12 @@ public class RemoteConfigPanel extends JPanel {
     private JPanel createHeaderActionRow() {
         JPanel row = new JPanel(new MigLayout(
                 "insets 0, fillx, novisualpadding",
-                "[grow,fill]8[]",
+                "[grow,fill]8[]8[]",
                 "[]"
         ));
         row.setOpaque(false);
         row.add(createHeaderTitlePanel(), "growx, wmin 0");
+        row.add(testConnectionButton, "aligny center, h " + ModernButtonFactory.COMPACT_BUTTON_HEIGHT + "!");
         row.add(saveButton, "aligny center, h " + ModernButtonFactory.COMPACT_BUTTON_HEIGHT + "!");
         return row;
     }
@@ -199,8 +240,9 @@ public class RemoteConfigPanel extends JPanel {
             return;
         }
 
+        RemoteConfiguration configuration = captureConfiguration();
         setBusy(true, I18nUtil.getMessage(WORKSPACE_CONFIG_PROGRESS_START));
-        SwingWorker<Void, String> worker = createWorkerTask();
+        SwingWorker<Void, String> worker = createWorkerTask(configuration);
         worker.addPropertyChangeListener(evt -> {
             if ("progress".equals(evt.getPropertyName())) {
                 progressBar.setValue((Integer) evt.getNewValue());
@@ -209,7 +251,55 @@ public class RemoteConfigPanel extends JPanel {
         worker.execute();
     }
 
-    private SwingWorker<Void, String> createWorkerTask() {
+    private void testRemoteConnection() {
+        try {
+            validateRemoteConnectionInput();
+        } catch (IllegalArgumentException ex) {
+            showStatus(ex.getMessage(), true);
+            return;
+        }
+
+        RemoteConfiguration configuration = captureConfiguration();
+
+        setBusy(true, I18nUtil.getMessage(MessageKeys.WORKSPACE_CONFIG_TESTING_CONNECTION));
+        progressBar.setIndeterminate(true);
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                return WorkspaceService.getInstance().testRemoteConnection(
+                        configuration.url(), configuration.authType(), configuration.username(),
+                        configuration.password(), configuration.token(), configuration.sshKeyPath(),
+                        configuration.sshPassphrase());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> branches = get();
+                    showStatus(I18nUtil.getMessage(MessageKeys.WORKSPACE_CONFIG_TEST_CONNECTION_SUCCESS, branches.size()), false);
+                } catch (Exception e) {
+                    log.warn("Failed to test remote repository connection for workspace: {}", workspace.getId(), e);
+                    showStatus(I18nUtil.getMessage(MessageKeys.WORKSPACE_OPERATION_FAILED_DETAIL, rootMessage(e)), true);
+                } finally {
+                    setBusy(false, null);
+                }
+            }
+        }.execute();
+    }
+
+    private RemoteConfiguration captureConfiguration() {
+        return new RemoteConfiguration(
+                remoteUrlField.getText().trim(),
+                remoteBranchField.getText().trim(),
+                (GitAuthType) gitAuthPanel.getAuthTypeCombo().getSelectedItem(),
+                gitAuthPanel.getUsername(),
+                gitAuthPanel.getPassword(),
+                gitAuthPanel.getToken(),
+                gitAuthPanel.getSshKeyPath(),
+                gitAuthPanel.getSshPassphrase());
+    }
+
+    private SwingWorker<Void, String> createWorkerTask(RemoteConfiguration configuration) {
         return new SwingWorker<>() {
             @Override
             protected Void doInBackground() {
@@ -217,23 +307,19 @@ public class RemoteConfigPanel extends JPanel {
                 setProgress(10);
 
                 try {
-                    String url = remoteUrlField.getText().trim();
-                    String branch = remoteBranchField.getText().trim();
-                    GitAuthType authType = (GitAuthType) gitAuthPanel.getAuthTypeCombo().getSelectedItem();
-
                     publish(I18nUtil.getMessage(WORKSPACE_CONFIG_PROGRESS_VALIDATING));
                     setProgress(30);
 
                     WorkspaceService.getInstance().addRemoteRepository(
                             workspace.getId(),
-                            url,
-                            branch,
-                            authType,
-                            gitAuthPanel.getUsername(),
-                            gitAuthPanel.getPassword(),
-                            gitAuthPanel.getToken(),
-                            gitAuthPanel.getSshKeyPath(),
-                            gitAuthPanel.getSshPassphrase()
+                            configuration.url(),
+                            configuration.branch(),
+                            configuration.authType(),
+                            configuration.username(),
+                            configuration.password(),
+                            configuration.token(),
+                            configuration.sshKeyPath(),
+                            configuration.sshPassphrase()
                     );
 
                     publish(I18nUtil.getMessage(WORKSPACE_CONFIG_PROGRESS_DONE));
@@ -270,17 +356,25 @@ public class RemoteConfigPanel extends JPanel {
     }
 
     private void validateInput() {
-        String url = remoteUrlField.getText().trim();
-        if (url.isEmpty()) {
-            throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_URL_REQUIRED));
-        }
-        if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("git@")) {
-            throw new IllegalArgumentException(I18nUtil.getMessage(WORKSPACE_VALIDATION_GIT_URL_INVALID));
-        }
+        validateRemoteConnectionInput();
 
         String branch = remoteBranchField.getText().trim();
         if (branch.isEmpty()) {
             throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_BRANCH_INVALID));
+        }
+    }
+
+    private void validateRemoteConnectionInput() {
+        String url = remoteUrlField.getText().trim();
+        if (url.isEmpty()) {
+            throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_URL_REQUIRED));
+        }
+        String normalizedUrl = url.toLowerCase(Locale.ROOT);
+        boolean standardUrl = normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")
+                || normalizedUrl.startsWith("git://") || normalizedUrl.startsWith("ssh://");
+        boolean scpUrl = url.matches("^[^/@:]+@[^/:]+:.+$");
+        if (!standardUrl && !scpUrl) {
+            throw new IllegalArgumentException(I18nUtil.getMessage(WORKSPACE_VALIDATION_GIT_URL_INVALID));
         }
 
         gitAuthPanel.validateAuth();
@@ -288,9 +382,13 @@ public class RemoteConfigPanel extends JPanel {
 
     private void setBusy(boolean busy, String status) {
         setInputComponentsEnabled(!busy);
+        testConnectionButton.setEnabled(!busy);
         saveButton.setEnabled(!busy);
         progressBar.setVisible(busy);
         progressBar.setValue(0);
+        if (!busy) {
+            progressBar.setIndeterminate(false);
+        }
         if (status != null) {
             showStatus(status, false);
         }

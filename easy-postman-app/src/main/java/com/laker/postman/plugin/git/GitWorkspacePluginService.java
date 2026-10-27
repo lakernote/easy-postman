@@ -22,6 +22,7 @@ import org.eclipse.jgit.api.CloneCommand;
 import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand;
+import org.eclipse.jgit.api.LsRemoteCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.api.errors.RefNotAdvertisedException;
@@ -1293,12 +1294,15 @@ public class GitWorkspacePluginService implements GitPluginService {
                                     GitAuthType authType, String username, String password, String token,
                                     String sshPrivateKeyPath, String sshPassphrase) throws Exception {
         ensureGitWorkspace(workspace);
-        if (workspace.getGitRepoSource() != GitRepoSource.INITIALIZED) {
-            throw new IllegalStateException("Only Git workspaces of type INITIALIZED can add a remote repository");
-        }
 
         try (Git git = Git.open(new File(workspace.getPath()))) {
-            git.remoteAdd().setName("origin").setUri(new URIish(remoteUrl)).call();
+            boolean originExists = git.remoteList().call().stream()
+                    .anyMatch(remote -> "origin".equals(remote.getName()));
+            if (originExists) {
+                git.remoteSetUrl().setRemoteName("origin").setRemoteUri(new URIish(remoteUrl)).call();
+            } else {
+                git.remoteAdd().setName("origin").setUri(new URIish(remoteUrl)).call();
+            }
 
             String currentBranch = git.getRepository().getBranch();
             String targetRemoteBranch = remoteBranch;
@@ -1343,6 +1347,37 @@ public class GitWorkspacePluginService implements GitPluginService {
             }
             workspace.setUpdatedAt(System.currentTimeMillis());
         }
+    }
+
+    @Override
+    public List<String> testRemoteConnection(String remoteUrl, GitAuthType authType,
+                                             String username, String password, String token,
+                                             String sshPrivateKeyPath, String sshPassphrase) throws Exception {
+        if (remoteUrl == null || remoteUrl.isBlank()) {
+            throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_URL_REQUIRED));
+        }
+
+        Workspace authWorkspace = new Workspace();
+        authWorkspace.setGitAuthType(authType == null ? GitAuthType.NONE : authType);
+        authWorkspace.setGitUsername(username);
+        authWorkspace.setGitPassword(password);
+        authWorkspace.setGitToken(token);
+        authWorkspace.setSshPrivateKeyPath(sshPrivateKeyPath);
+        authWorkspace.setSshPassphrase(sshPassphrase);
+
+        LsRemoteCommand command = Git.lsRemoteRepository()
+                .setRemote(remoteUrl)
+                .setHeads(true)
+                .setTags(false)
+                .setTimeout(GIT_OPERATION_TIMEOUT);
+        applyAuth(command, authWorkspace);
+
+        return command.call().stream()
+                .map(Ref::getName)
+                .filter(refName -> refName.startsWith("refs/heads/"))
+                .map(refName -> refName.substring("refs/heads/".length()))
+                .sorted()
+                .toList();
     }
 
     @Override

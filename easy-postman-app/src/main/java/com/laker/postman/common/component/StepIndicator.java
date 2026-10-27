@@ -70,7 +70,6 @@ public class StepIndicator extends JPanel {
     private String[] getStepsForOperation() {
         return new String[]{I18nUtil.getMessage(MessageKeys.STEP_CHECK_STATUS),
                 I18nUtil.getMessage(MessageKeys.STEP_CONFIRM_CHANGE),
-                I18nUtil.getMessage(MessageKeys.STEP_SELECT_STRATEGY),
                 I18nUtil.getMessage(MessageKeys.STEP_EXECUTE_OPERATION)};
     }
 

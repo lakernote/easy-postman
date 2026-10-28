@@ -2,6 +2,7 @@ package com.laker.postman.panel.performance;
 
 import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.HttpHeader;
 
 
 import com.laker.postman.performance.model.PerformanceTreeNode;
@@ -10,6 +11,7 @@ import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.model.NodeType;
 import com.laker.postman.performance.core.model.WebSocketPerformanceData;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import org.testng.annotations.Test;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -60,7 +62,7 @@ public class PerformanceTreeSnapshotTest {
                 .name("Snapshot Request")
                 .url("https://example.com/api")
                 .method("POST")
-                .protocol(PerformanceProtocol.HTTP)
+                .protocol(PerformanceRequestProtocol.HTTP)
                 .body("payload")
                 .build();
         PerformanceTreeNode requestData = new PerformanceTreeNode("Snapshot Request", NodeType.REQUEST);
@@ -115,7 +117,7 @@ public class PerformanceTreeSnapshotTest {
         DefaultMutableTreeNode webSocketNode = requestNode(RequestItemProtocolEnum.WEBSOCKET);
         ((PerformanceTreeNode) webSocketNode.getUserObject()).enabled = false;
         root.add(webSocketNode);
-        DefaultMutableTreeNode sseNode = requestNode(RequestItemProtocolEnum.SSE);
+        DefaultMutableTreeNode sseNode = sseRequestNode();
         ((PerformanceTreeNode) sseNode.getUserObject()).enabled = false;
         root.add(sseNode);
 
@@ -128,10 +130,11 @@ public class PerformanceTreeSnapshotTest {
     @Test
     public void shouldCollectAvailableProtocolFromSnapshotOnlyRequest() {
         PerformanceRequestSnapshot requestSnapshot = PerformanceRequestSnapshot.builder()
-                .protocol(PerformanceProtocol.SSE)
+                .protocol(PerformanceRequestProtocol.HTTP)
                 .build();
         PerformanceTreeNode requestData = new PerformanceTreeNode("Snapshot Request", NodeType.REQUEST);
         requestData.requestSnapshot = requestSnapshot;
+        requestData.ssePerformanceEnabled = true;
         DefaultMutableTreeNode root = new DefaultMutableTreeNode(new PerformanceTreeNode("Plan", NodeType.ROOT));
         root.add(new DefaultMutableTreeNode(requestData));
 
@@ -172,5 +175,11 @@ public class PerformanceTreeSnapshotTest {
         HttpRequestItem item = new HttpRequestItem();
         item.setProtocol(protocol);
         return new DefaultMutableTreeNode(new PerformanceTreeNode(protocol.name(), NodeType.REQUEST, item));
+    }
+
+    private static DefaultMutableTreeNode sseRequestNode() {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setHeadersList(java.util.List.of(new HttpHeader(true, "Accept", "text/event-stream")));
+        return new DefaultMutableTreeNode(new PerformanceTreeNode("SSE request", NodeType.REQUEST, item));
     }
 }

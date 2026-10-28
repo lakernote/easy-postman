@@ -418,7 +418,7 @@ public class PerformanceExecutionEngineTest {
     }
 
     @Test
-    public void compiledPlanExecutionShouldValidateSseStagesBeforeNetwork() throws Exception {
+    public void compiledPlanShouldNotInferSseScenarioFromRequestHeaders() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
                     .setHeader("Content-Type", "text/event-stream")
@@ -445,9 +445,9 @@ public class PerformanceExecutionEngineTest {
                     statsResultCollector(statsCollector)
             ).runTestPlan(compile(group), 1);
 
-            assertEquals(server.getRequestCount(), 0);
+            assertEquals(server.getRequestCount(), 1);
             assertEquals(statsCollector.snapshot().totalRequests(), 1);
-            assertEquals(statsCollector.snapshot().successRequests(), 0);
+            assertEquals(statsCollector.snapshot().successRequests(), 1);
         }
     }
 

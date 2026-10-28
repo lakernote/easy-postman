@@ -1,6 +1,5 @@
 package com.laker.postman.performance.core.request;
 
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import lombok.Builder;
 import lombok.Value;
 
@@ -11,7 +10,7 @@ import java.util.List;
 public class PerformanceOutboundRequest {
     String id;
     String name;
-    PerformanceProtocol protocol;
+    PerformanceRequestProtocol protocol;
     String method;
     String url;
     List<PerformanceRequestKeyValue> headers;
@@ -30,7 +29,7 @@ public class PerformanceOutboundRequest {
 
     public PerformanceOutboundRequest(String id,
                                       String name,
-                                      PerformanceProtocol protocol,
+                                      PerformanceRequestProtocol protocol,
                                       String method,
                                       String url,
                                       List<PerformanceRequestKeyValue> headers,
@@ -48,7 +47,7 @@ public class PerformanceOutboundRequest {
                                       Integer webSocketPingIntervalMs) {
         this.id = blankToEmpty(id);
         this.name = blankToEmpty(name);
-        this.protocol = protocol == null ? PerformanceProtocol.HTTP : protocol;
+        this.protocol = protocol == null ? PerformanceRequestProtocol.HTTP : protocol;
         this.method = normalizeMethod(method);
         this.url = blankToEmpty(url);
         this.headers = enabledKeyValues(headers);

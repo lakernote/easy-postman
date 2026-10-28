@@ -1,6 +1,5 @@
 package com.laker.postman.panel.performance;
 
-import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.request.model.HttpRequestItem;
 
@@ -10,10 +9,10 @@ import com.laker.postman.performance.core.model.PerformanceProtocol;
 
 
 import com.laker.postman.performance.model.PerformanceTreeNode;
+import com.laker.postman.panel.performance.tree.PerformanceRequestNodeStateSynchronizer;
 import com.laker.postman.panel.performance.tree.PerformanceTreeClipboardSupport;
 import com.laker.postman.panel.performance.tree.PerformanceTreeNodeFactory;
 import com.laker.postman.panel.performance.tree.PerformanceTreeStructureSupport;
-import com.laker.postman.http.request.HttpRequestProtocol;
 
 import javax.swing.JTree;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -37,27 +36,39 @@ final class PerformanceTreeSupport {
         return PerformanceTreeRules.resolveRequestProtocol(item);
     }
 
-    boolean isSsePerfRequest(HttpRequestItem item) {
-        return PerformanceTreeRules.isSsePerfRequest(item);
-    }
-
-    boolean isSsePerfRequest(HttpRequestItem item, PreparedRequest req) {
-        RequestItemProtocolEnum protocol = resolveRequestProtocol(item);
-        return protocol.isSseProtocol() || (protocol.isHttpProtocol() && HttpRequestProtocol.isSse(req));
-    }
-
     boolean isWebSocketPerfRequest(HttpRequestItem item) {
         return PerformanceTreeRules.isWebSocketPerfRequest(item);
     }
 
-    PerformanceProtocol resolvePerformanceProtocol(HttpRequestItem item) {
-        if (isWebSocketPerfRequest(item)) {
+    PerformanceProtocol resolvePerformanceProtocol(PerformanceTreeNode nodeData) {
+        if (nodeData == null) {
+            return PerformanceProtocol.HTTP;
+        }
+        if (isWebSocketPerfRequest(nodeData.httpRequestItem)) {
             return PerformanceProtocol.WEBSOCKET;
         }
-        if (isSsePerfRequest(item)) {
+        if (PerformanceTreeRules.isSsePerfRequest(nodeData)) {
             return PerformanceProtocol.SSE;
         }
         return PerformanceProtocol.HTTP;
+    }
+
+    boolean canToggleSsePerformanceMode(DefaultMutableTreeNode node) {
+        if (node == null || !(node.getUserObject() instanceof PerformanceTreeNode nodeData)
+                || nodeData.type != NodeType.REQUEST || nodeData.httpRequestItem == null) {
+            return false;
+        }
+        return !isWebSocketPerfRequest(nodeData.httpRequestItem);
+    }
+
+    void setSsePerformanceMode(DefaultMutableTreeNode requestNode, boolean enabled) {
+        if (!canToggleSsePerformanceMode(requestNode)
+                || !(requestNode.getUserObject() instanceof PerformanceTreeNode nodeData)) {
+            return;
+        }
+        nodeData.ssePerformanceEnabled = enabled;
+        PerformanceRequestNodeStateSynchronizer.syncSnapshotFromCurrentItem(nodeData);
+        structureSupport.setSsePerformanceEnabled(requestNode, nodeData, enabled);
     }
 
     Set<PerformanceProtocol> collectAvailableProtocols(DefaultMutableTreeNode root) {
@@ -88,11 +99,7 @@ final class PerformanceTreeSupport {
     private void collectNodeProtocol(PerformanceTreeNode nodeData, EnumSet<PerformanceProtocol> protocols) {
         switch (nodeData.type) {
             case REQUEST -> {
-                if (nodeData.httpRequestItem != null) {
-                    protocols.add(resolvePerformanceProtocol(nodeData.httpRequestItem));
-                } else if (nodeData.requestSnapshot != null) {
-                    protocols.add(nodeData.requestSnapshot.getProtocol());
-                }
+                protocols.add(resolvePerformanceProtocol(nodeData));
             }
             case WS_CONNECT, WS_SEND, WS_READ, WS_CLOSE -> protocols.add(PerformanceProtocol.WEBSOCKET);
             case SSE_CONNECT, SSE_READ -> protocols.add(PerformanceProtocol.SSE);

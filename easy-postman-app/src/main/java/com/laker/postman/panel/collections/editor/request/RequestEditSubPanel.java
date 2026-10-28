@@ -75,10 +75,6 @@ public class RequestEditSubPanel extends JPanel {
         return getEffectiveProtocol() != null && getEffectiveProtocol().isHttpProtocol();
     }
 
-    private boolean isEffectiveSseProtocol() {
-        return getEffectiveProtocol() != null && getEffectiveProtocol().isSseProtocol();
-    }
-
     private boolean isEffectiveWebSocketProtocol() {
         return getEffectiveProtocol() != null && getEffectiveProtocol().isWebSocketProtocol();
     }
@@ -162,14 +158,14 @@ public class RequestEditSubPanel extends JPanel {
     private RequestEditSubPanel(String id, RequestItemProtocolEnum protocol, RequestEditSubPanelType panelType,
                                 SavedResponse savedResponse, HttpRequestItem savedResponseOwner,
                                 boolean deferEditorInitialization) {
-        this.protocol = protocol;
+        this.protocol = protocol == null ? RequestItemProtocolEnum.HTTP : protocol;
         this.panelType = panelType;
         this.savedResponse = savedResponse;
         this.savedResponseOwner = savedResponseOwner;
         this.deferEditorInitialization = deferEditorInitialization && panelType != RequestEditSubPanelType.SAVED_RESPONSE;
         this.dataController = new RequestEditorDataController(
                 id,
-                protocol,
+                this.protocol,
                 () -> editorInitialized,
                 this::isPerformanceSnapshot,
                 loading -> isLoadingData = loading,
@@ -294,16 +290,11 @@ public class RequestEditSubPanel extends JPanel {
                 this::sendRequest,
                 this::isBaseHttpProtocol,
                 this::isEffectiveHttpProtocol,
-                this::isEffectiveSseProtocol,
                 this::isEffectiveWebSocketProtocol,
-                this::getEffectiveProtocol,
-                dataController::setCurrentProtocol,
-                this::updateParentTabProtocol,
                 this::initPanelData,
                 this::getCurrentRequestFromModel,
                 this::updateParentTabDirty,
                 this::recordExchange,
-                this::updateTabDirty,
                 MAX_REDIRECT_COUNT
         ));
     }

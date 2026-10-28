@@ -20,14 +20,12 @@ final class RequestExecutionUiUpdater implements WebSocketConnectionUi {
     private final ActionListener sendAction;
     private final BooleanSupplier baseHttpProtocol;
     private final BooleanSupplier effectiveHttpProtocol;
-    private final BooleanSupplier effectiveSseProtocol;
     private final BooleanSupplier effectiveWebSocketProtocol;
 
     void updateUIForRequesting() {
         requestLinePanel.setSendButtonToCancel(sendAction);
         responsePanel.clearInFlightRequestDetails();
         boolean keepResponseTabsEnabled = baseHttpProtocol.getAsBoolean()
-                && !effectiveSseProtocol.getAsBoolean()
                 && !effectiveWebSocketProtocol.getAsBoolean()
                 && responsePanel.hasResponseData();
         if (!keepResponseTabsEnabled) {
@@ -38,7 +36,7 @@ final class RequestExecutionUiUpdater implements WebSocketConnectionUi {
         }
         // 普通 HTTP 请求发送时保留上一份响应内容，避免当前响应标签页先被清空后再重绘造成闪烁。
         // 流式协议仍沿用清空策略，防止新旧消息混在一起。
-        if (!baseHttpProtocol.getAsBoolean() || effectiveSseProtocol.getAsBoolean() || effectiveWebSocketProtocol.getAsBoolean()) {
+        if (!baseHttpProtocol.getAsBoolean() || effectiveWebSocketProtocol.getAsBoolean()) {
             responsePanel.clearAll();
         }
         responsePanel.showLoadingOverlay();
@@ -57,7 +55,7 @@ final class RequestExecutionUiUpdater implements WebSocketConnectionUi {
         }
 
         responsePanel.setResponseHeaders(resp);
-        if (!effectiveSseProtocol.getAsBoolean() && !effectiveWebSocketProtocol.getAsBoolean()) {
+        if (!effectiveWebSocketProtocol.getAsBoolean()) {
             responsePanel.setTiming(resp);
         }
         if (effectiveHttpProtocol.getAsBoolean() && !resp.isSse) {

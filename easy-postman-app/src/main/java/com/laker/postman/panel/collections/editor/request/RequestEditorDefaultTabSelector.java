@@ -78,6 +78,6 @@ final class RequestEditorDefaultTabSelector {
     }
 
     private boolean isBodyFirstProtocol(RequestItemProtocolEnum protocol) {
-        return protocol != null && (protocol.isWebSocketProtocol() || protocol.isSseProtocol());
+        return protocol != null && protocol.isWebSocketProtocol();
     }
 }

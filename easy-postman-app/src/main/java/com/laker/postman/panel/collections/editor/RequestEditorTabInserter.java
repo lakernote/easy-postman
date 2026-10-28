@@ -28,6 +28,7 @@ public class RequestEditorTabInserter {
 
         RequestEditSubPanel subPanel = new RequestEditSubPanel(id, item.getProtocol(), deferEditorInitialization);
         subPanel.initPanelData(item);
+        HttpRequestItem tabRequest = subPanel.getCurrentRequest();
         String tabTitle = CharSequenceUtil.isNotBlank(item.getName())
                 ? item.getName()
                 : I18nUtil.getMessage(MessageKeys.NEW_REQUEST);
@@ -38,7 +39,7 @@ public class RequestEditorTabInserter {
             insertIndex--;
         }
         tabbedPane.insertTab(tabTitle, null, subPanel, null, insertIndex);
-        tabbedPane.setTabComponentAt(insertIndex, ClosableTabComponent.forRequest(tabTitle, item));
+        tabbedPane.setTabComponentAt(insertIndex, ClosableTabComponent.forRequest(tabTitle, tabRequest));
         boolean shouldSelectInsertedTab = selectTab;
         if (shouldSelectInsertedTab && deferEditorInitialization) {
             shouldSelectInsertedTab = requestEditPanel.isStartupRestoreSelectingLastTab();

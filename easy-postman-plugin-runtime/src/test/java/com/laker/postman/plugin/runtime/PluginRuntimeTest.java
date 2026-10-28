@@ -21,7 +21,7 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 public class PluginRuntimeTest {
-    private static final String CURRENT_PLUGIN_PLATFORM_VERSION = "4.0.0";
+    private static final String CURRENT_PLUGIN_PLATFORM_VERSION = "4.1.0";
 
     private Path dataDir;
 
@@ -107,7 +107,7 @@ public class PluginRuntimeTest {
     }
 
     @Test
-    public void shouldRejectPreviousPluginPlatformAfterSharedUiBreakingChange() {
+    public void shouldRejectPreviousPluginPlatformAfterRequestProtocolBreakingChange() {
         PluginDescriptor descriptor = new PluginDescriptor(
                 "plugin-client-cert",
                 "Client Certificate Plugin",
@@ -117,8 +117,8 @@ public class PluginRuntimeTest {
                 "",
                 "",
                 "",
-                "3.0.0",
-                "3.0.0"
+                "4.0.0",
+                "4.0.0"
         );
 
         PluginCompatibility compatibility = PluginRuntime.evaluateCompatibility(descriptor);
@@ -127,7 +127,7 @@ public class PluginRuntimeTest {
         assertTrue(compatibility.appVersionCompatible());
         assertFalse(compatibility.platformVersionCompatible());
         assertEquals(compatibility.currentPlatformVersion(), CURRENT_PLUGIN_PLATFORM_VERSION);
-        assertEquals(compatibility.maxPlatformVersion(), "3.0.0");
+        assertEquals(compatibility.maxPlatformVersion(), "4.0.0");
     }
 
     @Test
@@ -333,6 +333,21 @@ public class PluginRuntimeTest {
         assertTrue(PluginRuntime.getInstalledPlugins().stream()
                 .anyMatch(info -> "plugin-disabled".equals(info.descriptor().id())
                         && !info.enabled()
+                        && !info.loaded()));
+    }
+
+    @Test
+    public void shouldRejectPreviousPlatformPluginBeforeLoadingItsCode() throws Exception {
+        Path pluginJar = PluginRuntime.getManagedPluginDir().resolve("plugin-old-platform-1.0.0.jar");
+        writePluginJar(pluginJar, "plugin-old-platform", "1.0.0", "com.example.TestRuntimePlugin",
+                "", "", "4.0.0", "4.0.0");
+
+        PluginRuntime.initialize();
+
+        assertEquals(TestRuntimePlugin.getLoadCount(), 0);
+        assertTrue(PluginRuntime.getInstalledPlugins().stream()
+                .anyMatch(info -> "plugin-old-platform".equals(info.descriptor().id())
+                        && !info.compatible()
                         && !info.loaded()));
     }
 

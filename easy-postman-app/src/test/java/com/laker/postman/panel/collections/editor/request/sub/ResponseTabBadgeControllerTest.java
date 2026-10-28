@@ -33,11 +33,9 @@ public class ResponseTabBadgeControllerTest {
     @Test
     public void headersCountShouldUseNeutralMetadataBadgeIcon() {
         JButton headersButton = new JButton();
-        ResponseTabBadgeController controller = new ResponseTabBadgeController(new JButton[]{
-                new JButton(),
-                headersButton,
-                new JButton()
-        });
+        JButton[] tabButtons = httpTabButtons();
+        tabButtons[TabBarBuilder.createHttpTabs().indexOf(TabBarBuilder.Tab.RESPONSE_HEADERS)] = headersButton;
+        ResponseTabBadgeController controller = new ResponseTabBadgeController(tabButtons, TabBarBuilder.createHttpTabs());
 
         controller.updateResponseHeadersCount(6);
 
@@ -54,11 +52,9 @@ public class ResponseTabBadgeControllerTest {
     @Test
     public void testsCountShouldKeepResultSemanticBadge() {
         JButton testsButton = new JButton();
-        ResponseTabBadgeController controller = new ResponseTabBadgeController(new JButton[]{
-                new JButton(),
-                new JButton(),
-                testsButton
-        });
+        JButton[] tabButtons = httpTabButtons();
+        tabButtons[TabBarBuilder.createHttpTabs().indexOf(TabBarBuilder.Tab.TESTS)] = testsButton;
+        ResponseTabBadgeController controller = new ResponseTabBadgeController(tabButtons, TabBarBuilder.createHttpTabs());
 
         controller.updateTestResults(List.of(new TestResult("status", false, "boom")));
 
@@ -77,11 +73,11 @@ public class ResponseTabBadgeControllerTest {
     public void labelsShouldResetWithoutCounts() {
         JButton headersButton = new JButton();
         JButton testsButton = new JButton();
-        ResponseTabBadgeController controller = new ResponseTabBadgeController(new JButton[]{
-                new JButton(),
-                headersButton,
-                testsButton
-        });
+        JButton[] tabButtons = httpTabButtons();
+        TabBarBuilder.TabConfig tabConfig = TabBarBuilder.createHttpTabs();
+        tabButtons[tabConfig.indexOf(TabBarBuilder.Tab.RESPONSE_HEADERS)] = headersButton;
+        tabButtons[tabConfig.indexOf(TabBarBuilder.Tab.TESTS)] = testsButton;
+        ResponseTabBadgeController controller = new ResponseTabBadgeController(tabButtons, tabConfig);
 
         controller.updateResponseHeadersCount(0);
         controller.updateTestResults(List.of());
@@ -97,11 +93,9 @@ public class ResponseTabBadgeControllerTest {
     @Test
     public void passingTestsShouldUseSuccessBadge() {
         JButton testsButton = new JButton();
-        ResponseTabBadgeController controller = new ResponseTabBadgeController(new JButton[]{
-                new JButton(),
-                new JButton(),
-                testsButton
-        });
+        JButton[] tabButtons = httpTabButtons();
+        tabButtons[TabBarBuilder.createHttpTabs().indexOf(TabBarBuilder.Tab.TESTS)] = testsButton;
+        ResponseTabBadgeController controller = new ResponseTabBadgeController(tabButtons, TabBarBuilder.createHttpTabs());
 
         controller.updateTestResults(List.of(new TestResult("status", true, "")));
 
@@ -111,5 +105,11 @@ public class ResponseTabBadgeControllerTest {
         assertEquals(badgeIcon.getBackgroundColor().getGreen(), ModernColors.getSuccess().getGreen());
         assertEquals(badgeIcon.getBackgroundColor().getBlue(), ModernColors.getSuccess().getBlue());
         assertTrue(badgeIcon.getBackgroundColor().getAlpha() < 255);
+    }
+
+    private static JButton[] httpTabButtons() {
+        JButton[] buttons = new JButton[TabBarBuilder.createHttpTabs().tabNames.length];
+        java.util.Arrays.setAll(buttons, index -> new JButton());
+        return buttons;
     }
 }

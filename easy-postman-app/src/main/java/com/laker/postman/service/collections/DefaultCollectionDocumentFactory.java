@@ -297,7 +297,7 @@ public class DefaultCollectionDocumentFactory {
                 """);
         addRequestChild(groupNode, websocket);
 
-        HttpRequestItem sse = HttpRequestFactory.createDefaultSseRequest();
+        HttpRequestItem sse = HttpRequestFactory.createDefaultEventStreamRequest();
         sse.setName("8. SSE Workflow Check");
         sse.setDescription("Run request 1 first. Then open the stream and wait for a few events. Each SSE event verifies that both environment values and execution variables remain available.");
         sse.setHeadersList(withExtraHeaders(sse,
@@ -594,7 +594,7 @@ public class DefaultCollectionDocumentFactory {
                 """);
         addRequestChild(groupNode, websocket);
 
-        HttpRequestItem sse = HttpRequestFactory.createDefaultSseRequest();
+        HttpRequestItem sse = HttpRequestFactory.createDefaultEventStreamRequest();
         sse.setName("8. SSE 流程校验");
         sse.setDescription("建议先执行请求 1。然后打开 SSE 流并等待几条事件。每条事件都会校验环境变量和运行变量都没有丢失。");
         sse.setHeadersList(withExtraHeaders(sse,
@@ -739,7 +739,7 @@ public class DefaultCollectionDocumentFactory {
         websocket.setName("WebSocket Example");
         addRequestChild(defaultGroupNode, websocket);
 
-        HttpRequestItem sse = HttpRequestFactory.createDefaultSseRequest();
+        HttpRequestItem sse = HttpRequestFactory.createDefaultEventStreamRequest();
         addRequestChild(defaultGroupNode, sse);
         return defaultGroupNode;
     }

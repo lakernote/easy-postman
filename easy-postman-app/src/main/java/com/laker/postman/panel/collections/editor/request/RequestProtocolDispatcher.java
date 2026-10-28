@@ -2,7 +2,6 @@ package com.laker.postman.panel.collections.editor.request;
 
 import com.laker.postman.http.execution.RequestPreparationResult;
 import com.laker.postman.http.execution.RequestPreparationNetworkLogPublisher;
-import com.laker.postman.http.request.HttpRequestProtocol;
 import com.laker.postman.http.runtime.model.HttpCaptureProfile;
 import com.laker.postman.http.runtime.model.HttpCaptureProfiles;
 import com.laker.postman.http.runtime.model.PreparedRequest;
@@ -20,7 +19,6 @@ import javax.swing.*;
 final class RequestProtocolDispatcher {
     private final ResponsePanel responsePanel;
     private final HttpRequestExecutor httpRequestExecutor;
-    private final SseRequestExecutor sseRequestExecutor;
     private final WebSocketRequestExecutor webSocketRequestExecutor;
     private final RequestExecutionState executionState;
     private final int maxRedirectCount;
@@ -32,20 +30,12 @@ final class RequestProtocolDispatcher {
         attachHttpResponseInteraction(request);
         RequestPreparationNetworkLogPublisher.publish(request);
         ScriptExecutionPipeline pipeline = result.getPipeline();
-        boolean expectedHttpSse = protocol.isHttpProtocol() && HttpRequestProtocol.isSse(request);
-
         SwingWorker<Void, Void> worker;
-        // 这里是协议分发的唯一出口：上游不用关心 HTTP / SSE / WebSocket 的执行细节。
+        // 这里是协议分发的唯一出口：SSE 作为 HTTP 响应模式由 HTTP 执行器处理。
         if (protocol.isWebSocketProtocol()) {
             worker = webSocketRequestExecutor.createWorker(request, pipeline);
-        } else if (protocol.isSseProtocol()) {
-            worker = sseRequestExecutor.createWorker(request, pipeline);
         } else {
             executionState.clearAutoDetectedHttpSseOpen();
-            if (expectedHttpSse) {
-                responsePanel.clearAll();
-                responsePanel.setResponseTabButtonsEnable(false);
-            }
             worker = httpRequestExecutor.createWorker(request, pipeline, maxRedirectCount);
         }
 

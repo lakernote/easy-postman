@@ -9,7 +9,6 @@ import com.laker.postman.common.component.HttpRequestDisplayMetadata;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.performance.core.model.NodeType;
 import com.laker.postman.performance.model.PerformanceTreeNode;
-import com.laker.postman.http.request.HttpRequestProtocol;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.IconUtil;
@@ -77,16 +76,16 @@ public class PerformanceTreeCellRenderer extends DefaultTreeCellRenderer {
         if (!nodeData.enabled && !selected) {
             label.setForeground(ModernColors.getTextHint());
         }
-        label.setText(buildRequestText(nodeData.httpRequestItem, nodeData.name, !nodeData.enabled));
+        label.setText(buildRequestText(nodeData.httpRequestItem, nodeData.name, !nodeData.enabled, nodeData.ssePerformanceEnabled));
     }
 
-    private String buildRequestText(HttpRequestItem item, String name, boolean disabled) {
+    private String buildRequestText(HttpRequestItem item, String name, boolean disabled, boolean ssePerformanceEnabled) {
         String method = item == null ? "" : item.getMethod();
         String methodColor = HttpRequestDisplayMetadata.methodColorHex(method);
         RequestItemProtocolEnum protocol = item != null && item.getProtocol() != null
                 ? item.getProtocol()
                 : RequestItemProtocolEnum.HTTP;
-        if (protocol.isSseProtocol() || (protocol.isHttpProtocol() && HttpRequestProtocol.isSse(item))) {
+        if (ssePerformanceEnabled) {
             method = "SSE";
             methodColor = HttpRequestDisplayMetadata.protocolColorHex(method);
         } else if (protocol.isWebSocketProtocol()) {

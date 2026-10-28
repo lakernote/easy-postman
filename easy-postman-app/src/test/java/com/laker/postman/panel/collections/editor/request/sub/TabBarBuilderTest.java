@@ -10,17 +10,6 @@ import static org.testng.Assert.assertTrue;
 
 public class TabBarBuilderTest {
 
-    @Test(description = "SSE 响应区域应显示网络日志标签，用于查看实际发送请求")
-    public void shouldIncludeNetworkLogTabForSseResponses() {
-        TabBarBuilder.TabConfig config = TabBarBuilder.createSSETabs();
-
-        assertEquals(config.tabNames.length, 3);
-        assertFalse(java.util.Arrays.asList(config.tabNames)
-                .contains(I18nUtil.getMessage(MessageKeys.TAB_TIMING)));
-        assertTrue(java.util.Arrays.asList(config.tabNames)
-                .contains(I18nUtil.getMessage(MessageKeys.TAB_NETWORK_LOG)));
-    }
-
     @Test(description = "WebSocket 响应区域应显示网络日志标签，用于查看握手请求")
     public void shouldIncludeNetworkLogTabForWebSocketResponses() {
         TabBarBuilder.TabConfig config = TabBarBuilder.createWebSocketTabs();

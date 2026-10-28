@@ -970,11 +970,11 @@ public class PerformancePanel extends UiSingletonPanel {
     private void saveRequestNodeData(DefaultMutableTreeNode node) {
         PerformanceProtocol oldProtocol = PerformanceProtocol.HTTP;
         if (node != null && node.getUserObject() instanceof PerformanceTreeNode nodeData) {
-            oldProtocol = treeSupport.resolvePerformanceProtocol(nodeData.httpRequestItem);
+            oldProtocol = treeSupport.resolvePerformanceProtocol(nodeData);
         }
         requestEditorSupport.saveRequestNodeData(node, this::syncRequestStructure);
         if (node != null && node.getUserObject() instanceof PerformanceTreeNode nodeData) {
-            PerformanceProtocol newProtocol = treeSupport.resolvePerformanceProtocol(nodeData.httpRequestItem);
+            PerformanceProtocol newProtocol = treeSupport.resolvePerformanceProtocol(nodeData);
             if (oldProtocol != newProtocol) {
                 ensureRequestStructure(node, nodeData);
             }

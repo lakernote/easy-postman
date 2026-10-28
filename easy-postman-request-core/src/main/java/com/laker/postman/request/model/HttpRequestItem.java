@@ -54,6 +54,10 @@ public class HttpRequestItem implements Serializable {
     // 保存的响应列表（类似 Postman 的 Examples/Response）
     private List<SavedResponse> response = new ArrayList<>();
 
+    public void setProtocol(RequestItemProtocolEnum protocol) {
+        this.protocol = protocol == null ? RequestItemProtocolEnum.HTTP : protocol;
+    }
+
     /**
      * 判断该请求是否为新建（未命名）请求
      */

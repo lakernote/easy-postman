@@ -188,7 +188,7 @@ public class PerformanceRequestExecutor {
         long costMs = 0L;
         boolean interrupted = false;
         HttpResponse resp = null;
-        boolean sseRequest = PerformanceRequestProtocolResolver.isSseRequest(requestSnapshot);
+        boolean sseRequest = PerformanceRequestProtocolResolver.isSseScenario(requestSampler);
         PerformanceProtocol protocol = PerformanceRequestProtocolResolver.resolvePerformanceProtocol(webSocketRequest, sseRequest);
         PerformanceResponseCapturePlan capturePlan = PerformanceResponseCapturePlan.resolve(
                 executionConfig.isEfficientMode(),
@@ -201,7 +201,9 @@ public class PerformanceRequestExecutor {
         if (preOk && runningSupplier.getAsBoolean()) {
             try {
                 PerformanceRequestPreparationSupport.configurePreparedRequest(req, executionConfig.isEventLoggingEnabled());
-                sseRequest = PerformanceRequestProtocolResolver.isSseRequest(requestSnapshot, req);
+                // SSE is configured by the performance plan's Connect/Read stages. The request
+                // snapshot itself remains HTTP; headers and body fields do not define its protocol.
+                sseRequest = PerformanceRequestProtocolResolver.isSseScenario(requestSampler);
                 webSocketRequest = PerformanceRequestProtocolResolver.isWebSocketRequest(requestSnapshot);
                 protocol = PerformanceRequestProtocolResolver.resolvePerformanceProtocol(webSocketRequest, sseRequest);
                 boolean transportSseRequest = sseRequest;

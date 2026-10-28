@@ -21,8 +21,8 @@ public final class PerformanceTreeRules {
         return PerformanceProtocolRules.resolveRequestProtocol(item);
     }
 
-    public static boolean isSsePerfRequest(HttpRequestItem item) {
-        return PerformanceProtocolRules.isSsePerfRequest(item);
+    public static boolean isSsePerfRequest(PerformanceTreeNode nodeData) {
+        return nodeData != null && nodeData.type == NodeType.REQUEST && nodeData.ssePerformanceEnabled;
     }
 
     public static boolean isWebSocketPerfRequest(HttpRequestItem item) {
@@ -149,7 +149,7 @@ public final class PerformanceTreeRules {
         if (node == null || !(node.getUserObject() instanceof PerformanceTreeNode nodeData)) {
             return false;
         }
-        return nodeData.type == NodeType.REQUEST && isSsePerfRequest(nodeData.httpRequestItem);
+        return isSsePerfRequest(nodeData);
     }
 
     public static boolean isWebSocketRequestTarget(DefaultMutableTreeNode node) {
@@ -175,7 +175,7 @@ public final class PerformanceTreeRules {
         if (node == null || !(node.getUserObject() instanceof PerformanceTreeNode nodeData) || nodeData.type != NodeType.REQUEST) {
             return false;
         }
-        return !isSsePerfRequest(nodeData.httpRequestItem) && !isWebSocketPerfRequest(nodeData.httpRequestItem);
+        return !isSsePerfRequest(nodeData) && !isWebSocketPerfRequest(nodeData.httpRequestItem);
     }
 
     public static DefaultMutableTreeNode getParentRequestNode(DefaultMutableTreeNode node) {

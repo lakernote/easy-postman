@@ -15,6 +15,7 @@ import com.laker.postman.performance.core.request.PerformanceRequestExecutionSco
 import com.laker.postman.performance.core.request.PerformanceRequestFormDataPart;
 import com.laker.postman.performance.core.request.PerformanceRequestKeyValue;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.performance.core.threadgroup.ThreadGroupData;
 import com.laker.postman.performance.core.timer.TimerData;
 import com.laker.postman.util.JsonUtil;
@@ -447,11 +448,7 @@ public class PerformanceCorePlanJsonStorage {
                 .description(stringValue(requestJson, "description", null))
                 .url(stringValue(requestJson, "url", null))
                 .method(stringValue(requestJson, "method", null))
-                .protocol(enumValue(
-                        PerformanceProtocol.class,
-                        stringValue(requestJson, "protocol", null),
-                        PerformanceProtocol.HTTP
-                ))
+                .protocol(deserializeRequestProtocol(stringValue(requestJson, "protocol", null)))
                 .headers(deserializeRequestKeyValues(listValue(requestJson.get("headers"))))
                 .bodyType(stringValue(requestJson, "bodyType", null))
                 .body(stringValue(requestJson, "body", null))
@@ -479,6 +476,15 @@ public class PerformanceCorePlanJsonStorage {
                 .postscript(stringValue(requestJson, "postscript", null))
                 .executionScope(deserializeRequestExecutionScopeSnapshot(objectMap(requestJson.get("executionScope"))))
                 .build();
+    }
+
+    private PerformanceRequestProtocol deserializeRequestProtocol(String value) {
+        // Older exported plans stored SSE as a request protocol. SSE now belongs
+        // to the configured performance stages, while the request itself is HTTP.
+        if ("SSE".equalsIgnoreCase(value)) {
+            return PerformanceRequestProtocol.HTTP;
+        }
+        return enumValue(PerformanceRequestProtocol.class, value, PerformanceRequestProtocol.HTTP);
     }
 
     private List<PerformanceRequestKeyValue> deserializeRequestKeyValues(List<Object> array) {

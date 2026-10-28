@@ -42,7 +42,7 @@ public class HttpRequestFactoryTest {
     public void shouldCreateBlankRequestsForAddDialogProtocols() {
         HttpRequestItem http = HttpRequestFactory.createBlankRequest(RequestItemProtocolEnum.HTTP);
         HttpRequestItem webSocket = HttpRequestFactory.createBlankRequest(RequestItemProtocolEnum.WEBSOCKET);
-        HttpRequestItem sse = HttpRequestFactory.createBlankRequest(RequestItemProtocolEnum.SSE);
+        HttpRequestItem eventStream = HttpRequestFactory.createDefaultEventStreamRequest();
 
         assertEquals(http.getUrl(), "");
         assertEquals(http.getMethod(), "GET");
@@ -51,11 +51,10 @@ public class HttpRequestFactoryTest {
         assertEquals(webSocket.getBodyType(), RequestBodyTypes.BODY_TYPE_RAW);
         assertEquals(findHeaderValues(webSocket.getHeadersList(), HttpRequestFactory.ACCEPT_ENCODING),
                 List.of(HttpRequestFactory.IDENTITY_ACCEPT_ENCODING));
-        assertEquals(sse.getProtocol(), RequestItemProtocolEnum.SSE);
-        assertEquals(sse.getUrl(), "");
-        assertEquals(findHeaderValues(sse.getHeadersList(), HttpRequestFactory.ACCEPT),
+        assertEquals(eventStream.getProtocol(), RequestItemProtocolEnum.HTTP);
+        assertEquals(findHeaderValues(eventStream.getHeadersList(), HttpRequestFactory.ACCEPT),
                 List.of(HttpRequestFactory.TEXT_EVENT_STREAM));
-        assertEquals(findHeaderValues(sse.getHeadersList(), HttpRequestFactory.ACCEPT_ENCODING),
+        assertEquals(findHeaderValues(eventStream.getHeadersList(), HttpRequestFactory.ACCEPT_ENCODING),
                 List.of(HttpRequestFactory.IDENTITY_ACCEPT_ENCODING));
     }
 

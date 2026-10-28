@@ -1,6 +1,5 @@
 package com.laker.postman.performance.core.request;
 
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import org.testng.annotations.Test;
 
 import java.util.List;
@@ -14,7 +13,7 @@ public class PerformanceOutboundRequestTest {
         PerformanceRequestSnapshot snapshot = PerformanceRequestSnapshot.builder()
                 .id("api")
                 .name("API")
-                .protocol(PerformanceProtocol.SSE)
+                .protocol(PerformanceRequestProtocol.HTTP)
                 .method("post")
                 .url("https://example.test/events")
                 .headers(List.of(
@@ -54,7 +53,7 @@ public class PerformanceOutboundRequestTest {
 
         assertEquals(request.getId(), "api");
         assertEquals(request.getName(), "API");
-        assertEquals(request.getProtocol(), PerformanceProtocol.SSE);
+        assertEquals(request.getProtocol(), PerformanceRequestProtocol.HTTP);
         assertEquals(request.getMethod(), "POST");
         assertEquals(request.getUrl(), "https://example.test/events");
         assertEquals(request.getHeaders(), List.of(new PerformanceRequestKeyValue(true, "Accept", "text/event-stream")));

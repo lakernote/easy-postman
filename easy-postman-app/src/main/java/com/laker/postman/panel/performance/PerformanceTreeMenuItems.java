@@ -14,6 +14,7 @@ record PerformanceTreeMenuItems(
         JMenuItem addOnceOnly,
         JMenuItem addSseConnect,
         JMenuItem addSseRead,
+        JMenuItem toggleSseMode,
         JMenuItem addWsConnect,
         JMenuItem addWsSend,
         JMenuItem addWsRead,
@@ -36,7 +37,7 @@ record PerformanceTreeMenuItems(
                 || addCondition.isVisible()
                 || addWhile.isVisible()
                 || addOnceOnly.isVisible()
-                || addSseConnect.isVisible() || addSseRead.isVisible()
+                || addSseConnect.isVisible() || addSseRead.isVisible() || toggleSseMode.isVisible()
                 || addWsConnect.isVisible()
                 || addWsSend.isVisible() || addWsRead.isVisible() || addWsClose.isVisible()
                 || addAssertion.isVisible() || addExtractor.isVisible() || addTimer.isVisible();

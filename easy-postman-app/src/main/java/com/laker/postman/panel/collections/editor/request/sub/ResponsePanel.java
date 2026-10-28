@@ -55,11 +55,12 @@ public class ResponsePanel extends JPanel {
         tabBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         tabBar.setOpaque(false);
         statusBar = new ResponseStatusBar();
+        TabBarBuilder.TabConfig tabConfig;
 
         // 根据协议类型初始化相应的面板（使用TabBarBuilder简化）
         if (protocol.isWebSocketProtocol()) {
             // WebSocket 专用布局
-            TabBarBuilder.TabConfig tabConfig = TabBarBuilder.createWebSocketTabs();
+            tabConfig = TabBarBuilder.createWebSocketTabs();
             tabNames = tabConfig.tabNames;
             tabButtons = TabBarBuilder.createModernTabButtons(tabNames);
             TabBarBuilder.addButtonsToTabBar(tabBar, tabButtons, tabConfig.initialVisibility);
@@ -71,37 +72,16 @@ public class ResponsePanel extends JPanel {
             webSocketResponsePanel = new WebSocketResponsePanel();
             responseHeadersPanel = new ResponseHeadersPanel();
             networkLogPanel = new NetworkLogPanel();
-            cardPanel.add(webSocketResponsePanel, tabNames[0]);
-            cardPanel.add(responseHeadersPanel, tabNames[1]);
-            cardPanel.add(networkLogPanel, tabNames[2]);
+            cardPanel.add(webSocketResponsePanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.WEBSOCKET_MESSAGES)]);
+            cardPanel.add(responseHeadersPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.RESPONSE_HEADERS)]);
+            cardPanel.add(networkLogPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.NETWORK_LOG)]);
             timelinePanel = null;
             responseBodyPanel = null;
             testsPane = null;
             sseResponsePanel = null;
-        } else if (protocol == RequestItemProtocolEnum.SSE) {
-            // SSE: 使用事件流和响应头
-            TabBarBuilder.TabConfig tabConfig = TabBarBuilder.createSSETabs();
-            tabNames = tabConfig.tabNames;
-            tabButtons = TabBarBuilder.createModernTabButtons(tabNames);
-            TabBarBuilder.addButtonsToTabBar(tabBar, tabButtons, tabConfig.initialVisibility);
-
-            topResponseBar = createTopResponseBar();
-            topResponseBar.add(tabBar, BorderLayout.WEST);
-            topResponseBar.add(statusBar, BorderLayout.EAST);
-            cardPanel = createCardPanel();
-            sseResponsePanel = new SSEResponsePanel();
-            responseHeadersPanel = new ResponseHeadersPanel();
-            networkLogPanel = new NetworkLogPanel();
-            cardPanel.add(sseResponsePanel, tabNames[0]);
-            cardPanel.add(responseHeadersPanel, tabNames[1]);
-            cardPanel.add(networkLogPanel, tabNames[2]);
-            timelinePanel = null;
-            responseBodyPanel = null;
-            webSocketResponsePanel = null;
-            testsPane = null;
         } else {
             // HTTP 普通请求
-            TabBarBuilder.TabConfig tabConfig = TabBarBuilder.createHttpTabs();
+            tabConfig = TabBarBuilder.createHttpTabs();
             tabNames = tabConfig.tabNames;
             tabButtons = TabBarBuilder.createModernTabButtons(tabNames);
             TabBarBuilder.addButtonsToTabBar(tabBar, tabButtons, tabConfig.initialVisibility);
@@ -131,25 +111,26 @@ public class ResponsePanel extends JPanel {
             ToolWindowSurfaceStyle.applyScrollPaneCard(timelineScrollPanel);
             // 设置边框
             timelineScrollPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-            // 按照指定顺序添加到 cardPanel
-            // [Response Body] [Response Headers] [Tests] [Network Log] [Timing] [Log]
-            cardPanel.add(responseBodyPanel, tabNames[0]);
-            cardPanel.add(responseHeadersPanel, tabNames[1]);
-            cardPanel.add(testsPanel, tabNames[2]);
-            cardPanel.add(networkLogPanel, tabNames[3]);
-            cardPanel.add(timelineScrollPanel, tabNames[4]);
+            // 按照指定顺序添加到 cardPanel。切到事件流模式后，隐藏响应体，事件流成为首个标签。
+            cardPanel.add(responseBodyPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.RESPONSE_BODY)]);
             sseResponsePanel = new SSEResponsePanel();
-            cardPanel.add(sseResponsePanel, tabNames[5]);
+            cardPanel.add(sseResponsePanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.EVENT_STREAM)]);
+            cardPanel.add(responseHeadersPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.RESPONSE_HEADERS)]);
+            cardPanel.add(testsPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.TESTS)]);
+            cardPanel.add(networkLogPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.NETWORK_LOG)]);
+            cardPanel.add(timelineScrollPanel, tabNames[tabConfig.indexOf(TabBarBuilder.Tab.TIMING)]);
             webSocketResponsePanel = null;
         }
-        tabBadgeController = new ResponseTabBadgeController(tabButtons);
+        tabBadgeController = new ResponseTabBadgeController(tabButtons, tabConfig);
         tabNavigationController = new ResponseTabNavigationController(
                 topResponseBar,
                 tabBar,
                 statusBar,
                 cardPanel,
                 tabButtons,
-                tabNames
+                tabNames,
+                tabConfig.indexOf(TabBarBuilder.Tab.RESPONSE_BODY),
+                tabConfig.indexOf(TabBarBuilder.Tab.EVENT_STREAM)
         );
         tabNavigationController.initializeFirstVisibleTab();
 
@@ -202,8 +183,8 @@ public class ResponsePanel extends JPanel {
     }
 
     public void setResponseBody(HttpResponse resp) {
-        if (protocol.isWebSocketProtocol() || protocol.isSseProtocol()) {
-            // WebSocket 和 SSE 响应体由专门的面板维护，不做处理
+        if (protocol.isWebSocketProtocol()) {
+            // WebSocket 响应由专门的面板维护。
             return;
         }
         responseBodyPanel.setBodyText(resp);
@@ -267,11 +248,6 @@ public class ResponsePanel extends JPanel {
             networkLogPanel.clearAllDetails();
         }
 
-        if (protocol.isSseProtocol()) {
-            sseResponsePanel.clearMessages();
-            networkLogPanel.clearLog();
-            networkLogPanel.clearAllDetails();
-        }
         if (protocol.isHttpProtocol()) {
             responseBodyPanel.setBodyText(null);
             clearTiming();
@@ -293,6 +269,12 @@ public class ResponsePanel extends JPanel {
         clearTiming();
     }
 
+    public void clearSseResponseEvents() {
+        if (sseResponsePanel != null) {
+            sseResponsePanel.clearMessages();
+        }
+    }
+
     public boolean hasResponseData() {
         return hasResponseData;
     }
@@ -302,19 +284,17 @@ public class ResponsePanel extends JPanel {
     }
 
     /**
-     * 切换Tab按钮显示（HTTP或SSE）
-     *
-     * @param type "http" 显示HTTP相关tabs，"sse" 显示SSE相关tabs
+     * 根据实际响应类型显示普通 HTTP 响应或事件流视图。
      */
-    public void switchTabButtonHttpOrSse(String type) {
+    public void showHttpResponseView(boolean eventStream) {
         if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> switchTabButtonHttpOrSse(type));
+            SwingUtilities.invokeLater(() -> showHttpResponseView(eventStream));
             return;
         }
         if (!protocol.isHttpProtocol()) {
             return;
         }
-        tabNavigationController.switchHttpOrSse(type);
+        tabNavigationController.switchHttpResponseView(eventStream);
     }
 
     private void clearTiming() {

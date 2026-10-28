@@ -106,9 +106,6 @@ final class CaptureRequestCollectionImporter {
         if (flow.isWebSocketProtocol()) {
             return RequestImportProtocol.WEBSOCKET;
         }
-        if (flow.isSseProtocol()) {
-            return RequestImportProtocol.SSE;
-        }
         return RequestImportProtocol.HTTP;
     }
 

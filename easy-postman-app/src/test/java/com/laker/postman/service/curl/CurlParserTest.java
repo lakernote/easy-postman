@@ -1690,7 +1690,7 @@ public class CurlParserTest {
         HttpRequestItem item = CurlImportUtil.fromCurl(curl);
 
         assertNotNull(item);
-        assertEquals(item.getProtocol(), RequestItemProtocolEnum.SSE);
+        assertEquals(item.getProtocol(), RequestItemProtocolEnum.HTTP);
         assertEquals(item.getMethod(), "POST");
         assertEquals(item.getBody(), body);
         assertEquals(findHeaderValue(item.getHeadersList(), "accept"), "text/event-stream");

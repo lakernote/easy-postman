@@ -9,10 +9,10 @@ import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.panel.collections.tree.adapter.SwingCollectionTreeDocumentMapper;
 import com.laker.postman.panel.performance.config.CsvDataSetPropertyPanel;
 import com.laker.postman.performance.model.PerformanceTreeNode;
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.model.NodeType;
 import com.laker.postman.performance.core.model.WebSocketPerformanceData;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.service.collections.CollectionTreeNodes;
 import com.laker.postman.service.collections.CollectionTreeRootRegistry;
 import com.laker.postman.service.collections.CollectionDocumentRegistry;
@@ -269,7 +269,7 @@ public class PerformanceTreeSelectionSupportTest extends AbstractSwingUiTest {
                     .name("snapshot request")
                     .url("ws://localhost:18080/ws")
                     .method("GET")
-                    .protocol(PerformanceProtocol.WEBSOCKET)
+                    .protocol(PerformanceRequestProtocol.WEBSOCKET)
                     .build();
             AtomicInteger syncCount = new AtomicInteger();
             AtomicReference<HttpRequestItem> switchedItem = new AtomicReference<>();

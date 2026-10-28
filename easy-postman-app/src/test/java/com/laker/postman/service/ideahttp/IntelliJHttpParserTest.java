@@ -362,7 +362,7 @@ public class IntelliJHttpParserTest {
         assertNotNull(result);
 
         HttpRequestItem request = getRequestFromResult(result, 0);
-        assertEquals(request.getProtocol(), RequestItemProtocolEnum.SSE);
+        assertEquals(request.getProtocol(), RequestItemProtocolEnum.HTTP);
         assertTrue(hasHeader(request, "Accept", "text/event-stream"));
     }
 

@@ -9,7 +9,6 @@ import com.laker.postman.request.model.HttpRequestProxyPolicy;
 import com.laker.postman.performance.core.threadgroup.ThreadGroupData;
 import com.laker.postman.performance.core.controller.LoopData;
 import com.laker.postman.performance.core.model.NodeType;
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.plan.PerformanceController;
 import com.laker.postman.performance.core.plan.PerformanceCorePlanNode;
 import com.laker.postman.performance.core.plan.PerformanceLoopController;
@@ -20,6 +19,7 @@ import com.laker.postman.performance.core.plan.PerformanceTestPlan;
 import com.laker.postman.performance.core.plan.PerformanceTimerElement;
 import com.laker.postman.performance.core.request.PerformanceRequestKeyValue;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.performance.core.timer.TimerData;
 import com.laker.postman.service.variable.RequestExecutionScope;
 import org.testng.annotations.Test;
@@ -118,7 +118,7 @@ public class PerformancePlanContractsTest {
 
         assertEquals(snapshot.getName(), "snapshot request");
         assertEquals(snapshot.getUrl(), "wss://example.test/ws");
-        assertEquals(snapshot.getProtocol(), PerformanceProtocol.WEBSOCKET);
+        assertEquals(snapshot.getProtocol(), PerformanceRequestProtocol.WEBSOCKET);
         assertEquals(snapshot.getProxyPolicy(), PerformanceRequestSnapshot.PROXY_POLICY_NO_PROXY);
         assertEquals(snapshot.getHeaders().get(0).getValue(), "before");
         assertTrue(snapshot.executesChildrenInSamplerOrder());
@@ -139,7 +139,7 @@ public class PerformancePlanContractsTest {
                 .name("snapshot only")
                 .url("https://example.test/sse")
                 .method("GET")
-                .protocol(PerformanceProtocol.SSE)
+                .protocol(PerformanceRequestProtocol.HTTP)
                 .proxyPolicy(PerformanceRequestSnapshot.PROXY_POLICY_USE_PROXY)
                 .headers(List.of(new PerformanceRequestKeyValue(true, "Accept", "text/event-stream")))
                 .build();
@@ -157,7 +157,7 @@ public class PerformancePlanContractsTest {
 
         assertEquals(adaptedItem.getId(), "snapshot-only-id");
         assertEquals(adaptedItem.getUrl(), "https://example.test/sse");
-        assertEquals(adaptedItem.getProtocol(), RequestItemProtocolEnum.SSE);
+        assertEquals(adaptedItem.getProtocol(), RequestItemProtocolEnum.HTTP);
         assertEquals(adaptedItem.resolveProxyPolicy(), HttpRequestProxyPolicy.USE_PROXY);
         assertEquals(adaptedItem.getHeadersList().get(0).getValue(), "text/event-stream");
         assertFalse(sampler.executesChildrenInSamplerOrder());
@@ -194,7 +194,7 @@ public class PerformancePlanContractsTest {
 
         assertNotNull(node.getRequestSnapshot());
         assertEquals(node.getRequestSnapshot().getUrl(), "wss://example.test/socket");
-        assertEquals(node.getRequestSnapshot().getProtocol(), PerformanceProtocol.WEBSOCKET);
+        assertEquals(node.getRequestSnapshot().getProtocol(), PerformanceRequestProtocol.WEBSOCKET);
         assertEquals(node.getRequestSnapshot().getHeaders().get(0).getValue(), "before");
         assertEquals(node.getRequestSnapshot().getExecutionScope().getGroupVariable("tenant"), "acme");
     }
@@ -213,7 +213,7 @@ public class PerformancePlanContractsTest {
                 .id("snapshot-node-id")
                 .name("snapshot node")
                 .url("https://example.test/headless")
-                .protocol(PerformanceProtocol.HTTP)
+                .protocol(PerformanceRequestProtocol.HTTP)
                 .executionScope(com.laker.postman.performance.core.request.PerformanceRequestExecutionScopeSnapshot
                         .fromGroupVariables(Map.of("tenant", "snapshot")))
                 .build();
@@ -235,7 +235,7 @@ public class PerformancePlanContractsTest {
                 .id("core-adapter-id")
                 .name("core adapter")
                 .url("wss://example.test/core-adapter")
-                .protocol(PerformanceProtocol.WEBSOCKET)
+                .protocol(PerformanceRequestProtocol.WEBSOCKET)
                 .build();
         PerformancePlanNode request = PerformancePlanNode.builder()
                 .name("core adapter")
@@ -266,8 +266,9 @@ public class PerformancePlanContractsTest {
 
     @Test
     public void appPlanAdapterShouldConvertCompatibilityNodeToPureCoreNode() {
-        HttpRequestItem item = requestItem("adapter request", RequestItemProtocolEnum.SSE);
+        HttpRequestItem item = requestItem("adapter request", RequestItemProtocolEnum.HTTP);
         item.setUrl("https://example.test/events");
+        item.setHeadersList(List.of(new HttpHeader(true, "Accept", "text/event-stream", "")));
         PerformancePlanNode appNode = PerformancePlanNode.builder()
                 .name("adapter request")
                 .type(NodeType.REQUEST)
@@ -280,7 +281,7 @@ public class PerformancePlanContractsTest {
         assertEquals(coreNode.getName(), "adapter request");
         assertEquals(coreNode.getType(), NodeType.REQUEST);
         assertEquals(coreNode.getRequestSnapshot().getUrl(), "https://example.test/events");
-        assertEquals(coreNode.getRequestSnapshot().getProtocol(), PerformanceProtocol.SSE);
+        assertEquals(coreNode.getRequestSnapshot().getProtocol(), PerformanceRequestProtocol.HTTP);
         assertEquals(coreNode.getRequestSnapshot().getExecutionScope().getGroupVariable("tenant"), "adapter");
     }
 

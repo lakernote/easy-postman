@@ -560,6 +560,8 @@ public final class MessageKeys {
     public static final String SSE_STREAM_CONNECTED = "sse.stream.connected";
     public static final String SSE_STREAM_CLOSED = "sse.stream.closed";
     public static final String SSE_STREAM_FAILED = "sse.stream.failed";
+    public static final String TAB_SSE_EVENT_STREAM = "tab.sse_event_stream";
+    public static final String TAB_WEBSOCKET_MESSAGES = "tab.websocket_messages";
     public static final String WEBSOCKET_STREAM_CONNECTED = "websocket.stream.connected";
     public static final String WEBSOCKET_STREAM_CLOSED = "websocket.stream.closed";
     public static final String STREAM_USER_CANCELED = "stream.user_canceled";
@@ -952,6 +954,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MENU_ADD_REQUEST = "performance.menu.add_request";
     public static final String PERFORMANCE_MENU_ADD_SSE_CONNECT = "performance.menu.add_sse_connect";
     public static final String PERFORMANCE_MENU_ADD_SSE_READ = "performance.menu.add_sse_read";
+    public static final String PERFORMANCE_MENU_TOGGLE_SSE_MODE = "performance.menu.sse_workload_mode";
     public static final String PERFORMANCE_MENU_ADD_WS_CONNECT = "performance.menu.add_ws_connect";
     public static final String PERFORMANCE_MENU_ADD_WS_SEND = "performance.menu.add_ws_send";
     public static final String PERFORMANCE_MENU_ADD_WS_READ = "performance.menu.add_ws_read";

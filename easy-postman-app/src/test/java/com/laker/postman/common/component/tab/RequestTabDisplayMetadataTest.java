@@ -63,19 +63,16 @@ public class RequestTabDisplayMetadataTest {
     }
 
     @Test
-    public void shouldKeepProtocolBadgesForRealtimeRequestTabs() {
+    public void shouldKeepWebSocketBadgeAndUseHttpMethodForSseResponses() {
         UIManager.put(ThemeColors.HTTP_PROTOCOL_WS, new Color(7, 8, 9));
-        UIManager.put(ThemeColors.HTTP_PROTOCOL_SSE, new Color(10, 11, 12));
-
         RequestTabDisplayMetadata.Badge websocket =
                 RequestTabDisplayMetadata.badgeFor("GET", RequestItemProtocolEnum.WEBSOCKET);
-        RequestTabDisplayMetadata.Badge sse =
-                RequestTabDisplayMetadata.badgeFor("GET", RequestItemProtocolEnum.SSE);
+        RequestTabDisplayMetadata.Badge eventStream =
+                RequestTabDisplayMetadata.badgeFor("GET", RequestItemProtocolEnum.HTTP);
 
         assertEquals(websocket.text(), "WS");
         assertEquals(websocket.colorHex(), "#070809");
-        assertEquals(sse.text(), "SSE");
-        assertEquals(sse.colorHex(), "#0a0b0c");
+        assertEquals(eventStream.text(), "GET");
     }
 
     @Test

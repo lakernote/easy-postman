@@ -67,6 +67,33 @@ public class RequestEditorTabMethodBadgeTest extends AbstractSwingUiTest {
     }
 
     @Test
+    public void eventStreamHttpRequestShouldRemainAvailableToAssistant() throws Exception {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setId("assistant-sse-request");
+        item.setName("SSE Request");
+        item.setMethod("POST");
+        item.setUrl("https://example.com/events");
+        item.setProtocol(RequestItemProtocolEnum.HTTP);
+
+        AtomicReference<HttpRequestItem> snapshotRef = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            RequestEditorPanel editorPanel = UiSingletonFactory.getInstance(RequestEditorPanel.class);
+            JTabbedPane tabbedPane = editorPanel.getTabbedPane();
+            tabbedPane.removeAll();
+
+            RequestEditSubPanel requestPanel = new RequestEditSubPanel(item.getId(), item.getProtocol());
+            requestPanel.initPanelData(item);
+            tabbedPane.addTab(item.getName(), requestPanel);
+            tabbedPane.setSelectedIndex(0);
+
+            snapshotRef.set(editorPanel.getCurrentRequestSnapshotForAssistant());
+        });
+
+        assertNotNull(snapshotRef.get(), "HTTP event-stream requests should be available to the code snippet assistant");
+        assertEquals(snapshotRef.get().getProtocol(), RequestItemProtocolEnum.HTTP);
+    }
+
+    @Test
     public void requestTabDisplayRefreshShouldPreserveExistingMarkers() throws Exception {
         HttpRequestItem item = new HttpRequestItem();
         item.setId("method-badge-state-request");
@@ -102,12 +129,12 @@ public class RequestEditorTabMethodBadgeTest extends AbstractSwingUiTest {
     }
 
     @Test
-    public void savedNewRequestTabShouldClearNewRequestMarker() throws Exception {
+    public void savedNewEventStreamRequestShouldUseHttpMethodBadge() throws Exception {
         HttpRequestItem item = new HttpRequestItem();
         item.setId("saved-curl-request");
         item.setName("Saved cURL Request");
         item.setMethod("POST");
-        item.setProtocol(RequestItemProtocolEnum.SSE);
+        item.setProtocol(RequestItemProtocolEnum.HTTP);
 
         AtomicReference<ClosableTabComponent> updatedTabRef = new AtomicReference<>();
         AtomicReference<String> updatedTitleRef = new AtomicReference<>();
@@ -134,7 +161,7 @@ public class RequestEditorTabMethodBadgeTest extends AbstractSwingUiTest {
 
         JLabel label = findLabel(updatedTab);
         assertNotNull(label, "request tab component should contain a title label");
-        assertTrue(label.getText().contains("SSE"), "saved cURL request tab should keep the imported protocol badge");
+        assertTrue(label.getText().contains("POST"), "event-stream requests should display their HTTP method");
         assertEquals(updatedTitleRef.get(), "Saved cURL Request", "saved cURL request tab title should show the saved name");
     }
 

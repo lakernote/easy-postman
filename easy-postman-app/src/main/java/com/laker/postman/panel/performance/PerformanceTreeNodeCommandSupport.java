@@ -253,7 +253,7 @@ final class PerformanceTreeNodeCommandSupport {
         List<HttpRequestItem> supportedList = selectedList.stream()
                 .filter(reqItem -> {
                     RequestItemProtocolEnum protocol = treeSupport.resolveRequestProtocol(reqItem);
-                    return protocol.isHttpProtocol() || protocol.isSseProtocol() || protocol.isWebSocketProtocol();
+                    return protocol.isHttpProtocol() || protocol.isWebSocketProtocol();
                 })
                 .toList();
 

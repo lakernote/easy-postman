@@ -63,9 +63,6 @@ public class HttpRequestFactory {
             request.setBodyType(RequestBodyTypes.BODY_TYPE_RAW);
             appendHeader(request, CONTENT_TYPE, APPLICATION_JSON);
             replaceHeader(request, ACCEPT_ENCODING, IDENTITY_ACCEPT_ENCODING);
-        } else if (resolvedProtocol.isSseProtocol()) {
-            replaceHeader(request, ACCEPT, TEXT_EVENT_STREAM);
-            replaceHeader(request, ACCEPT_ENCODING, IDENTITY_ACCEPT_ENCODING);
         }
         return request;
     }
@@ -90,10 +87,12 @@ public class HttpRequestFactory {
         return testItem;
     }
 
-    public static HttpRequestItem createDefaultSseRequest() {
-        HttpRequestItem testItem = createBlankRequest(RequestItemProtocolEnum.SSE);
+    public static HttpRequestItem createDefaultEventStreamRequest() {
+        HttpRequestItem testItem = createBlankRequest(RequestItemProtocolEnum.HTTP);
         testItem.setName("SSE Example");
         testItem.setUrl("https://stream.wikimedia.org/v2/stream/recentchange");
+        replaceHeader(testItem, ACCEPT, TEXT_EVENT_STREAM);
+        replaceHeader(testItem, ACCEPT_ENCODING, IDENTITY_ACCEPT_ENCODING);
         return testItem;
     }
 

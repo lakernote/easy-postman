@@ -169,6 +169,7 @@ final class PerformanceTreeInteractionSupport {
         JMenuItem addRequest = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_REQUEST));
         JMenuItem addSseConnect = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_SSE_CONNECT));
         JMenuItem addSseRead = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_SSE_READ));
+        JCheckBoxMenuItem sseMode = new JCheckBoxMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_TOGGLE_SSE_MODE));
         JMenuItem addWsConnect = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_WS_CONNECT));
         JMenuItem addWsSend = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_WS_SEND));
         JMenuItem addWsRead = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_WS_READ));
@@ -202,6 +203,7 @@ final class PerformanceTreeInteractionSupport {
                 addOnceOnly,
                 addSseConnect,
                 addSseRead,
+                sseMode,
                 addWsConnect,
                 addWsSend,
                 addWsRead,
@@ -241,6 +243,7 @@ final class PerformanceTreeInteractionSupport {
         addControllerMenu.add(addOnceOnly);
         addProtocolMenu.add(addSseConnect);
         addProtocolMenu.add(addSseRead);
+        addProtocolMenu.add(sseMode);
         addProtocolMenu.add(protocolMenuSeparator);
         addProtocolMenu.add(addWsConnect);
         addProtocolMenu.add(addWsSend);
@@ -267,7 +270,7 @@ final class PerformanceTreeInteractionSupport {
         Runnable updateMenuSeparators = () -> {
             syncAddMenuVisibility(addDataMenu, addThreadGroup, addCsvDataSet, addRequest);
             syncAddMenuVisibility(addControllerMenu, addSimple, addLoop, addCondition, addWhile, addOnceOnly);
-            boolean hasSseItems = addSseConnect.isVisible() || addSseRead.isVisible();
+            boolean hasSseItems = addSseConnect.isVisible() || addSseRead.isVisible() || sseMode.isVisible();
             boolean hasWebSocketItems = addWsConnect.isVisible()
                     || addWsSend.isVisible()
                     || addWsRead.isVisible()
@@ -277,6 +280,7 @@ final class PerformanceTreeInteractionSupport {
                     addProtocolMenu,
                     addSseConnect,
                     addSseRead,
+                sseMode,
                     addWsConnect,
                     addWsSend,
                     addWsRead,
@@ -305,6 +309,14 @@ final class PerformanceTreeInteractionSupport {
         addOnceOnly.addActionListener(e -> treeSupport.addOnceOnlyNode(performanceTree, saveConfigAction));
         addSseConnect.addActionListener(e -> treeSupport.addSseStageNode(performanceTree, NodeType.SSE_CONNECT, saveConfigAction));
         addSseRead.addActionListener(e -> treeSupport.addSseStageNode(performanceTree, NodeType.SSE_READ, saveConfigAction));
+        sseMode.addActionListener(e -> {
+            DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) performanceTree.getLastSelectedPathComponent();
+            treeSupport.setSsePerformanceMode(selectedNode, sseMode.isSelected());
+            if (selectedNode != null) {
+                treeModel.nodeChanged(selectedNode);
+            }
+            saveConfigAction.run();
+        });
         addWsConnect.addActionListener(e -> treeSupport.addWebSocketStepNode(performanceTree, NodeType.WS_CONNECT, saveConfigAction));
         addWsSend.addActionListener(e -> treeSupport.addWebSocketStepNode(performanceTree, NodeType.WS_SEND, saveConfigAction));
         addWsRead.addActionListener(e -> treeSupport.addWebSocketStepNode(performanceTree, NodeType.WS_READ, saveConfigAction));
@@ -364,10 +376,10 @@ final class PerformanceTreeInteractionSupport {
                 if (selectedPaths.length > 1) {
                     menuVisibilitySupport.configureMultiSelectionMenu(selectedPaths, menuItems);
                 } else {
-                    menuVisibilitySupport.configureSingleSelectionMenu(
-                            (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent(),
-                            menuItems
-                    );
+                    DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
+                    menuVisibilitySupport.configureSingleSelectionMenu(selectedNode, menuItems);
+                    sseMode.setSelected(selectedNode.getUserObject() instanceof PerformanceTreeNode nodeData
+                            && nodeData.ssePerformanceEnabled);
                 }
                 updateMenuSeparators.run();
                 treeMenu.show(performanceTree, e.getX(), e.getY());

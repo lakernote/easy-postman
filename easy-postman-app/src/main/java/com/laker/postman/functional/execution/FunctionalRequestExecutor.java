@@ -10,6 +10,7 @@ import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.transport.DefaultHttpTransport;
 import com.laker.postman.http.runtime.transport.HttpExchangeOptions;
 import com.laker.postman.http.runtime.transport.HttpTransport;
+import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.model.Environment;
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.script.model.TestResult;
@@ -22,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -128,15 +130,65 @@ public final class FunctionalRequestExecutor {
         AssertionResult assertion = AssertionResult.NO_TESTS;
         String errorMessage = null;
         ScriptExecutionResult postResult = null;
+        List<TestResult> streamTestResults = new ArrayList<>();
+        StringBuilder streamResponseBody = new StringBuilder();
+        boolean[] streamScriptsSucceeded = {true};
+        String[] streamScriptError = {null};
+        HttpResponse[] streamResponseRef = {null};
 
         if (!preResult.isSuccess()) {
             errorMessage = preResult.getErrorMessage();
             status = ERROR;
         } else {
             try {
-                response = httpTransport.execute(request, HttpExchangeOptions.defaults());
+                response = httpTransport.execute(request, HttpExchangeOptions.builder()
+                        .callback(new SseResponseCallback() {
+                            @Override
+                            public void onOpen(HttpResponse streamResponse) {
+                                streamResponse.isSse = true;
+                                streamResponseRef[0] = streamResponse;
+                            }
+
+                            @Override
+                            public void onEvent(String id, String type, String data) {
+                                appendSseEvent(streamResponseBody, id, type, data);
+                                HttpResponse eventResponse = new HttpResponse();
+                                eventResponse.code = streamResponseRef[0] == null ? 0 : streamResponseRef[0].code;
+                                eventResponse.headers = streamResponseRef[0] == null ? null : streamResponseRef[0].headers;
+                                eventResponse.isSse = true;
+                                eventResponse.body = data;
+                                eventResponse.bodySize = data == null ? 0 : data.getBytes(StandardCharsets.UTF_8).length;
+                                ScriptExecutionResult eventResult = pipeline.executePostScript(eventResponse);
+                                if (eventResult.getTestResults() != null) {
+                                    streamTestResults.addAll(eventResult.getTestResults());
+                                }
+                                if (!eventResult.isSuccess()) {
+                                    streamScriptsSucceeded[0] = false;
+                                    if (streamScriptError[0] == null) {
+                                        streamScriptError[0] = eventResult.getErrorMessage();
+                                    }
+                                }
+                            }
+
+                            @Override
+                            public void onFailure(String errorMsg, HttpResponse streamResponse) {
+                                streamScriptsSucceeded[0] = false;
+                                streamScriptError[0] = errorMsg;
+                            }
+                        })
+                        .build());
+                if (response.isSse) {
+                    response.body = streamResponseBody.toString();
+                    response.bodySize = streamResponseBody.toString().getBytes(StandardCharsets.UTF_8).length;
+                }
                 status = String.valueOf(response.code);
-                postResult = pipeline.executePostScript(response);
+                postResult = response.isSse
+                        ? ScriptExecutionResult.builder()
+                        .success(streamScriptsSucceeded[0])
+                        .testResults(streamTestResults)
+                        .errorMessage(streamScriptError[0])
+                        .build()
+                        : pipeline.executePostScript(response);
                 if (collectionRunnerSemantics && !postResult.isSuccess()) {
                     assertion = AssertionResult.FAIL;
                     errorMessage = postResult.getErrorMessage();
@@ -185,5 +237,20 @@ public final class FunctionalRequestExecutor {
             tests.addAll(postResult.getTestResults());
         }
         return tests;
+    }
+
+    private static void appendSseEvent(StringBuilder body, String id, String type, String data) {
+        if (id != null && !id.isBlank()) {
+            body.append("id: ").append(id).append('\n');
+        }
+        if (type != null && !type.isBlank()) {
+            body.append("event: ").append(type).append('\n');
+        }
+        if (data != null) {
+            for (String line : data.split("\\R", -1)) {
+                body.append("data: ").append(line).append('\n');
+            }
+        }
+        body.append('\n');
     }
 }

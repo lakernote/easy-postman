@@ -95,9 +95,7 @@ public class CurlImportUtil {
         }
 
         // 智能判断协议类型
-        if (HttpRequestProtocol.isSse(item)) {
-            item.setProtocol(RequestItemProtocolEnum.SSE);
-        } else if (HttpRequestProtocol.isWebSocketUrl(item.getUrl())) {
+        if (HttpRequestProtocol.isWebSocketUrl(item.getUrl())) {
             item.setProtocol(RequestItemProtocolEnum.WEBSOCKET);
         } else {
             item.setProtocol(RequestItemProtocolEnum.HTTP);

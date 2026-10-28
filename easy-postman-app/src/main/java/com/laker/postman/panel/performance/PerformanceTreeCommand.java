@@ -12,6 +12,7 @@ enum PerformanceTreeCommand {
     ADD_ONCE_ONLY,
     ADD_SSE_CONNECT,
     ADD_SSE_READ,
+    TOGGLE_SSE_MODE,
     ADD_WS_CONNECT,
     ADD_WS_SEND,
     ADD_WS_READ,

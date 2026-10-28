@@ -178,9 +178,6 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
         if (protocol.isWebSocketProtocol()) {
             method = "WS";
             methodColor = HttpRequestDisplayMetadata.protocolColorHex(method);
-        } else if (protocol.isSseProtocol()) {
-            method = "SSE";
-            methodColor = HttpRequestDisplayMetadata.protocolColorHex(method);
         } else {
             method = HttpRequestDisplayMetadata.methodLabel(method);
         }

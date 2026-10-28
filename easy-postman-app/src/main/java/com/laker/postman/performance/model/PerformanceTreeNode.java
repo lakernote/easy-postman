@@ -33,6 +33,7 @@ public class PerformanceTreeNode {
     public ExtractorData extractorData;   // 提取器数据
     public TimerData timerData;           // 定时器数据
     public SsePerformanceData ssePerformanceData; // SSE 压测配置，仅 SSE 阶段节点使用
+    public boolean ssePerformanceEnabled; // REQUEST 节点显式选择的 SSE 压测场景
     public WebSocketPerformanceData webSocketPerformanceData; // WebSocket 压测配置，REQUEST/WS 节点共用
     public boolean enabled = true;        // 是否启用，默认启用
     public RequestExecutionScope requestExecutionScope; // REQUEST 节点执行所需分组变量快照

@@ -1,10 +1,8 @@
 package com.laker.postman.panel.collections.editor.request;
 
 import com.laker.postman.stream.MessageType;
-import com.laker.postman.request.model.RequestItemProtocolEnum;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.laker.postman.panel.collections.editor.request.sub.EasyRequestHttpHeadersPanel;
 import com.laker.postman.panel.collections.editor.request.sub.RequestBodyPanel;
 import com.laker.postman.panel.collections.editor.request.sub.RequestLinePanel;
 import com.laker.postman.panel.collections.editor.request.sub.ResponsePanel;
@@ -17,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import javax.swing.*;
 import java.awt.event.ActionListener;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -29,21 +26,15 @@ final class RequestEditorCommandController {
     private static final int WEBSOCKET_NORMAL_CLOSURE = 1000;
 
     private final JTextField urlField;
-    private final EasyRequestHttpHeadersPanel headersPanel;
     private final RequestBodyPanel requestBodyPanel;
     private final RequestLinePanel requestLinePanel;
     private final RequestStreamUiAppender requestStreamUiAppender;
     private final ResponsePanel responsePanel;
     private final ActionListener sendAction;
     private final Supplier<Boolean> isBaseHttpProtocolSupplier;
-    private final Supplier<Boolean> isEffectiveSseProtocolSupplier;
     private final Supplier<Boolean> isEffectiveWebSocketProtocolSupplier;
     private final RequestExecutionState executionState;
-    private final Supplier<RequestItemProtocolEnum> currentProtocolSupplier;
-    private final Consumer<RequestItemProtocolEnum> currentProtocolSetter;
-    private final Consumer<RequestItemProtocolEnum> protocolTabUpdater;
     private final RequestCurlImportController curlImportController;
-    private final Runnable updateTabDirtyAction;
 
     void sendWebSocketMessage() {
         RealtimeWebSocketConnection currentWebSocket = executionState.currentWebSocket();
@@ -92,21 +83,10 @@ final class RequestEditorCommandController {
         responsePanel.hideLoadingOverlay();
 
         if (Boolean.TRUE.equals(isBaseHttpProtocolSupplier.get()) && executionState.isAutoDetectedHttpSseOpen()) {
-            responsePanel.switchTabButtonHttpOrSse("sse");
+            responsePanel.showHttpResponseView(true);
             requestStreamUiAppender.appendSseMessage(MessageType.CLOSED, null, "closed", null,
                     I18nUtil.getMessage(MessageKeys.STREAM_USER_CANCELED), null);
         }
-    }
-
-    void convertCurrentRequestToSse() {
-        if (!Boolean.TRUE.equals(isBaseHttpProtocolSupplier.get()) || Boolean.TRUE.equals(isEffectiveSseProtocolSupplier.get())) {
-            return;
-        }
-
-        currentProtocolSetter.accept(RequestItemProtocolEnum.SSE);
-        headersPanel.setOrUpdateHeader("Accept", "text/event-stream");
-        protocolTabUpdater.accept(currentProtocolSupplier.get());
-        updateTabDirtyAction.run();
     }
 
     void autoPrependProtocolIfNeeded() {

@@ -4,7 +4,6 @@ import com.laker.postman.script.model.TestResult;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
-import lombok.RequiredArgsConstructor;
 
 import javax.swing.*;
 import java.awt.Color;
@@ -15,19 +14,23 @@ import java.util.List;
  * <p>
  * Headers 和 Tests 的标题会随结果动态变化，集中在这里避免 ResponsePanel 混入文案拼装细节。
  */
-@RequiredArgsConstructor
 final class ResponseTabBadgeController {
-    private static final int TAB_INDEX_RESPONSE_HEADERS = 1;
-    private static final int TAB_INDEX_TESTS = 2;
     private static final int BADGE_ICON_TEXT_GAP = 5;
 
     private final JButton[] tabButtons;
+    private final TabBarBuilder.TabConfig tabConfig;
+
+    ResponseTabBadgeController(JButton[] tabButtons, TabBarBuilder.TabConfig tabConfig) {
+        this.tabButtons = tabButtons;
+        this.tabConfig = tabConfig;
+    }
 
     void updateResponseHeadersCount(int count) {
-        if (tabButtons.length <= TAB_INDEX_RESPONSE_HEADERS) {
+        int tabIndex = tabConfig.indexOf(TabBarBuilder.Tab.RESPONSE_HEADERS);
+        if (tabIndex < 0 || tabIndex >= tabButtons.length) {
             return;
         }
-        JButton headersButton = tabButtons[TAB_INDEX_RESPONSE_HEADERS];
+        JButton headersButton = tabButtons[tabIndex];
         String label = I18nUtil.getMessage(MessageKeys.TAB_RESPONSE_HEADERS);
         if (count > 0) {
             setTabBadge(headersButton,
@@ -42,10 +45,11 @@ final class ResponseTabBadgeController {
     }
 
     void updateTestResults(List<TestResult> testResults) {
-        if (tabButtons.length <= TAB_INDEX_TESTS) {
+        int tabIndex = tabConfig.indexOf(TabBarBuilder.Tab.TESTS);
+        if (tabIndex < 0 || tabIndex >= tabButtons.length) {
             return;
         }
-        JButton testsButton = tabButtons[TAB_INDEX_TESTS];
+        JButton testsButton = tabButtons[tabIndex];
         String label = I18nUtil.getMessage(MessageKeys.TAB_TESTS);
         if (testResults != null && !testResults.isEmpty()) {
             boolean allPassed = testResults.stream().allMatch(r -> r.passed);

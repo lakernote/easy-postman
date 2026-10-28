@@ -11,6 +11,9 @@ import com.laker.postman.performance.core.model.NodeType;
 import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.model.SsePerformanceData;
 import com.laker.postman.performance.core.model.WebSocketPerformanceData;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
+import com.laker.postman.panel.performance.tree.PerformanceSwingTreePlanAdapter;
+import com.laker.postman.performance.plan.PerformancePlanNode;
 import org.testng.annotations.Test;
 
 import javax.swing.JTree;
@@ -33,7 +36,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE 请求应自动补齐固定节点，并把断言归并到 Read 节点下")
     public void shouldCreateSseStructureAndMoveAssertionsUnderReadNode() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         DefaultMutableTreeNode assertionNode = newNode("Assertion", NodeType.ASSERTION);
         context.treeModel.insertNodeInto(assertionNode, context.requestNode, context.requestNode.getChildCount());
 
@@ -50,7 +53,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE 阶段节点应使用独立默认配置，不从父请求读取旧配置")
     public void shouldInitializeSseStageNodesWithIndependentDefaultData() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         context.requestData.ssePerformanceData = new SsePerformanceData();
         context.requestData.ssePerformanceData.completionMode = SsePerformanceData.CompletionMode.STREAM_CLOSED;
         context.requestData.ssePerformanceData.holdConnectionMs = 30000;
@@ -72,7 +75,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE Read 标题应跟随 Read 节点配置，而不是父请求上的旧配置")
     public void shouldRefreshSseReadTitleFromReadStageData() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
 
         DefaultMutableTreeNode readNode = findChild(context.requestNode, NodeType.SSE_READ);
@@ -88,7 +91,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE 匹配消息模式应在 Receive 节点标题展示消息过滤条件")
     public void shouldShowSseMatchedMessageFilterInReadNodeTitle() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
 
         DefaultMutableTreeNode readNode = findChild(context.requestNode, NodeType.SSE_READ);
@@ -106,7 +109,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE 固定时长模式不应在 Receive 节点标题展示事件过滤条件")
     public void shouldHideSseEventFilterInFixedDurationReadNodeTitle() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
 
         DefaultMutableTreeNode readNode = findChild(context.requestNode, NodeType.SSE_READ);
@@ -142,15 +145,23 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE 请求切回 HTTP 后应移除 SSE 固定节点，并把断言恢复到请求节点下")
     public void shouldRemoveSseNodesAndRestoreAssertionsWhenSwitchingBackToHttp() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newTestContext(RequestItemProtocolEnum.HTTP);
         DefaultMutableTreeNode assertionNode = newNode("Assertion", NodeType.ASSERTION);
         context.treeModel.insertNodeInto(assertionNode, context.requestNode, context.requestNode.getChildCount());
-        context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
 
-        context.requestData.httpRequestItem.setProtocol(RequestItemProtocolEnum.HTTP);
-        context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
+        context.treeSupport.setSsePerformanceMode(context.requestNode, true);
+        assertEquals(childTypesOf(context.requestNode), List.of(NodeType.SSE_CONNECT, NodeType.SSE_READ));
+        assertEquals(context.requestData.requestSnapshot.getProtocol(), PerformanceRequestProtocol.HTTP);
+        assertSame(findChild(context.requestNode, NodeType.SSE_READ).getChildAt(0), assertionNode);
+        PerformancePlanNode persistedNode = PerformanceSwingTreePlanAdapter.toDocumentNode(context.requestNode);
+        assertEquals(persistedNode.getRequestSnapshot().getProtocol(), PerformanceRequestProtocol.HTTP);
+        DefaultMutableTreeNode restoredNode = PerformanceSwingTreePlanAdapter.toTreeNode(persistedNode);
+        assertTrue(((PerformanceTreeNode) restoredNode.getUserObject()).ssePerformanceEnabled);
+
+        context.treeSupport.setSsePerformanceMode(context.requestNode, false);
 
         assertEquals(childTypesOf(context.requestNode), List.of(NodeType.ASSERTION));
+        assertEquals(context.requestData.requestSnapshot.getProtocol(), PerformanceRequestProtocol.HTTP);
         assertSame(context.requestNode.getChildAt(0), assertionNode);
         assertNull(findChild(context.requestNode, NodeType.SSE_CONNECT));
         assertNull(findChild(context.requestNode, NodeType.SSE_READ));
@@ -360,7 +371,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE 固定阶段节点也应支持单独复制")
     public void shouldCopySseStageNodesIndividually() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
         DefaultMutableTreeNode connectNode = findChild(context.requestNode, NodeType.SSE_CONNECT);
         DefaultMutableTreeNode readNode = findChild(context.requestNode, NodeType.SSE_READ);
@@ -372,7 +383,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "粘贴 SSE 阶段节点到 SSE 请求上时应插入阶段节点")
     public void shouldPasteSseStageNodeIntoSseRequest() {
-        TestContext context = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext context = newSseTestContext();
         context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
         DefaultMutableTreeNode readNode = findChild(context.requestNode, NodeType.SSE_READ);
         PerformanceTreeNode readData = (PerformanceTreeNode) readNode.getUserObject();
@@ -452,7 +463,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "SSE Connect、SSE Read、WebSocket Connect 阶段节点应支持删除")
     public void shouldDeleteProtocolStageNodes() {
-        TestContext sseContext = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext sseContext = newSseTestContext();
         sseContext.treeSupport.ensureRequestStructure(sseContext.requestNode, sseContext.requestData);
         DefaultMutableTreeNode sseConnectNode = findChild(sseContext.requestNode, NodeType.SSE_CONNECT);
         DefaultMutableTreeNode sseReadNode = findChild(sseContext.requestNode, NodeType.SSE_READ);
@@ -495,7 +506,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "删除协议阶段节点后，普通同步不应自动补回")
     public void shouldNotRecreateDeletedProtocolStagesDuringSync() {
-        TestContext sseContext = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext sseContext = newSseTestContext();
         sseContext.treeSupport.ensureRequestStructure(sseContext.requestNode, sseContext.requestData);
         sseContext.treeSupport.deleteNodes(paths(
                 findChild(sseContext.requestNode, NodeType.SSE_CONNECT),
@@ -517,7 +528,7 @@ public class PerformanceTreeSupportTest {
 
     @Test(description = "协议阶段节点应能通过显式添加补回")
     public void shouldAddProtocolStageNodesExplicitly() {
-        TestContext sseContext = newTestContext(RequestItemProtocolEnum.SSE);
+        TestContext sseContext = newSseTestContext();
         JTree sseTree = new JTree(sseContext.treeModel);
         sseTree.setSelectionPath(new TreePath(sseContext.requestNode.getPath()));
 
@@ -538,17 +549,19 @@ public class PerformanceTreeSupportTest {
         assertEquals(childTypesOf(wsContext.requestNode), List.of(NodeType.WS_CONNECT));
     }
 
-    @Test(description = "HTTP 请求添加 text/event-stream Accept 头后应识别为 SSE 结构类型")
-    public void shouldResolveHttpRequestWithEventStreamHeaderAsSseStructureKind() {
+    @Test(description = "Accept 头不应隐式更改压测场景，SSE 模式由用户明确选择")
+    public void shouldNotInferSsePerformanceModeFromAcceptHeader() {
         TestContext context = newTestContext(RequestItemProtocolEnum.HTTP);
-
-        assertEquals(context.treeSupport.resolvePerformanceProtocol(context.requestData.httpRequestItem), PerformanceProtocol.HTTP);
-
         context.requestData.httpRequestItem.setHeadersList(List.of(
                 new HttpHeader(true, "Accept", "text/event-stream")
         ));
 
-        assertEquals(context.treeSupport.resolvePerformanceProtocol(context.requestData.httpRequestItem), PerformanceProtocol.SSE);
+        assertEquals(context.treeSupport.resolvePerformanceProtocol(context.requestData), PerformanceProtocol.HTTP);
+
+        context.requestData.ssePerformanceEnabled = true;
+        context.treeSupport.ensureRequestStructure(context.requestNode, context.requestData);
+
+        assertEquals(context.treeSupport.resolvePerformanceProtocol(context.requestData), PerformanceProtocol.SSE);
     }
 
     private static TestContext newTestContext(RequestItemProtocolEnum protocol) {
@@ -561,6 +574,12 @@ public class PerformanceTreeSupportTest {
         root.add(requestNode);
         DefaultTreeModel treeModel = new DefaultTreeModel(root);
         return new TestContext(new PerformanceTreeSupport(treeModel), treeModel, requestNode, requestData);
+    }
+
+    private static TestContext newSseTestContext() {
+        TestContext context = newTestContext(RequestItemProtocolEnum.HTTP);
+        context.requestData.ssePerformanceEnabled = true;
+        return context;
     }
 
     private static DefaultMutableTreeNode newNode(String name, NodeType type) {

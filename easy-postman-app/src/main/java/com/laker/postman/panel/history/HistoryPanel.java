@@ -1181,7 +1181,7 @@ public class HistoryPanel extends UiSingletonPanel {
 
     private RequestItemProtocolEnum resolveProtocol(RequestHistoryItem item) {
         if (item.getResponse() != null && item.getResponse().isSse) {
-            return RequestItemProtocolEnum.SSE;
+            return RequestItemProtocolEnum.HTTP;
         }
         String url = item.getUrl() != null ? item.getUrl().toLowerCase(Locale.ROOT) : "";
         if (url.startsWith("ws://") || url.startsWith("wss://")) {

@@ -104,6 +104,9 @@ public class PerformanceSwingTreePlanAdapter {
         data.whileData = PerformancePlanDataCopies.copyWhileData(node.getWhileData());
         data.httpRequestItem = PerformancePlanDataCopies.copyHttpRequestItem(node.getHttpRequestItem());
         data.requestSnapshot = PerformanceRequestSnapshotMapper.copyRequestSnapshot(node.getRequestSnapshot());
+        data.ssePerformanceEnabled = data.type == NodeType.REQUEST
+                && node.getChildren().stream().anyMatch(child -> child.getType() == NodeType.SSE_CONNECT
+                || child.getType() == NodeType.SSE_READ);
         data.assertionData = PerformancePlanDataCopies.copyAssertionData(node.getAssertionData());
         data.extractorData = PerformancePlanDataCopies.copyExtractorData(node.getExtractorData());
         data.timerData = PerformancePlanDataCopies.copyTimerData(node.getTimerData());

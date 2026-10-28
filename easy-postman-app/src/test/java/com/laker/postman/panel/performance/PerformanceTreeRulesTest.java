@@ -1,7 +1,6 @@
 package com.laker.postman.panel.performance;
 
 import com.laker.postman.request.model.RequestItemProtocolEnum;
-import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpRequestItem;
 
 
@@ -30,9 +29,7 @@ public class PerformanceTreeRulesTest {
         assertTrue(PerformanceTreeRules.canAcceptChild(wsLoop, newNode(NodeType.WS_SEND)));
 
         DefaultMutableTreeNode sseRequest = newRequestNode(RequestItemProtocolEnum.HTTP);
-        ((PerformanceTreeNode) sseRequest.getUserObject()).httpRequestItem.setHeadersList(List.of(
-                new HttpHeader(true, "Accept", "text/event-stream")
-        ));
+        ((PerformanceTreeNode) sseRequest.getUserObject()).ssePerformanceEnabled = true;
 
         assertTrue(PerformanceTreeRules.canAcceptChild(sseRequest, newNode(NodeType.SSE_CONNECT)));
         assertTrue(PerformanceTreeRules.canAcceptChild(sseRequest, newNode(NodeType.SSE_READ)));

@@ -1,6 +1,5 @@
 package com.laker.postman.performance.core.request;
 
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import lombok.Builder;
 import lombok.Value;
 
@@ -23,7 +22,7 @@ public class PerformanceRequestSnapshot {
     String description;
     String url;
     String method;
-    PerformanceProtocol protocol;
+    PerformanceRequestProtocol protocol;
     List<PerformanceRequestKeyValue> headers;
     String bodyType;
     String body;
@@ -53,7 +52,7 @@ public class PerformanceRequestSnapshot {
                                       String description,
                                       String url,
                                       String method,
-                                      PerformanceProtocol protocol,
+                                      PerformanceRequestProtocol protocol,
                                       List<PerformanceRequestKeyValue> headers,
                                       String bodyType,
                                       String body,
@@ -81,7 +80,7 @@ public class PerformanceRequestSnapshot {
         this.description = blankToEmpty(description);
         this.url = blankToEmpty(url);
         this.method = blankToDefault(method, "GET");
-        this.protocol = protocol == null ? PerformanceProtocol.HTTP : protocol;
+        this.protocol = protocol == null ? PerformanceRequestProtocol.HTTP : protocol;
         this.headers = copyKeyValues(headers);
         this.bodyType = blankToEmpty(bodyType);
         this.body = blankToEmpty(body);
@@ -113,19 +112,15 @@ public class PerformanceRequestSnapshot {
     }
 
     public boolean executesChildrenInSamplerOrder() {
-        return protocol == PerformanceProtocol.WEBSOCKET;
+        return protocol == PerformanceRequestProtocol.WEBSOCKET;
     }
 
     public boolean isHttp() {
-        return protocol == PerformanceProtocol.HTTP;
+        return protocol == PerformanceRequestProtocol.HTTP;
     }
 
     public boolean isWebSocket() {
-        return protocol == PerformanceProtocol.WEBSOCKET;
-    }
-
-    public boolean isSse() {
-        return protocol == PerformanceProtocol.SSE;
+        return protocol == PerformanceRequestProtocol.WEBSOCKET;
     }
 
     private static List<PerformanceRequestKeyValue> copyKeyValues(List<PerformanceRequestKeyValue> source) {

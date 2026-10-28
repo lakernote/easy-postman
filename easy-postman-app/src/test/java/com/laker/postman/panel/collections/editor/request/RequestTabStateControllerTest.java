@@ -13,8 +13,8 @@ import static org.testng.Assert.assertTrue;
 public class RequestTabStateControllerTest extends AbstractSwingUiTest {
 
     @Test
-    public void shouldBindSseBodyEditsToDirtyState() throws Exception {
-        assertBodyEditTriggersDirtyUpdate(RequestItemProtocolEnum.SSE);
+    public void shouldBindHttpBodyEditsToDirtyState() throws Exception {
+        assertBodyEditTriggersDirtyUpdate(RequestItemProtocolEnum.HTTP);
     }
 
     @Test

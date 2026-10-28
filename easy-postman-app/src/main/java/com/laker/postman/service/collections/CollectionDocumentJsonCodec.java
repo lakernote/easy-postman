@@ -167,6 +167,7 @@ public class CollectionDocumentJsonCodec {
 
     private CollectionNode fromRequestJson(JSONObject requestJson) {
         JSONObject dataJson = requestJson.getJSONObject("data");
+        RequestProtocolStorageMigration.normalizeLegacySseProtocol(dataJson);
         HttpRequestItem item = JSONUtil.toBean(dataJson, HttpRequestItem.class);
         item.setBody(item.getBody() != null ? item.getBody() : "");
         SavedResponseSnapshotMapper.sanitizeSavedResponses(item);

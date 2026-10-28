@@ -11,6 +11,7 @@ import com.laker.postman.performance.core.request.PerformanceRequestExecutionSco
 import com.laker.postman.performance.core.request.PerformanceRequestFormDataPart;
 import com.laker.postman.performance.core.request.PerformanceRequestKeyValue;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.performance.core.threadgroup.ThreadGroupData;
 import com.laker.postman.performance.core.timer.TimerData;
 import org.testng.annotations.Test;
@@ -73,7 +74,7 @@ public class PerformanceCorePlanJsonStorageTest {
         PerformanceRequestSnapshot snapshot = loadedRequest.getRequestSnapshot();
         assertNotNull(snapshot);
         assertEquals(snapshot.getId(), "req-1");
-        assertEquals(snapshot.getProtocol(), PerformanceProtocol.WEBSOCKET);
+        assertEquals(snapshot.getProtocol(), PerformanceRequestProtocol.WEBSOCKET);
         assertEquals(snapshot.getUrl(), "wss://example.test/ws");
         assertEquals(snapshot.getHeaders().get(0), new PerformanceRequestKeyValue(true, "X-Test", "yes"));
         assertEquals(snapshot.getFormData().get(0), new PerformanceRequestFormDataPart(true, "upload", "File", "/tmp/a.txt"));
@@ -100,6 +101,32 @@ public class PerformanceCorePlanJsonStorageTest {
         assertEquals(loaded.getRoot().getChildren().get(0).getName(), "users");
     }
 
+    @Test
+    public void shouldNormalizeLegacySseRequestProtocolToHttpWhenLoadingPlan() {
+        PerformanceCorePlanJsonStorage storage = new PerformanceCorePlanJsonStorage();
+        String legacyJson = storage.toJson(document())
+                .replaceFirst("\\\"protocol\\\"\\s*:\\s*\\\"WEBSOCKET\\\"", "\\\"protocol\\\":\\\"SSE\\\"");
+
+        PerformanceCorePlanDocument loaded = storage.fromJson(legacyJson);
+        PerformanceCorePlanNode loadedRequest = findRequestNode(loaded.getRoot());
+
+        assertNotNull(loadedRequest);
+        assertEquals(loadedRequest.getRequestSnapshot().getProtocol(), PerformanceRequestProtocol.HTTP);
+    }
+
+    private static PerformanceCorePlanNode findRequestNode(PerformanceCorePlanNode node) {
+        if (node.getType() == NodeType.REQUEST) {
+            return node;
+        }
+        for (PerformanceCorePlanNode child : node.getChildren()) {
+            PerformanceCorePlanNode request = findRequestNode(child);
+            if (request != null) {
+                return request;
+            }
+        }
+        return null;
+    }
+
     private static PerformanceCorePlanDocument document() {
         Map<String, String> groupVariables = new LinkedHashMap<>();
         groupVariables.put("tenant", "core");
@@ -111,7 +138,7 @@ public class PerformanceCorePlanJsonStorageTest {
                 .description("snapshot only")
                 .url("wss://example.test/ws")
                 .method("POST")
-                .protocol(PerformanceProtocol.WEBSOCKET)
+                .protocol(PerformanceRequestProtocol.WEBSOCKET)
                 .headers(List.of(new PerformanceRequestKeyValue(true, "X-Test", "yes")))
                 .params(List.of(new PerformanceRequestKeyValue(true, "debug", "1")))
                 .formData(List.of(new PerformanceRequestFormDataPart(true, "upload", "File", "/tmp/a.txt")))

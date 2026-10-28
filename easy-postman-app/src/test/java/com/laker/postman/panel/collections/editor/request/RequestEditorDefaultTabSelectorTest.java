@@ -12,29 +12,29 @@ import static org.testng.Assert.assertSame;
 public class RequestEditorDefaultTabSelectorTest extends AbstractSwingUiTest {
 
     @Test
-    public void shouldSelectBodyTabForSseRequestEvenWithoutBodyContent() throws Exception {
+    public void shouldSelectBodyTabForHttpPostEvenWithoutBodyContent() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            RequestViewComponents view = RequestViewFactory.create(RequestItemProtocolEnum.SSE, RequestEditSubPanelType.NORMAL, e -> {
+            RequestViewComponents view = RequestViewFactory.create(RequestItemProtocolEnum.HTTP, RequestEditSubPanelType.NORMAL, e -> {
             });
             HttpRequestItem item = new HttpRequestItem();
-            item.setProtocol(RequestItemProtocolEnum.SSE);
+            item.setProtocol(RequestItemProtocolEnum.HTTP);
             item.setMethod("POST");
 
             new RequestEditorBinder(view).populate(item);
-            new RequestEditorDefaultTabSelector(view).selectByRequestType(RequestItemProtocolEnum.SSE, item);
+            new RequestEditorDefaultTabSelector(view).selectByRequestType(RequestItemProtocolEnum.HTTP, item);
 
             assertSame(view.reqTabs.getSelectedComponent(), view.requestBodyPanel);
         });
     }
 
     @Test
-    public void shouldSelectBodyTabForSseInitialProtocolUi() throws Exception {
+    public void shouldSelectParamsTabForHttpInitialProtocolUi() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            RequestViewComponents view = RequestViewFactory.create(RequestItemProtocolEnum.SSE, RequestEditSubPanelType.NORMAL, e -> {
+            RequestViewComponents view = RequestViewFactory.create(RequestItemProtocolEnum.HTTP, RequestEditSubPanelType.NORMAL, e -> {
             });
 
             RequestEditorUiBinder.applyInitialProtocolUi(
-                    RequestItemProtocolEnum.SSE,
+                    RequestItemProtocolEnum.HTTP,
                     view.reqTabs,
                     view.requestBodyPanel,
                     view.paramsTabPanel,
@@ -43,7 +43,7 @@ public class RequestEditorDefaultTabSelectorTest extends AbstractSwingUiTest {
                     }
             );
 
-            assertSame(view.reqTabs.getSelectedComponent(), view.requestBodyPanel);
+            assertSame(view.reqTabs.getSelectedComponent(), view.paramsTabPanel);
         });
     }
 }

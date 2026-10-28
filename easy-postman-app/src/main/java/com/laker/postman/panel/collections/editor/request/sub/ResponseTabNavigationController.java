@@ -11,19 +11,18 @@ import java.util.List;
 /**
  * 响应区域 Tab 导航控制器。
  * <p>
- * 负责按钮选中态、横向布局下拉框、HTTP/SSE 动态标签切换；ResponsePanel 只保留响应内容编排。
+ * 负责按钮选中态、横向布局下拉框、HTTP 响应视图动态切换；ResponsePanel 只保留响应内容编排。
  */
 @RequiredArgsConstructor
 final class ResponseTabNavigationController {
-    private static final int TAB_INDEX_RESPONSE_BODY = 0;
-    private static final int TAB_INDEX_LOG = 5;
-
     private final JPanel topResponseBar;
     private final JPanel tabBar;
     private final Component statusBar;
     private final JPanel cardPanel;
     private final JButton[] tabButtons;
     private final String[] tabNames;
+    private final int responseBodyTabIndex;
+    private final int eventStreamTabIndex;
 
     private EasyComboBox<String> tabComboBox;
     private int selectedTabIndex;
@@ -66,12 +65,12 @@ final class ResponseTabNavigationController {
                 && (tabComboBox == null || tabComboBox.isEnabled() == enabled);
     }
 
-    void switchHttpOrSse(String type) {
-        if ("http".equals(type)) {
+    void switchHttpResponseView(boolean eventStream) {
+        if (eventStream) {
+            showEventStreamTab();
+        } else {
             showHttpTabs();
-            return;
         }
-        showSseTabs();
     }
 
     void switchToTab(int tabIndex) {
@@ -112,17 +111,30 @@ final class ResponseTabNavigationController {
     }
 
     private void showHttpTabs() {
-        tabButtons[TAB_INDEX_RESPONSE_BODY].setVisible(true);
-        tabButtons[TAB_INDEX_LOG].setVisible(false);
+        tabButtons[responseBodyTabIndex].setVisible(true);
+        tabButtons[eventStreamTabIndex].setVisible(false);
         refreshTabSelector();
-        selectVisibleTabIfNeeded(TAB_INDEX_RESPONSE_BODY);
+        selectVisibleTabIfNeeded(responseBodyTabIndex);
+        refreshTabLayout();
     }
 
-    private void showSseTabs() {
-        tabButtons[TAB_INDEX_RESPONSE_BODY].setVisible(false);
-        tabButtons[TAB_INDEX_LOG].setVisible(true);
+    private void showEventStreamTab() {
+        tabButtons[responseBodyTabIndex].setVisible(false);
+        tabButtons[eventStreamTabIndex].setVisible(true);
         refreshTabSelector();
-        selectVisibleTabIfNeeded(TAB_INDEX_LOG);
+        // An SSE response must take the user to its event data even if another
+        // still-visible tab (for example Response Headers) was selected before.
+        onTabSelected(eventStreamTabIndex);
+        showCard(eventStreamTabIndex);
+        syncComboBoxSelection();
+        refreshTabLayout();
+    }
+
+    private void refreshTabLayout() {
+        tabBar.revalidate();
+        tabBar.repaint();
+        topResponseBar.revalidate();
+        topResponseBar.repaint();
     }
 
     private void selectVisibleTabIfNeeded(int fallbackTabIndex) {

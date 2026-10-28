@@ -2,6 +2,7 @@ package com.laker.postman.performance.plan;
 
 import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.HttpHeader;
 
 
 import com.laker.postman.performance.core.plan.PerformanceAssertionElement;
@@ -158,8 +159,9 @@ public class PerformanceTestPlanCompilerTest {
         PerformanceTreeNode loopData = (PerformanceTreeNode) loopNode.getUserObject();
         PerformanceTestPlanNode timerNode = timerNode("timer", true, 150);
         PerformanceTreeNode timerData = (PerformanceTreeNode) timerNode.getUserObject();
-        PerformanceTestPlanNode requestNode = requestNode("sse request", true, RequestItemProtocolEnum.SSE);
+        PerformanceTestPlanNode requestNode = requestNode("sse request", true, RequestItemProtocolEnum.HTTP);
         PerformanceTreeNode requestData = (PerformanceTreeNode) requestNode.getUserObject();
+        requestData.httpRequestItem.setHeadersList(List.of(new HttpHeader(true, "Accept", "text/event-stream")));
         requestData.webSocketPerformanceData.connectTimeoutMs = 222;
         PerformanceTestPlanNode sseReadNode = protocolStageNode("sse read", NodeType.SSE_READ, true);
         PerformanceTreeNode sseReadData = (PerformanceTreeNode) sseReadNode.getUserObject();

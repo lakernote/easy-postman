@@ -11,7 +11,6 @@ import java.util.function.Supplier;
 final class RequestSplitLayoutController {
     private final JSplitPane splitPane;
     private final ResponsePanel responsePanel;
-    private final Supplier<Boolean> isEffectiveSseProtocolSupplier;
     private final Supplier<Boolean> isEffectiveWebSocketProtocolSupplier;
     private boolean initialDividerLocationSet;
 
@@ -54,8 +53,7 @@ final class RequestSplitLayoutController {
     }
 
     double getDefaultResizeWeight() {
-        if (Boolean.TRUE.equals(isEffectiveWebSocketProtocolSupplier.get())
-                || Boolean.TRUE.equals(isEffectiveSseProtocolSupplier.get())) {
+        if (Boolean.TRUE.equals(isEffectiveWebSocketProtocolSupplier.get())) {
             return 0.3;
         }
         return 0.5;

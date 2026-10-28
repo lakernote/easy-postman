@@ -5,6 +5,7 @@ import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.plan.PerformanceCorePlanDocument;
 import com.laker.postman.performance.core.plan.PerformanceCorePlanNode;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.performance.core.run.PerformanceRunPlan;
 import com.laker.postman.performance.core.run.PerformanceRunPlanJsonStorage;
 import com.laker.postman.performance.core.run.PerformanceRunSettings;
@@ -142,7 +143,7 @@ public class PerformancePlanImportServiceTest {
                                                 .requestSnapshot(PerformanceRequestSnapshot.builder()
                                                         .id(rootName + "-request")
                                                         .name(rootName + " Request")
-                                                        .protocol(PerformanceProtocol.HTTP)
+                                                        .protocol(PerformanceRequestProtocol.HTTP)
                                                         .method("GET")
                                                         .url(url)
                                                         .build())

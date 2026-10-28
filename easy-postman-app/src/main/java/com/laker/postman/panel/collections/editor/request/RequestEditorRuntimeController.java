@@ -5,7 +5,6 @@ import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.request.AppRequestHeaderDefaults;
 import com.laker.postman.request.model.HttpRequestItem;
-import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.service.setting.SettingManager;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -51,27 +50,20 @@ final class RequestEditorRuntimeController {
                 config.sendAction(),
                 config.baseHttpProtocolSupplier(),
                 config.effectiveHttpProtocolSupplier(),
-                config.effectiveSseProtocolSupplier(),
                 config.effectiveWebSocketProtocolSupplier()
         );
         RequestStreamUiAppender streamUiAppender = new RequestStreamUiAppender(view.responsePanel, TIME_FORMATTER);
         RequestEditorCommandController commandController = new RequestEditorCommandController(
                 view.urlField,
-                view.headersPanel,
                 view.requestBodyPanel,
                 view.requestLinePanel,
                 streamUiAppender,
                 view.responsePanel,
                 config.sendAction(),
                 () -> config.baseHttpProtocolSupplier().getAsBoolean(),
-                () -> config.effectiveSseProtocolSupplier().getAsBoolean(),
                 () -> config.effectiveWebSocketProtocolSupplier().getAsBoolean(),
                 executionState,
-                config.currentProtocolSupplier(),
-                config.currentProtocolSetter(),
-                config.protocolTabUpdater(),
-                new RequestCurlImportController(view.urlField, config.requestImporter()),
-                config.updateTabDirtyAction()
+                new RequestCurlImportController(view.urlField, config.requestImporter())
         );
         RequestResponseHandler responseHandler = new RequestResponseHandler(
                 config.owner(),
@@ -80,14 +72,6 @@ final class RequestEditorRuntimeController {
                 config.exchangeRecorder()
         );
         HttpRequestExecutor httpExecutor = new HttpRequestExecutor(
-                view.responsePanel,
-                executionUiUpdater,
-                streamUiAppender,
-                responseHandler,
-                commandController::convertCurrentRequestToSse,
-                executionState
-        );
-        SseRequestExecutor sseExecutor = new SseRequestExecutor(
                 view.responsePanel,
                 executionUiUpdater,
                 streamUiAppender,
@@ -104,7 +88,6 @@ final class RequestEditorRuntimeController {
         RequestProtocolDispatcher protocolDispatcher = new RequestProtocolDispatcher(
                 view.responsePanel,
                 httpExecutor,
-                sseExecutor,
                 webSocketExecutor,
                 executionState,
                 config.maxRedirectCount()
@@ -124,7 +107,6 @@ final class RequestEditorRuntimeController {
         RequestSplitLayoutController splitLayoutController = new RequestSplitLayoutController(
                 view.splitPane,
                 view.responsePanel,
-                () -> config.effectiveSseProtocolSupplier().getAsBoolean(),
                 () -> config.effectiveWebSocketProtocolSupplier().getAsBoolean()
         );
         applyInitialSplitLayout(view.splitPane, splitLayoutController);
@@ -186,16 +168,11 @@ final class RequestEditorRuntimeController {
                   ActionListener sendAction,
                   BooleanSupplier baseHttpProtocolSupplier,
                   BooleanSupplier effectiveHttpProtocolSupplier,
-                  BooleanSupplier effectiveSseProtocolSupplier,
                   BooleanSupplier effectiveWebSocketProtocolSupplier,
-                  Supplier<RequestItemProtocolEnum> currentProtocolSupplier,
-                  Consumer<RequestItemProtocolEnum> currentProtocolSetter,
-                  Consumer<RequestItemProtocolEnum> protocolTabUpdater,
                   Consumer<HttpRequestItem> requestImporter,
                   Supplier<HttpRequestItem> currentRequestFromModelSupplier,
                   Consumer<Boolean> tabDirtyUpdater,
                   BiConsumer<PreparedRequest, HttpResponse> exchangeRecorder,
-                  Runnable updateTabDirtyAction,
                   int maxRedirectCount) {
     }
 }

@@ -516,9 +516,7 @@ public class IntelliJHttpParser {
      */
     private static void finishRequest(HttpRequestItem request, StringBuilder bodyBuilder, String contentType, String boundary) {
         // 设置协议类型
-        if (HttpRequestProtocol.isSse(request)) {
-            request.setProtocol(RequestItemProtocolEnum.SSE);
-        } else if (HttpRequestProtocol.isWebSocketUrl(request.getUrl())) {
+        if (HttpRequestProtocol.isWebSocketUrl(request.getUrl())) {
             request.setProtocol(RequestItemProtocolEnum.WEBSOCKET);
         } else {
             request.setProtocol(RequestItemProtocolEnum.HTTP);

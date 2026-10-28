@@ -51,7 +51,7 @@ final class RequestEditorTabOpenController {
         transientTabManager.validate();
         RequestEditSubPanel newPanel = new RequestEditSubPanel(requestId, item.getProtocol());
         newPanel.initPanelData(item);
-        transientTabManager.showOrReplace(newPanel, requestTitle(item), item);
+        transientTabManager.showOrReplace(newPanel, requestTitle(item), newPanel.getCurrentRequest());
     }
 
     void showOrCreateRequestTab(HttpRequestItem item) {
@@ -75,7 +75,7 @@ final class RequestEditorTabOpenController {
         RequestEditSubPanel subPanel = new RequestEditSubPanel(requestId, item.getProtocol());
         subPanel.initPanelData(item);
         String title = requestTitle(item);
-        insertFixedTab(title, subPanel, ClosableTabComponent.forRequest(title, item));
+        insertFixedTab(title, subPanel, ClosableTabComponent.forRequest(title, subPanel.getCurrentRequest()));
     }
 
     void showOrCreateTransientGroup(DefaultMutableTreeNode groupNode, RequestGroup group) {

@@ -486,9 +486,11 @@ public class PerformanceRequestExecutorTest {
             item.setProtocol(RequestItemProtocolEnum.HTTP);
             item.setMethod("GET");
             item.setUrl(server.url("/events").toString());
-            item.setHeadersList(List.of(new HttpHeader(true, "Accept", "text/event-stream")));
             PerformanceTreeNode requestData = new PerformanceTreeNode(item.getName(), NodeType.REQUEST, item);
             PerformanceTestPlanNode requestNode = new PerformanceTestPlanNode(requestData);
+            PerformanceTreeNode connectData = new PerformanceTreeNode("connect", NodeType.SSE_CONNECT);
+            connectData.ssePerformanceData = new SsePerformanceData();
+            requestNode.add(new PerformanceTestPlanNode(connectData));
 
             PerformanceRequestExecutionResult result = new PerformanceRequestExecutor(
                     () -> true,

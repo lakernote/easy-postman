@@ -41,7 +41,6 @@ class RequestImportDraftMapper {
     private static RequestItemProtocolEnum toProtocol(RequestImportProtocol protocol) {
         return switch (protocol) {
             case WEBSOCKET -> RequestItemProtocolEnum.WEBSOCKET;
-            case SSE -> RequestItemProtocolEnum.SSE;
             case HTTP -> RequestItemProtocolEnum.HTTP;
         };
     }

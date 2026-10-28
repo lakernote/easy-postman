@@ -10,7 +10,7 @@ import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.request.model.HttpRequestProxyPolicy;
 
 
-import com.laker.postman.performance.core.model.PerformanceProtocol;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.performance.core.request.PerformanceAuthType;
 import com.laker.postman.performance.core.request.PerformanceRequestExecutionScopeSnapshot;
 import com.laker.postman.performance.core.request.PerformanceRequestFormDataPart;
@@ -35,7 +35,7 @@ public class PerformanceRequestSnapshotMapper {
                 .description(item.getDescription())
                 .url(item.getUrl())
                 .method(item.getMethod())
-                .protocol(toPerformanceProtocol(item.getProtocol()))
+                .protocol(toPerformanceProtocol(item))
                 .headers(toKeyValues(item.getHeadersList()))
                 .bodyType(item.getBodyType())
                 .body(item.getBody())
@@ -133,22 +133,17 @@ public class PerformanceRequestSnapshotMapper {
         return PerformanceRequestExecutionScopeSnapshot.fromGroupVariables(scope.getGroupVariables());
     }
 
-    private PerformanceProtocol toPerformanceProtocol(RequestItemProtocolEnum protocol) {
+    private PerformanceRequestProtocol toPerformanceProtocol(HttpRequestItem item) {
+        RequestItemProtocolEnum protocol = item.getProtocol();
         if (protocol == RequestItemProtocolEnum.WEBSOCKET) {
-            return PerformanceProtocol.WEBSOCKET;
+            return PerformanceRequestProtocol.WEBSOCKET;
         }
-        if (protocol == RequestItemProtocolEnum.SSE) {
-            return PerformanceProtocol.SSE;
-        }
-        return PerformanceProtocol.HTTP;
+        return PerformanceRequestProtocol.HTTP;
     }
 
-    private RequestItemProtocolEnum toRequestItemProtocol(PerformanceProtocol protocol) {
-        if (protocol == PerformanceProtocol.WEBSOCKET) {
+    private RequestItemProtocolEnum toRequestItemProtocol(PerformanceRequestProtocol protocol) {
+        if (protocol == PerformanceRequestProtocol.WEBSOCKET) {
             return RequestItemProtocolEnum.WEBSOCKET;
-        }
-        if (protocol == PerformanceProtocol.SSE) {
-            return RequestItemProtocolEnum.SSE;
         }
         return RequestItemProtocolEnum.HTTP;
     }

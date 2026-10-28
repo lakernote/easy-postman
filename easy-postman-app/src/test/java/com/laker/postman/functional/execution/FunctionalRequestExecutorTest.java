@@ -10,6 +10,7 @@ import com.laker.postman.http.runtime.transport.HttpTransport;
 import com.laker.postman.http.runtime.transport.RealtimeConnectionHandle;
 import com.laker.postman.http.runtime.transport.RealtimeConnectionOptions;
 import com.laker.postman.http.runtime.transport.RealtimeWebSocketConnection;
+import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.service.variable.ExecutionVariableContext;
 import okhttp3.WebSocketListener;
@@ -123,6 +124,29 @@ public class FunctionalRequestExecutorTest {
         assertEquals(transport.request.url, "https://example.test/legacy?source=script&flag");
     }
 
+    @Test
+    public void shouldRunPostScriptTestsForEachDetectedSseEvent() {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setName("Functional SSE over HTTP");
+        item.setMethod("POST");
+        item.setUrl("https://example.test/events");
+        item.setPostscript("pm.test(pm.response.text(), function () { pm.expect(pm.response.text()).to.not.be.empty; });");
+
+        FunctionalRequestExecutionResult result = new FunctionalRequestExecutor(null, new SseEventTransport()).execute(
+                new RunnerRowData(item),
+                new ExecutionVariableContext(),
+                () -> true
+        );
+
+        assertEquals(result.getStatus(), "200");
+        assertSame(result.getAssertion(), AssertionResult.PASS);
+        assertEquals(result.getTestResults().size(), 2);
+        assertTrue(result.getTestResults().stream().allMatch(test -> test.passed));
+        assertTrue(result.getResponse().isSse);
+        assertTrue(result.getResponse().body.contains("data: event-one"));
+        assertTrue(result.getResponse().body.contains("data: event-two"));
+    }
+
     private static final class CapturingTransport implements HttpTransport {
         private PreparedRequest request;
 
@@ -147,6 +171,36 @@ public class FunctionalRequestExecutorTest {
         public RealtimeWebSocketConnection openWebSocket(PreparedRequest request,
                                                         WebSocketListener listener,
                                                         RealtimeConnectionOptions options) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class SseEventTransport implements HttpTransport {
+        @Override
+        public HttpResponse execute(PreparedRequest request, HttpExchangeOptions options) {
+            HttpResponse response = new HttpResponse();
+            response.code = 200;
+            response.costMs = 25L;
+            response.headers = new LinkedHashMap<>();
+            SseResponseCallback callback = options.getCallback();
+            callback.onOpen(response);
+            callback.onEvent("1", "message", "event-one");
+            callback.onEvent("2", "message", "event-two");
+            callback.onClosed(response);
+            return response;
+        }
+
+        @Override
+        public RealtimeConnectionHandle openSse(PreparedRequest request,
+                                                EventSourceListener listener,
+                                                RealtimeConnectionOptions options) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public RealtimeWebSocketConnection openWebSocket(PreparedRequest request,
+                                                         WebSocketListener listener,
+                                                         RealtimeConnectionOptions options) {
             throw new UnsupportedOperationException();
         }
     }

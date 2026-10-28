@@ -7,6 +7,7 @@ import com.laker.postman.performance.core.model.NodeType;
 import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.request.PerformanceRequestKeyValue;
 import com.laker.postman.performance.core.request.PerformanceRequestSnapshot;
+import com.laker.postman.performance.core.request.PerformanceRequestProtocol;
 import com.laker.postman.performance.core.threadgroup.ThreadGroupData;
 import org.testng.annotations.Test;
 
@@ -27,7 +28,7 @@ public class PerformanceCorePlanDocumentCompilerTest {
                 .id("request-1")
                 .name("request")
                 .url("wss://example.test/ws")
-                .protocol(PerformanceProtocol.WEBSOCKET)
+                .protocol(PerformanceRequestProtocol.WEBSOCKET)
                 .headers(List.of(new PerformanceRequestKeyValue(true, "X-Test", "yes")))
                 .build();
 
@@ -141,7 +142,7 @@ public class PerformanceCorePlanDocumentCompilerTest {
                 .id("request-1")
                 .name("213")
                 .url("https://example.test")
-                .protocol(PerformanceProtocol.HTTP)
+                .protocol(PerformanceRequestProtocol.HTTP)
                 .build();
         PerformanceCorePlanNode request = PerformanceCorePlanNode.builder()
                 .name("111")

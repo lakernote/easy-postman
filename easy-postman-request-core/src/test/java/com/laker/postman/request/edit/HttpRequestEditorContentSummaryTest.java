@@ -98,7 +98,7 @@ public class HttpRequestEditorContentSummaryTest {
                 .body("hello")
                 .build();
         HttpRequestEditorDraft sseDraft = HttpRequestEditorDraft.builder()
-                .protocol(RequestItemProtocolEnum.SSE)
+                .protocol(RequestItemProtocolEnum.HTTP)
                 .bodyType(RequestBodyTypes.BODY_TYPE_RAW)
                 .body(" {\"stream\":true} ")
                 .build();

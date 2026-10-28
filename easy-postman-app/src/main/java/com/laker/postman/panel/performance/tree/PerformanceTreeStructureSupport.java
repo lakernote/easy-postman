@@ -29,6 +29,16 @@ public class PerformanceTreeStructureSupport {
         syncRequestStructure(requestNode, requestData, true);
     }
 
+    public void setSsePerformanceEnabled(DefaultMutableTreeNode requestNode,
+                                         PerformanceTreeNode requestData,
+                                         boolean enabled) {
+        if (requestData == null || requestData.type != NodeType.REQUEST) {
+            return;
+        }
+        requestData.ssePerformanceEnabled = enabled;
+        syncRequestStructure(requestNode, requestData, enabled);
+    }
+
     private void syncRequestStructure(DefaultMutableTreeNode requestNode,
                                       PerformanceTreeNode requestData,
                                       boolean ensureMissingStages) {
@@ -36,7 +46,7 @@ public class PerformanceTreeStructureSupport {
             return;
         }
 
-        boolean isSse = PerformanceTreeRules.isSsePerfRequest(requestData.httpRequestItem);
+        boolean isSse = requestData.ssePerformanceEnabled;
         boolean isWebSocket = PerformanceTreeRules.isWebSocketPerfRequest(requestData.httpRequestItem);
 
         cleanupSseRequestStructure(requestNode, !isSse);
@@ -130,6 +140,12 @@ public class PerformanceTreeStructureSupport {
         DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) performanceTree.getLastSelectedPathComponent();
         DefaultMutableTreeNode requestNode = resolveSseStageParent(selectedNode);
         if (requestNode == null || !(requestNode.getUserObject() instanceof PerformanceTreeNode)) {
+            return;
+        }
+        DefaultMutableTreeNode existingNode = findChildNode(requestNode, type);
+        if (existingNode != null) {
+            performanceTree.expandPath(new TreePath(requestNode.getPath()));
+            performanceTree.setSelectionPath(new TreePath(existingNode.getPath()));
             return;
         }
         DefaultMutableTreeNode newNode = PerformanceTreeNodeFactory.sseStageNode(type);
@@ -373,14 +389,14 @@ public class PerformanceTreeStructureSupport {
         if (selectedNode == null || !(selectedNode.getUserObject() instanceof PerformanceTreeNode nodeData)) {
             return null;
         }
-        if (nodeData.type == NodeType.REQUEST && PerformanceTreeRules.isSsePerfRequest(nodeData.httpRequestItem)) {
+        if (nodeData.type == NodeType.REQUEST && nodeData.ssePerformanceEnabled) {
             return selectedNode;
         }
         DefaultMutableTreeNode requestNode = PerformanceTreeRules.getParentRequestNode(selectedNode);
         if (requestNode == null || !(requestNode.getUserObject() instanceof PerformanceTreeNode requestNodeData)) {
             return null;
         }
-        return PerformanceTreeRules.isSsePerfRequest(requestNodeData.httpRequestItem) ? requestNode : null;
+        return requestNodeData.ssePerformanceEnabled ? requestNode : null;
     }
 
     private DefaultMutableTreeNode resolveControllerInsertParent(DefaultMutableTreeNode selectedNode) {

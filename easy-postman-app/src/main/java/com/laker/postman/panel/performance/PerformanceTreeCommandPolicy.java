@@ -53,6 +53,9 @@ final class PerformanceTreeCommandPolicy {
             commands.add(PerformanceTreeCommand.ADD_SSE_CONNECT);
             commands.add(PerformanceTreeCommand.ADD_SSE_READ);
         }
+        if (treeSupport.canToggleSsePerformanceMode(node)) {
+            commands.add(PerformanceTreeCommand.TOGGLE_SSE_MODE);
+        }
         if (canManageWsConnect) {
             commands.add(PerformanceTreeCommand.ADD_WS_CONNECT);
         }
@@ -162,7 +165,7 @@ final class PerformanceTreeCommandPolicy {
     }
 
     private boolean canAddRequestPostProcessor(PerformanceTreeNode nodeData) {
-        boolean sseRequestNode = nodeData.type == NodeType.REQUEST && treeSupport.isSsePerfRequest(nodeData.httpRequestItem);
+        boolean sseRequestNode = nodeData.type == NodeType.REQUEST && nodeData.ssePerformanceEnabled;
         boolean webSocketRequestNode = nodeData.type == NodeType.REQUEST && treeSupport.isWebSocketPerfRequest(nodeData.httpRequestItem);
         return (nodeData.type == NodeType.REQUEST && !sseRequestNode && !webSocketRequestNode)
                 || nodeData.type == NodeType.SSE_READ

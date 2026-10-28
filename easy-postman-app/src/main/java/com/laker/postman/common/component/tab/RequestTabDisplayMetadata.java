@@ -17,10 +17,6 @@ class RequestTabDisplayMetadata {
         if (effectiveProtocol.isWebSocketProtocol()) {
             return new Badge("WS", HttpRequestDisplayMetadata.protocolColorHex("WS"));
         }
-        if (effectiveProtocol.isSseProtocol()) {
-            return new Badge("SSE", HttpRequestDisplayMetadata.protocolColorHex("SSE"));
-        }
-
         String effectiveMethod = normalizeMethod(method);
         if (effectiveMethod == null) {
             return null;

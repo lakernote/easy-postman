@@ -2,6 +2,7 @@ package com.laker.postman.panel.performance;
 
 import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.HttpHeader;
 
 
 import com.laker.postman.performance.model.PerformanceTreeNode;
@@ -126,7 +127,9 @@ public class PerformanceTreeMenuVisibilitySupportTest {
     @Test
     public void sseStageSelectionShouldShowEnableOrDisableToggle() {
         TreeFixture fixture = new TreeFixture();
-        fixture.requestData.httpRequestItem = requestItem(RequestItemProtocolEnum.SSE);
+        fixture.requestData.httpRequestItem = requestItem(RequestItemProtocolEnum.HTTP);
+        fixture.requestData.httpRequestItem.setHeadersList(List.of(new HttpHeader(true, "Accept", "text/event-stream")));
+        fixture.requestData.ssePerformanceEnabled = true;
         DefaultMutableTreeNode disabledConnect = node(NodeType.SSE_CONNECT, false);
         DefaultMutableTreeNode enabledRead = node(NodeType.SSE_READ, true);
         fixture.request.add(disabledConnect);
@@ -169,6 +172,7 @@ public class PerformanceTreeMenuVisibilitySupportTest {
                 new JMenuItem("addOnceOnly"),
                 new JMenuItem("addSseConnect"),
                 new JMenuItem("addSseRead"),
+                new JMenuItem("toggleSseMode"),
                 new JMenuItem("addWsConnect"),
                 new JMenuItem("addWsSend"),
                 new JMenuItem("addWsRead"),

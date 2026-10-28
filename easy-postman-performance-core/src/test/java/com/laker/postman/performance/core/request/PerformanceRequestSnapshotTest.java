@@ -1,6 +1,5 @@
 package com.laker.postman.performance.core.request;
 
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import org.testng.annotations.Test;
 
 import java.util.ArrayList;
@@ -20,7 +19,7 @@ public class PerformanceRequestSnapshotTest {
         PerformanceRequestSnapshot snapshot = PerformanceRequestSnapshot.empty();
 
         assertEquals(snapshot.getMethod(), "GET");
-        assertEquals(snapshot.getProtocol(), PerformanceProtocol.HTTP);
+        assertEquals(snapshot.getProtocol(), PerformanceRequestProtocol.HTTP);
         assertEquals(snapshot.getHttpVersion(), PerformanceRequestSnapshot.HTTP_VERSION_AUTO);
         assertEquals(snapshot.getProxyPolicy(), PerformanceRequestSnapshot.PROXY_POLICY_DEFAULT);
         assertEquals(snapshot.getAuthType(), PerformanceAuthType.INHERIT);
@@ -41,7 +40,7 @@ public class PerformanceRequestSnapshotTest {
                 .name("stream")
                 .url("wss://example.test/ws")
                 .method("POST")
-                .protocol(PerformanceProtocol.WEBSOCKET)
+                .protocol(PerformanceRequestProtocol.WEBSOCKET)
                 .headers(headers)
                 .executionScope(PerformanceRequestExecutionScopeSnapshot.fromGroupVariables(groupVariables))
                 .build();
@@ -74,7 +73,7 @@ public class PerformanceRequestSnapshotTest {
                 .build();
 
         assertEquals(snapshot.getMethod(), "GET");
-        assertEquals(snapshot.getProtocol(), PerformanceProtocol.HTTP);
+        assertEquals(snapshot.getProtocol(), PerformanceRequestProtocol.HTTP);
         assertEquals(snapshot.getProxyPolicy(), PerformanceRequestSnapshot.PROXY_POLICY_DEFAULT);
         assertTrue(snapshot.getHeaders().isEmpty());
         assertEquals(snapshot.getFormData().get(0).getType(), PerformanceRequestFormDataPart.TYPE_FILE);

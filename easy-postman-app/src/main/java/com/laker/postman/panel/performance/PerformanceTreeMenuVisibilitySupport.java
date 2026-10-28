@@ -37,6 +37,7 @@ final class PerformanceTreeMenuVisibilitySupport {
         items.addOnceOnly().setVisible(commands.contains(PerformanceTreeCommand.ADD_ONCE_ONLY));
         items.addSseConnect().setVisible(commands.contains(PerformanceTreeCommand.ADD_SSE_CONNECT));
         items.addSseRead().setVisible(commands.contains(PerformanceTreeCommand.ADD_SSE_READ));
+        items.toggleSseMode().setVisible(commands.contains(PerformanceTreeCommand.TOGGLE_SSE_MODE));
         items.addWsConnect().setVisible(commands.contains(PerformanceTreeCommand.ADD_WS_CONNECT));
         items.addWsSend().setVisible(commands.contains(PerformanceTreeCommand.ADD_WS_SEND));
         items.addWsRead().setVisible(commands.contains(PerformanceTreeCommand.ADD_WS_READ));

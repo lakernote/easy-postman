@@ -37,6 +37,7 @@ public class OpenedRequestTabsStore {
 
             for (Object obj : arr) {
                 if (obj instanceof JSONObject jsonObj) {
+                    RequestProtocolStorageMigration.normalizeLegacySseProtocol(jsonObj);
                     HttpRequestItem item = jsonObj.toBean(HttpRequestItem.class);
                     result.add(item);
                 }

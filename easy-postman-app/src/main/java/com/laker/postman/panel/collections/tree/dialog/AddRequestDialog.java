@@ -39,7 +39,6 @@ public class AddRequestDialog {
     private JTextField nameField;
     private JToggleButton httpBtn;
     private JToggleButton wsBtn;
-    private JToggleButton sseBtn;
 
     public AddRequestDialog(DefaultMutableTreeNode groupNode, CollectionTreePanel leftPanel) {
         this.groupNode = groupNode;
@@ -126,15 +125,12 @@ public class AddRequestDialog {
         protocolGroup = new ButtonGroup();
         httpBtn = createProtocolButton("HTTP", "icons/http.svg", true);
         wsBtn = createProtocolButton("WebSocket", "icons/websocket.svg", false);
-        sseBtn = createProtocolButton("SSE", "icons/sse.svg", false);
 
         protocolGroup.add(httpBtn);
         protocolGroup.add(wsBtn);
-        protocolGroup.add(sseBtn);
 
         buttonsPanel.add(httpBtn);
         buttonsPanel.add(wsBtn);
-        buttonsPanel.add(sseBtn);
 
         protocolPanel.add(protocolLabel, BorderLayout.NORTH);
         protocolPanel.add(buttonsPanel, BorderLayout.CENTER);
@@ -256,12 +252,8 @@ public class AddRequestDialog {
     private RequestItemProtocolEnum getSelectedProtocol() {
         if (httpBtn.isSelected()) {
             return RequestItemProtocolEnum.HTTP;
-        } else if (wsBtn.isSelected()) {
-            return RequestItemProtocolEnum.WEBSOCKET;
-        } else if (sseBtn.isSelected()) {
-            return RequestItemProtocolEnum.SSE;
         }
-        return RequestItemProtocolEnum.HTTP;
+        return wsBtn.isSelected() ? RequestItemProtocolEnum.WEBSOCKET : RequestItemProtocolEnum.HTTP;
     }
 
     /**

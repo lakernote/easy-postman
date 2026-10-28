@@ -9,7 +9,6 @@ import com.laker.postman.script.model.TestResult;
 import com.laker.postman.panel.collections.editor.request.sub.ResponsePanel;
 import com.laker.postman.panel.sidebar.ConsolePanel;
 import com.laker.postman.http.runtime.error.NetworkErrorMessageResolver;
-import com.laker.postman.http.request.HttpRequestProtocol;
 import com.laker.postman.http.runtime.redirect.HttpRedirectExecutor;
 import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.service.js.ScriptExecutionPipeline;
@@ -34,14 +33,12 @@ final class HttpRequestExecutor {
     private final RequestStreamUiAppender requestStreamUiAppender;
     private final RequestResponseHandler requestResponseHandler;
     private final HttpRedirectExecutor redirectExecutor = new HttpRedirectExecutor();
-    private final Runnable convertCurrentRequestToSse;
     private final RequestExecutionState executionState;
 
     SwingWorker<Void, Void> createWorker(PreparedRequest req, ScriptExecutionPipeline pipeline, int maxRedirectCount) {
         return new SwingWorker<>() {
             HttpResponse resp;
             boolean userCanceled;
-            final boolean expectedSse = HttpRequestProtocol.isSse(req);
             final StringBuilder sseBodyBuilder = new StringBuilder();
             final long requestStartMs = System.currentTimeMillis();
 
@@ -49,7 +46,6 @@ final class HttpRequestExecutor {
             protected Void doInBackground() {
                 try {
                     responsePanel.setResponseTabButtonsEnable(true);
-                    responsePanel.switchTabButtonHttpOrSse(expectedSse ? "sse" : "http");
                     resp = redirectExecutor.executeWithRedirects(req, maxRedirectCount, new SseResponseCallback() {
                         @Override
                         public void onOpen(HttpResponse response) {
@@ -58,8 +54,8 @@ final class HttpRequestExecutor {
                                     return;
                                 }
                                 executionState.markAutoDetectedHttpSseOpen();
-                                convertCurrentRequestToSse.run();
-                                responsePanel.switchTabButtonHttpOrSse("sse");
+                                responsePanel.clearSseResponseEvents();
+                                responsePanel.showHttpResponseView(true);
                                 requestExecutionUiUpdater.updateUIForResponse(response);
                                 responsePanel.setRequestDetails(req);
                                 responsePanel.setResponseDetails(response);
@@ -199,7 +195,7 @@ final class HttpRequestExecutor {
                     boolean missingResponseAfterCancel = resp == null && workerCanceled;
                     boolean keepSseView = (resp != null && resp.isSse)
                             || (workerCanceled && executionState.isAutoDetectedHttpSseOpen());
-                    responsePanel.switchTabButtonHttpOrSse(keepSseView ? "sse" : "http");
+                    responsePanel.showHttpResponseView(keepSseView);
                     resp = HttpRequestCancellationResponseSupport.resolveTerminalResponse(
                             req, resp, workerCanceled, requestStartMs, System.currentTimeMillis());
                     if (missingResponseAfterCancel && resp != null) {
@@ -215,7 +211,7 @@ final class HttpRequestExecutor {
                         requestResponseHandler.recordExchange(req, resp);
                         responsePanel.setRequestDetails(req);
                         responsePanel.setResponseDetails(resp);
-                        requestResponseHandler.saveHistory(req, resp, "SSE request");
+                        requestResponseHandler.saveHistory(req, resp, "HTTP request");
                     }
                     if (!keepSseView) {
                         executionState.clearAutoDetectedHttpSseOpen();

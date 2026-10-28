@@ -6,7 +6,6 @@ import lombok.Getter;
 public enum RequestItemProtocolEnum {
     HTTP("HTTP"),
     WEBSOCKET("WebSocket"),
-    SSE("SSE"),
     SAVED_RESPONSE("SavedResponse");
 
     private final String protocol;
@@ -23,11 +22,7 @@ public enum RequestItemProtocolEnum {
         return this == HTTP;
     }
 
-    public boolean isSseProtocol() {
-        return this == SSE;
-    }
-
     public boolean supportsRequestBodyContent() {
-        return isHttpProtocol() || isSseProtocol() || isWebSocketProtocol();
+        return isHttpProtocol() || isWebSocketProtocol();
     }
 }

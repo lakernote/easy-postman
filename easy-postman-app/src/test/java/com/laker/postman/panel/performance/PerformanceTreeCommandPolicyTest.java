@@ -2,6 +2,7 @@ package com.laker.postman.panel.performance;
 
 import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.HttpHeader;
 
 
 import com.laker.postman.performance.model.PerformanceTreeNode;
@@ -18,6 +19,18 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 public class PerformanceTreeCommandPolicyTest {
+
+    @Test
+    public void ordinaryHttpRequestShouldAllowExplicitSseWorkloadSelection() {
+        TreeFixture fixture = new TreeFixture(RequestItemProtocolEnum.HTTP);
+        PerformanceTreeCommandPolicy policy = new PerformanceTreeCommandPolicy(fixture.treeSupport);
+
+        EnumSet<PerformanceTreeCommand> commands = policy.commandsForSingleSelection(fixture.request, List.of());
+
+        assertTrue(commands.contains(PerformanceTreeCommand.TOGGLE_SSE_MODE));
+        assertFalse(commands.contains(PerformanceTreeCommand.ADD_SSE_CONNECT));
+        assertFalse(commands.contains(PerformanceTreeCommand.ADD_SSE_READ));
+    }
 
     @Test
     public void rootSelectionShouldOnlyExposeRootActions() {
@@ -77,7 +90,8 @@ public class PerformanceTreeCommandPolicyTest {
 
     @Test
     public void sseReadSelectionShouldExposeStageActionsAssertionAndDisable() {
-        TreeFixture fixture = new TreeFixture(RequestItemProtocolEnum.SSE);
+        TreeFixture fixture = new TreeFixture(sseRequestItem());
+        fixture.requestData.ssePerformanceEnabled = true;
         DefaultMutableTreeNode sseRead = node(NodeType.SSE_READ, true);
         fixture.request.add(sseRead);
         PerformanceTreeCommandPolicy policy = new PerformanceTreeCommandPolicy(fixture.treeSupport);
@@ -126,6 +140,12 @@ public class PerformanceTreeCommandPolicyTest {
         return item;
     }
 
+    private static HttpRequestItem sseRequestItem() {
+        HttpRequestItem item = requestItem(RequestItemProtocolEnum.HTTP);
+        item.setHeadersList(List.of(new HttpHeader(true, "Accept", "text/event-stream")));
+        return item;
+    }
+
     private static final class TreeFixture {
         private final DefaultMutableTreeNode root = node(NodeType.ROOT, true);
         private final DefaultMutableTreeNode threadGroup = node(NodeType.THREAD_GROUP, true);
@@ -134,7 +154,11 @@ public class PerformanceTreeCommandPolicyTest {
         private final PerformanceTreeSupport treeSupport;
 
         private TreeFixture(RequestItemProtocolEnum protocol) {
-            requestData.httpRequestItem = requestItem(protocol);
+            this(requestItem(protocol));
+        }
+
+        private TreeFixture(HttpRequestItem item) {
+            requestData.httpRequestItem = item;
             root.add(threadGroup);
             threadGroup.add(request);
             treeSupport = new PerformanceTreeSupport(new DefaultTreeModel(root));

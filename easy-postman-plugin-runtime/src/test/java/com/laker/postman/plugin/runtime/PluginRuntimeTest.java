@@ -21,7 +21,7 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 public class PluginRuntimeTest {
-    private static final String CURRENT_PLUGIN_PLATFORM_VERSION = "4.1.0";
+    private static final String CURRENT_PLUGIN_PLATFORM_VERSION = "4.0.0";
 
     private Path dataDir;
 

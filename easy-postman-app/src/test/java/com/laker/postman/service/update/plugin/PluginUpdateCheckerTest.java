@@ -20,7 +20,7 @@ import static org.testng.Assert.assertTrue;
 
 public class PluginUpdateCheckerTest {
 
-    private static final String CURRENT_PLUGIN_PLATFORM_VERSION = "4.1.0";
+    private static final String CURRENT_PLUGIN_PLATFORM_VERSION = "4.0.0";
 
     private Path dataDir;
     private Path appDir;

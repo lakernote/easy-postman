@@ -54,7 +54,7 @@
             它表达的是“插件 SPI / 运行时装配边界”，不等同于宿主 revision。
             只有插件机制自身发生不兼容变化时，才需要提升这个版本。
          -->
-        <plugin.platform.version>4.1.0</plugin.platform.version>
+        <plugin.platform.version>4.0.0</plugin.platform.version>
         <!-- 官方插件默认主页，供 descriptor 模板统一复用。 -->
         <plugin.homepage>https://github.com/lakernote/easy-postman</plugin.homepage>
         <maven.compiler.source>17</maven.compiler.source>

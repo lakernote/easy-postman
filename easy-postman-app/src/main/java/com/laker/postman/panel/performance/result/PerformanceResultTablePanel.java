@@ -530,7 +530,9 @@ public class PerformanceResultTablePanel extends JPanel {
             return switch (col) {
                 case COL_PROTOCOL -> PerformanceProtocolLabels.displayName(r.protocol);
                 case COL_NAME -> r.name;
-                case COL_STATUS -> r.responseCode > 0 ? String.valueOf(r.responseCode) : "-";
+                case COL_STATUS -> r.cancelled
+                        ? I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_CANCELLED)
+                        : r.responseCode > 0 ? String.valueOf(r.responseCode) : "-";
                 case COL_COST -> r.costMs;
                 case COL_ASSERTION -> formatAssertion(r);
                 default -> "";
@@ -539,6 +541,9 @@ public class PerformanceResultTablePanel extends JPanel {
 
         // Keep assertion symbols themeable; color comes from ResultRowRenderer.
         private String formatAssertion(ResultNodeInfo r) {
+            if (r.cancelled) {
+                return "—";
+            }
             // 1. 如果有断言结果
             if (r.testResults != null && !r.testResults.isEmpty()) {
                 return r.hasAssertionFailed() ? "×" : "✓";
@@ -699,6 +704,7 @@ public class PerformanceResultTablePanel extends JPanel {
             if (modelColumn == 1 && info != null && !isSelected) {
                 Color stripeColor = info.isActuallySuccessful()
                         ? PerformanceTheme.resultSuccessStripe()
+                        : info.cancelled ? PerformanceTheme.resultMutedForeground()
                         : PerformanceTheme.resultFailureStripe();
                 return BorderFactory.createCompoundBorder(
                         BorderFactory.createMatteBorder(0, 4, 0, 0, stripeColor),
@@ -714,6 +720,10 @@ public class PerformanceResultTablePanel extends JPanel {
          */
         private void applyStatusColors(Component c, String status) {
             Color foreground = PerformanceTheme.tableForeground();
+            if (I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_CANCELLED).equals(status)) {
+                c.setForeground(PerformanceTheme.resultMutedForeground());
+                return;
+            }
 
             try {
                 int code = Integer.parseInt(status);
@@ -737,6 +747,10 @@ public class PerformanceResultTablePanel extends JPanel {
         }
 
         private void applyAssertionColors(Component c, ResultNodeInfo info) {
+            if (info.cancelled) {
+                c.setForeground(PerformanceTheme.resultMutedForeground());
+                return;
+            }
             if (info.testResults == null || info.testResults.isEmpty()) {
                 c.setForeground(info.isActuallySuccessful()
                         ? PerformanceTheme.resultMutedForeground()

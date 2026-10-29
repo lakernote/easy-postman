@@ -903,6 +903,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_RESULT_DETAIL_COMPACT_WARNING_MSG = "performance.result.detail.compact.warning.msg";
     public static final String PERFORMANCE_RESULT_DETAIL_COMPACT_DISABLE_WARNING = "performance.result.detail.compact.disable.warning";
     public static final String PERFORMANCE_RUN_STATUS_DYNAMIC = "performance.run_status.dynamic";
+    public static final String PERFORMANCE_RUN_STATUS_DRAINING = "performance.run_status.draining";
     public static final String PERFORMANCE_REPORT_REFRESH_MODE = "performance.report.refresh_mode";
     public static final String PERFORMANCE_REPORT_REFRESH_END = "performance.report.refresh.end";
     public static final String PERFORMANCE_REPORT_REFRESH_REALTIME = "performance.report.refresh.realtime";
@@ -1071,6 +1072,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_NODE_NAME_EMPTY = "performance.node.name.empty";
     public static final String PERFORMANCE_MSG_EXECUTION_INTERRUPTED = "performance.msg.execution_interrupted";
     public static final String PERFORMANCE_MSG_EXECUTION_COMPLETED = "performance.msg.execution_completed";
+    public static final String PERFORMANCE_RESULT_CANCELLED = "performance.result.cancelled";
     public static final String PERFORMANCE_MSG_PRE_SCRIPT_FAILED = "performance.msg.pre_script_failed";
     public static final String PERFORMANCE_MSG_REQUEST_FAILED = "performance.msg.request_failed";
     public static final String PERFORMANCE_MSG_REQUEST_DATA_MISSING = "performance.msg.request_data_missing";

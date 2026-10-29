@@ -24,9 +24,6 @@ import java.util.function.Supplier;
 @Slf4j
 public final class PerformanceCoreThreadGroupRunner<C> {
 
-    private static final String DRAIN_TIMEOUT_MESSAGE =
-            "In-flight requests did not finish within the configured completion wait";
-
     @FunctionalInterface
     public interface IterationContextFactory<C> {
         C create(PerformanceThreadGroupPlan groupPlan, int iterationCount);
@@ -84,9 +81,6 @@ public final class PerformanceCoreThreadGroupRunner<C> {
             thread.start();
         }
         joinThreadGroupThreads(threadGroupThreads, cancellationAction);
-        if (drainTimedOut.get()) {
-            throw new IllegalStateException(DRAIN_TIMEOUT_MESSAGE);
-        }
     }
 
     private void runThreadGroup(PerformanceThreadGroupPlan groupPlan, int totalThreads) {

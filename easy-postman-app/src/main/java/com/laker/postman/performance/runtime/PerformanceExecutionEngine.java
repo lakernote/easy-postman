@@ -250,17 +250,24 @@ public final class PerformanceExecutionEngine {
         if (ex == null) {
             return false;
         }
-        if (ex instanceof java.io.InterruptedIOException) {
+        if (ex instanceof java.net.SocketTimeoutException) {
+            return false;
+        }
+        if (ex instanceof InterruptedException) {
             return true;
+        }
+        if (ex instanceof java.io.InterruptedIOException) {
+            if (!delegate.isRunning() || Thread.currentThread().isInterrupted()) {
+                return true;
+            }
+            String message = ex.getMessage();
+            return message != null && message.contains("Canceled");
         }
         if (ex instanceof java.io.IOException ioException) {
             String message = ioException.getMessage();
             if (message != null && message.contains("Canceled")) {
                 return true;
             }
-        }
-        if (ex instanceof InterruptedException) {
-            return true;
         }
         return isCancelledOrInterrupted(ex.getCause());
     }

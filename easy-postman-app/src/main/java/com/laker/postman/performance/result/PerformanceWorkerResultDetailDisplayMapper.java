@@ -31,6 +31,7 @@ public class PerformanceWorkerResultDetailDisplayMapper {
                 response,
                 toTests(detail.getTestResults()),
                 detail.isExecutionFailed(),
+                detail.isCancelled(),
                 toProtocol(detail.getProtocol())
         );
     }

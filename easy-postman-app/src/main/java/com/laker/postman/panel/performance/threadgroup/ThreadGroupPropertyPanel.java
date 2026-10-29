@@ -120,7 +120,7 @@ public class ThreadGroupPropertyPanel extends JPanel {
                 ThreadGroupData.DEFAULT_MAX_IN_FLIGHT_WAIT_SECONDS,
                 1,
                 null,
-                10
+                1
         );
         String maxInFlightWaitTooltip = I18nUtil.getMessage(MessageKeys.THREADGROUP_MAX_IN_FLIGHT_WAIT_TOOLTIP);
         maxInFlightWaitLabel.setToolTipText(maxInFlightWaitTooltip);

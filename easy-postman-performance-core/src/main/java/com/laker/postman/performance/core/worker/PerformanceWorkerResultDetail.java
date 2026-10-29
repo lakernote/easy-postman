@@ -15,6 +15,7 @@ public class PerformanceWorkerResultDetail {
     int responseCode;
     int costMs;
     boolean executionFailed;
+    boolean cancelled;
     DetailRequest request;
     DetailResponse response;
     List<DetailTestResult> testResults;

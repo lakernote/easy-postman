@@ -80,6 +80,7 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
                 .responseCode(responseCode(info, sampleResult))
                 .costMs(costMs(info, sampleResult))
                 .executionFailed(info.executionFailed)
+                .cancelled(info.cancelled)
                 .request(toDetailRequest(info.req))
                 .response(toDetailResponse(info.resp))
                 .testResults(toDetailTests(info.testResults))

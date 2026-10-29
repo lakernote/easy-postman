@@ -174,7 +174,6 @@ final class PerformanceRunControlSupport {
         PerformanceStatsSnapshot statsSnapshot = statsCollector.snapshot();
         long totalRequests = statsSnapshot.totalRequests();
         long successCount = statsSnapshot.successRequests();
-
         String message = I18nUtil.getMessage(
                 MessageKeys.PERFORMANCE_MSG_EXECUTION_COMPLETED,
                 totalRequests,
@@ -225,7 +224,9 @@ final class PerformanceRunControlSupport {
         runUiController.updateRunStatus(
                 limitLabel,
                 statusText.text(),
-                statusText.iconPath()
+                statusText.tooltipText(),
+                statusText.iconPath(),
+                statusText.animated()
         );
     }
 
@@ -326,6 +327,12 @@ final class PerformanceRunControlSupport {
         }
         if (display.durationMode()) {
             long remainingMs = Math.max(0L, startTimeSupplier.getAsLong() + display.durationMs() - nowMs);
+            int activeThreads = executionEngine.getActiveThreads();
+            if (remainingMs == 0L && runningSupplier.getAsBoolean() && activeThreads > 0) {
+                return RunStatusText.draining(
+                        I18nUtil.getMessage(MessageKeys.PERFORMANCE_RUN_STATUS_DRAINING)
+                );
+            }
             return RunStatusText.eta(formatRunDuration(remainingMs));
         }
         long completed = Math.max(0L, statsCollector.progressSnapshot().totalRequests());
@@ -367,17 +374,21 @@ final class PerformanceRunControlSupport {
         }
     }
 
-    private record RunStatusText(String text, String iconPath) {
+    private record RunStatusText(String text, String tooltipText, String iconPath, boolean animated) {
         private static RunStatusText hidden() {
-            return new RunStatusText("", null);
+            return new RunStatusText("", "", null, false);
         }
 
         private static RunStatusText eta(String text) {
-            return new RunStatusText(text, PerformanceRunUiController.ETA_STATUS_ICON);
+            return new RunStatusText(text, text, PerformanceRunUiController.ETA_STATUS_ICON, false);
+        }
+
+        private static RunStatusText draining(String tooltipText) {
+            return new RunStatusText("", tooltipText, PerformanceRunUiController.ETA_STATUS_ICON, true);
         }
 
         private static RunStatusText request(String text) {
-            return new RunStatusText(text, PerformanceRunUiController.REQUEST_STATUS_ICON);
+            return new RunStatusText(text, text, PerformanceRunUiController.REQUEST_STATUS_ICON, false);
         }
     }
 }

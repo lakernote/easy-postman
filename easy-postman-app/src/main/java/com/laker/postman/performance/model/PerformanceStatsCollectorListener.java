@@ -14,6 +14,9 @@ public final class PerformanceStatsCollectorListener implements PerformanceResul
         if (statsCollector == null || event == null || event.sampleRecord() == null) {
             return;
         }
+        if (event.sampleRecord().isInterrupted()) {
+            return;
+        }
         statsCollector.record(event.sampleRecord().toRequestResult());
     }
 }

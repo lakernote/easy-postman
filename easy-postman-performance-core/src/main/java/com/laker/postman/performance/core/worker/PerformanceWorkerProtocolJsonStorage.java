@@ -204,6 +204,7 @@ public class PerformanceWorkerProtocolJsonStorage {
         json.put("responseCode", safeDetail.getResponseCode());
         json.put("costMs", safeDetail.getCostMs());
         json.put("executionFailed", safeDetail.isExecutionFailed());
+        json.put("cancelled", safeDetail.isCancelled());
         json.put("request", requestToMap(safeDetail.getRequest()));
         json.put("response", responseToMap(safeDetail.getResponse()));
         json.put("testResults", testsToList(safeDetail.getTestResults()));
@@ -264,6 +265,7 @@ public class PerformanceWorkerProtocolJsonStorage {
                     .responseCode(intValue(json, "responseCode", 0))
                     .costMs(intValue(json, "costMs", 0))
                     .executionFailed(booleanValue(json, "executionFailed", false))
+                    .cancelled(booleanValue(json, "cancelled", false))
                     .request(readRequest(objectMap(json.get("request"))))
                     .response(readResponse(objectMap(json.get("response"))))
                     .testResults(readTests(listValue(json.get("testResults"))))

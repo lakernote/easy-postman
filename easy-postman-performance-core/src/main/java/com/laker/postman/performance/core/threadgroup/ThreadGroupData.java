@@ -7,7 +7,7 @@ import com.laker.postman.util.MessageKeys;
  */
 public class ThreadGroupData {
     public static final int MIN_THREADS = 1;
-    public static final int DEFAULT_MAX_IN_FLIGHT_WAIT_SECONDS = 60;
+    public static final int DEFAULT_MAX_IN_FLIGHT_WAIT_SECONDS = 5;
     private static final int MIN_SECONDS = 1;
     private static final int MIN_LOOPS = 1;
     private static final int MIN_STEP = 1;

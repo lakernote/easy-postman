@@ -1,6 +1,5 @@
 package com.laker.postman.performance.result;
 
-import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.model.PerformanceSampleRecord;
 import com.laker.postman.performance.core.runtime.PerformanceCoreResultSink;
 
@@ -14,7 +13,6 @@ import com.laker.postman.performance.runtime.PerformanceResultSink;
 import com.laker.postman.performance.runtime.PerformanceResultSinkListenerAdapter;
 
 import java.util.List;
-import java.util.Map;
 
 public final class PerformanceResultCollector {
 
@@ -57,7 +55,7 @@ public final class PerformanceResultCollector {
         PerformanceCoreResultSink resolvedRunSink = runResultSink == null
                 ? PerformanceCoreResultSink.NOOP
                 : runResultSink;
-        if (resolvedRunSink.acceptsSamples()) {
+        if (resolvedRunSink.acceptsSamples() && !sampleRecord.isInterrupted()) {
             resolvedRunSink.onSample(sampleRecord);
         }
     }
@@ -66,73 +64,11 @@ public final class PerformanceResultCollector {
         if (!executionResult.interrupted) {
             return false;
         }
-        if (executionResult.protocol == PerformanceProtocol.HTTP) {
-            // HTTP 请求进入传输层后，即使停止时没有拿到响应，也必须进入统计，避免报表/结果表看起来“无数据”。
-            return executionResult.request != null || executionResult.fallbackCostMs > 0;
-        }
-        if (executionResult.response == null) {
-            return false;
-        }
-        if (executionResult.response.code > 0) {
-            return true;
-        }
-        if (executionResult.response.bodySize > 0
-                || (executionResult.response.body != null && !executionResult.response.body.isBlank())) {
-            return true;
-        }
-        if (executionResult.protocol == PerformanceProtocol.WEBSOCKET) {
-            return hasAnyPositiveHeader(
-                    executionResult.response.headers,
-                    "X-Easy-WS-Sent-Count",
-                    "X-Easy-WS-Received-Count",
-                    "X-Easy-WS-Message-Count"
-            );
-        }
-        if (executionResult.protocol == PerformanceProtocol.SSE) {
-            return hasAnyPositiveHeader(
-                    executionResult.response.headers,
-                    "X-Easy-SSE-Event-Count",
-                    "X-Easy-SSE-Message-Count"
-            );
-        }
-        return false;
+        // Keep an attempted canceled sample in the result list for every protocol,
+        // even when cancellation happened before a response or stream message arrived.
+        return executionResult.request != null
+                || executionResult.response != null
+                || executionResult.fallbackCostMs > 0;
     }
 
-    private static boolean hasAnyPositiveHeader(Map<String, List<String>> headers, String... names) {
-        for (String name : names) {
-            if (headerLong(headers, name, 0) > 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static long headerLong(Map<String, List<String>> headers, String name, long defaultValue) {
-        String value = headerValue(headers, name);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        try {
-            return Long.parseLong(value.trim());
-        } catch (NumberFormatException ignored) {
-            return defaultValue;
-        }
-    }
-
-    private static String headerValue(Map<String, List<String>> headers, String name) {
-        if (headers == null || name == null) {
-            return "";
-        }
-        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-            if (!name.equalsIgnoreCase(entry.getKey())) {
-                continue;
-            }
-            List<String> values = entry.getValue();
-            if (values == null || values.isEmpty()) {
-                return "";
-            }
-            return values.get(0) == null ? "" : values.get(0);
-        }
-        return "";
-    }
 }

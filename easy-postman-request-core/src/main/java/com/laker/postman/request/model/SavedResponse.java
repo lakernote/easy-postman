@@ -28,6 +28,10 @@ public class SavedResponse implements Serializable {
     private List<CookieInfo> cookies = new ArrayList<>(); // Cookies
     private String body; // 响应体
     private String previewLanguage; // 预览语言类型，如 "json", "html", "xml" 等
+    /**
+     * 文件类型响应的元信息。非空表示这是文件响应，示例只保存元信息、不保存文件内容（{@link #body} 为空）。
+     */
+    private FileInfo file;
 
     // 本地 Mock 扩展。为空时保持普通静态 Example 行为。
     private int mockDelayMs;
@@ -37,6 +41,19 @@ public class SavedResponse implements Serializable {
     private long costMs; // 请求耗时（毫秒）
     private long bodySize; // 响应体大小（字节）
     private long headersSize; // 响应头大小（字节）
+
+    /**
+     * 文件响应元信息。二进制文件只保存元信息；可无损还原的文本附件额外把内容保存在 body 中
+     */
+    @Data
+    public static class FileInfo implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private String fileName; // 下载文件名
+        private String extension; // 根据内容识别出的扩展名（包含点），如 ".xlsx"；未识别时为空
+        private boolean attachment; // Content-Disposition 为 attachment
+        private boolean contentInBody; // 文件内容以文本形式保存在 body 中（文本附件），可按 Content-Type 字符集还原
+    }
 
     /**
      * 原始请求信息（保存的快照）

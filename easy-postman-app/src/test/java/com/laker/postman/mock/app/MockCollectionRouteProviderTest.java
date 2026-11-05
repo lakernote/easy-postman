@@ -13,6 +13,9 @@ import org.testng.annotations.Test;
 import java.util.List;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 public class MockCollectionRouteProviderTest {
 
@@ -98,5 +101,121 @@ public class MockCollectionRouteProviderTest {
         response.setCode(200);
         request.setResponse(List.of(response));
         return request;
+    }
+
+    @Test
+    public void shouldNotServeEmptyBodyForFileExampleWithoutContent() {
+        HttpRequestItem request = new HttpRequestItem();
+        request.setId("request-file");
+        request.setMethod("GET");
+        request.setUrl("/export");
+
+        SavedResponse.FileInfo fileInfo = new SavedResponse.FileInfo();
+        fileInfo.setFileName("orders.xlsx");
+        fileInfo.setExtension(".xlsx");
+        SavedResponse fileExample = new SavedResponse();
+        fileExample.setId("file");
+        fileExample.setName("excel");
+        fileExample.setCode(200);
+        fileExample.setBody("");
+        fileExample.setBodySize(4096);
+        fileExample.setFile(fileInfo);
+        fileExample.setHeaders(List.of(
+                new HttpHeader(true, "Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                new HttpHeader(true, "Content-Disposition", "attachment; filename=orders.xlsx")));
+        request.setResponse(List.of(fileExample));
+
+        MockRoute route = new MockCollectionRouteProvider()
+                .buildRoutes(new CollectionDocument(List.of(collection("c", "Files", request))), List.of("c"))
+                .get(0);
+
+        assertEquals(route.response().getStatusCode(), 501);
+        assertEquals(route.response().getHeader("Content-Type"), "text/plain; charset=UTF-8");
+        assertNull(route.response().getHeader("Content-Disposition"));
+        assertTrue(route.response().getBody().contains("excel"), route.response().getBody());
+    }
+
+    @Test
+    public void shouldServeTextAttachmentExampleSavedInBody() {
+        HttpRequestItem request = new HttpRequestItem();
+        request.setId("request-csv");
+        request.setMethod("GET");
+        request.setUrl("/export.csv");
+
+        SavedResponse.FileInfo fileInfo = new SavedResponse.FileInfo();
+        fileInfo.setFileName("orders.csv");
+        fileInfo.setAttachment(true);
+        fileInfo.setContentInBody(true);
+        SavedResponse csvExample = new SavedResponse();
+        csvExample.setId("csv");
+        csvExample.setCode(200);
+        csvExample.setBody("a,b\n1,2\n");
+        csvExample.setFile(fileInfo);
+        request.setResponse(List.of(csvExample));
+
+        MockRoute route = new MockCollectionRouteProvider()
+                .buildRoutes(new CollectionDocument(List.of(collection("c", "Files", request))), List.of("c"))
+                .get(0);
+
+        assertEquals(route.response().getStatusCode(), 200);
+        assertEquals(route.response().getBody(), "a,b\n1,2\n");
+    }
+
+    @Test
+    public void shouldRewriteNonUtf8CharsetBecauseMockWritesUtf8() {
+        HttpRequestItem request = new HttpRequestItem();
+        request.setId("request-gbk");
+        request.setMethod("GET");
+        request.setUrl("/export.csv");
+
+        SavedResponse gbkExample = new SavedResponse();
+        gbkExample.setId("gbk");
+        gbkExample.setCode(200);
+        gbkExample.setBody("名称,数量\n");
+        gbkExample.setHeaders(List.of(new HttpHeader(true, "Content-Type", "text/csv; charset=GBK")));
+        request.setResponse(List.of(gbkExample));
+
+        MockRoute route = new MockCollectionRouteProvider()
+                .buildRoutes(new CollectionDocument(List.of(collection("c", "Files", request))), List.of("c"))
+                .get(0);
+
+        assertEquals(route.response().getHeader("Content-Type"), "text/csv; charset=UTF-8");
+        assertEquals(route.response().getBody(), "名称,数量\n");
+    }
+
+    @Test
+    public void shouldNormalizeCharsetParameterVariants() {
+        assertEquals(MockCollectionRouteProvider.withUtf8Charset("text/plain; charset=\"UTF-16LE\"; format=flowed"),
+                "text/plain; charset=UTF-8; format=flowed");
+        assertEquals(MockCollectionRouteProvider.withUtf8Charset("application/json;charset=utf-8"),
+                "application/json;charset=utf-8");
+        assertEquals(MockCollectionRouteProvider.withUtf8Charset("application/json"), "application/json");
+    }
+
+    @Test
+    public void shouldNotRejectFileExamplesThatHaveNoBodyByDefinition() {
+        SavedResponse.FileInfo fileInfo = new SavedResponse.FileInfo();
+        fileInfo.setFileName("orders.xlsx");
+        SavedResponse example = new SavedResponse();
+        example.setFile(fileInfo);
+        example.setBodySize(4096);
+
+        assertTrue(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 200));
+        assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "HEAD", 200));
+        assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 204));
+        assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 304));
+
+        example.setBodySize(0);
+        assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 200), "零字节文件无需内容");
+    }
+
+    @Test
+    public void shouldRejectLegacyBinaryPlaceholderExample() {
+        SavedResponse legacy = new SavedResponse();
+        legacy.setBody("[Binary content saved as temp file]");
+        legacy.setBodySize(4096);
+        legacy.setHeaders(List.of(new HttpHeader(true, "Content-Type", "application/pdf")));
+
+        assertTrue(MockCollectionRouteProvider.isFileContentUnavailable(legacy, "GET", 200));
     }
 }

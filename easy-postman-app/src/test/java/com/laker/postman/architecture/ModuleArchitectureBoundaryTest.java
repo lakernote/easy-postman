@@ -812,6 +812,7 @@ public class ModuleArchitectureBoundaryTest {
                 "easy-postman-app/src/main/java/com/laker/postman/http/request",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/transport",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/okhttp",
+                "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/file",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/ssl",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/sse",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/cookie",
@@ -836,6 +837,7 @@ public class ModuleArchitectureBoundaryTest {
         for (String runtimeSource : List.of(
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/transport",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/okhttp",
+                "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/file",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/ssl",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/sse",
                 "easy-postman-http-runtime/src/main/java/com/laker/postman/http/runtime/interaction",

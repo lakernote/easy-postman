@@ -67,6 +67,8 @@ public class HttpEventInfo {
     // 异常
     private String errorMessage;
     private Throwable error;
+    /** 中间尝试失败、但 OkHttp 自动重试后已恢复的错误信息，不代表最终请求失败。 */
+    private String recoveredErrorMessage;
     // 其他
     private String threadName;
 

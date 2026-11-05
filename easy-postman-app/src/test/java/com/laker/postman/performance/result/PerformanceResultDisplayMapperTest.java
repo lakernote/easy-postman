@@ -64,7 +64,7 @@ public class PerformanceResultDisplayMapperTest {
         assertNull(request.bodyType);
         assertNull(request.headersList);
         assertNull(response.filePath);
-        assertNull(response.fileName);
+        assertEquals(response.fileName, "result.bin", "文件名用于详情页展示文件信息");
         assertNull(response.httpEventInfo);
         assertEquals(resultNodeInfo.costMs, 123);
     }

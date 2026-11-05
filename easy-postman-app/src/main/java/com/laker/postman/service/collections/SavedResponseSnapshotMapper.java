@@ -2,15 +2,19 @@ package com.laker.postman.service.collections;
 
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.http.runtime.file.ResponseFileNames;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.request.model.SavedResponse;
+import com.laker.postman.util.FileExtensionUtil;
 import lombok.experimental.UtilityClass;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,7 +32,18 @@ public class SavedResponseSnapshotMapper {
         if (response != null) {
             saved.setCode(response.code);
             saved.setHeaders(toSavedHeaders(response));
-            saved.setBody(response.body);
+            if (ResponseFiles.isFileResponse(response)) {
+                // 示例只保存文件元信息：解码后的文本无法还原二进制内容，保存下来只会是乱码
+                saved.setFile(toFileInfo(response, false));
+                saved.setBody("");
+            } else if (ResponseFiles.isTextAttachment(response)) {
+                // 文本附件（如 CSV）保留文本；只有能按声明字符集无损还原原始字节时才保存内容
+                boolean restorable = ResponseFiles.canRestoreBytesFromBody(response);
+                saved.setFile(toFileInfo(response, restorable));
+                saved.setBody(restorable ? response.body : "");
+            } else {
+                saved.setBody(response.body);
+            }
             saved.setCostMs(response.costMs);
             saved.setBodySize(response.bodySize);
             saved.setHeadersSize(response.headersSize);
@@ -58,7 +73,108 @@ public class SavedResponseSnapshotMapper {
         response.costMs = savedResponse.getCostMs();
         response.bodySize = savedResponse.getBodySize();
         response.headersSize = savedResponse.getHeadersSize();
+        applyFileInfo(savedResponse, response);
         return response;
+    }
+
+    private SavedResponse.FileInfo toFileInfo(HttpResponse response, boolean contentInBody) {
+        SavedResponse.FileInfo fileInfo = new SavedResponse.FileInfo();
+        fileInfo.setFileName(response.fileName);
+        fileInfo.setExtension(response.detectedFileExtension);
+        fileInfo.setAttachment(response.fileAttachment);
+        fileInfo.setContentInBody(contentInBody);
+        return fileInfo;
+    }
+
+    private void applyFileInfo(SavedResponse savedResponse, HttpResponse response) {
+        SavedResponse.FileInfo fileInfo = savedResponse.getFile();
+        if (fileInfo != null) {
+            if (fileInfo.isContentInBody()) {
+                response.fileName = fileInfo.getFileName();
+                response.rawBodyBytes = ResponseFiles.encodeBody(response);
+            } else {
+                ResponseFiles.markContentOmitted(response, fileInfo.getExtension(), fileInfo.getFileName());
+            }
+            response.fileAttachment = fileInfo.isAttachment();
+            return;
+        }
+        // 兼容旧版本保存的示例：文件内容被当作文本保存成了乱码，按文件头识别后改为展示文件概览
+        String legacyExtension = ResponseFiles.detectFromLegacyText(savedResponse.getBody());
+        if (legacyExtension != null) {
+            ResponseFiles.markContentOmitted(response, legacyExtension, null);
+            return;
+        }
+        if (isLegacyBinaryPlaceholder(savedResponse)) {
+            ResponseFiles.markContentOmitted(response, null, null);
+            return;
+        }
+        restoreLegacyTextAttachment(savedResponse, response);
+    }
+
+    /**
+     * 兼容旧版本保存的二进制示例：当时保存的是“已保存为临时文件”之类的提示文字，而不是文件内容。
+     * 依据是声明为二进制、记录了响应大小，但正文字节数与之不符；手写或编辑过的正文会同步更新大小，不受影响。
+     */
+    public boolean isLegacyBinaryPlaceholder(SavedResponse savedResponse) {
+        if (savedResponse == null || savedResponse.getFile() != null || savedResponse.getBodySize() <= 0) {
+            return false;
+        }
+        String contentType = null;
+        if (savedResponse.getHeaders() != null) {
+            for (HttpHeader header : savedResponse.getHeaders()) {
+                if (header != null && "Content-Type".equalsIgnoreCase(header.getKey())) {
+                    contentType = header.getValue();
+                    break;
+                }
+            }
+        }
+        if (!FileExtensionUtil.isBinaryType(contentType)) {
+            return false;
+        }
+        String body = savedResponse.getBody() == null ? "" : savedResponse.getBody();
+        return body.getBytes(StandardCharsets.UTF_8).length != savedResponse.getBodySize();
+    }
+
+    /**
+     * 兼容旧版本保存的文本附件（如 CSV）：当时没有文件信息，但响应头和正文都在，可恢复附件标记、文件名和原始字节。
+     * 正文含替换字符说明保存时已经有损，不再还原字节。
+     */
+    private void restoreLegacyTextAttachment(SavedResponse savedResponse, HttpResponse response) {
+        String contentDisposition = ResponseFileNames.getContentDisposition(response.headers);
+        String contentType = ResponseFiles.contentType(response);
+        if (!ResponseFileNames.isAttachment(contentDisposition) || FileExtensionUtil.isBinaryType(contentType)) {
+            return;
+        }
+        response.fileAttachment = true;
+        String extension = FileExtensionUtil.guessExtension(contentType);
+        SavedResponse.OriginalRequest original = savedResponse.getOriginalRequest();
+        response.fileName = ResponseFileNames.resolve(contentDisposition,
+                urlPath(original == null ? null : original.getUrl()),
+                extension != null ? extension : ".txt");
+        if (response.body != null && response.body.indexOf('\uFFFD') < 0) {
+            response.rawBodyBytes = ResponseFiles.encodeBody(response);
+        }
+    }
+
+    private String urlPath(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String path = url.trim();
+        int end = path.length();
+        for (char delimiter : new char[]{'?', '#'}) {
+            int index = path.indexOf(delimiter);
+            if (index >= 0) {
+                end = Math.min(end, index);
+            }
+        }
+        path = path.substring(0, end);
+        int scheme = path.indexOf("://");
+        if (scheme >= 0) {
+            int slash = path.indexOf('/', scheme + 3);
+            path = slash >= 0 ? path.substring(slash) : "";
+        }
+        return path;
     }
 
     public void sanitizeSavedResponses(HttpRequestItem item) {
@@ -191,17 +307,8 @@ public class SavedResponseSnapshotMapper {
     }
 
     private String findContentType(HttpResponse response) {
-        if (response == null || response.headers == null) {
-            return null;
-        }
-        for (Map.Entry<String, List<String>> entry : response.headers.entrySet()) {
-            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase("Content-Type")) {
-                List<String> values = entry.getValue();
-                if (values != null && !values.isEmpty() && values.get(0) != null) {
-                    return values.get(0).toLowerCase();
-                }
-            }
-        }
-        return null;
+        String contentType = ResponseFiles.firstHeader(response == null ? null : response.headers,
+                ResponseFiles.CONTENT_TYPE_HEADER);
+        return contentType == null ? null : contentType.toLowerCase(Locale.ROOT);
     }
 }

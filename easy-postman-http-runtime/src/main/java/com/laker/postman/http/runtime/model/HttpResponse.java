@@ -11,6 +11,24 @@ import java.util.Map;
 public class HttpResponse {
     public Map<String, List<String>> headers;
     public String body;
+    /**
+     * 原始响应体字节，仅在完整读取、未落临时文件，且识别为文件/附件或文本无法无损还原原始字节时保留。
+     * 普通 UTF-8 文本响应不保留，{@link #body} 按 UTF-8 编码即可还原原始字节。
+     * 下载响应时必须优先使用该字段，避免预览文本的字符集转换破坏原始内容。
+     */
+    public transient byte[] rawBodyBytes;
+    /**
+     * 根据响应体特征高置信识别出的文件扩展名（包含点），未识别时为 null。
+     */
+    public transient String detectedFileExtension;
+    /**
+     * Content-Disposition 声明为 attachment，说明服务端希望以文件方式下载（inline 不算）。
+     */
+    public transient boolean fileAttachment;
+    /**
+     * 文件响应的内容未被保留（如从只保存元信息的示例中恢复），此时只能展示文件信息，无法下载。
+     */
+    public transient boolean fileContentOmitted;
     public int code; // 添加响应状态码字段
     public String threadName; // 添加线程名称字段
     public String filePath; // 临时文件下载路径字段
@@ -42,13 +60,26 @@ public class HttpResponse {
     }
 
     /**
-     * 简化对象，将渲染时不需要的字段置为 null，减少内存占用
-     * 保留的字段：code, protocol, threadName, httpEventInfo, headers, body, costMs, endTime, bodySize, headersSize, idleConnectionCount, connectionCount
-     * 置为 null 的字段：filePath, fileName
+     * 响应体被识别为二进制文件（或文件内容已被省略），其 {@link #body} 文本不适合直接展示。
+     */
+    public boolean isRecognizedFile() {
+        return detectedFileExtension != null || fileContentOmitted;
+    }
+
+    /**
+     * 简化对象，将渲染时不需要的字段置为 null，减少内存占用。
+     * 保留的字段：code, protocol, threadName, httpEventInfo, headers, body, costMs, endTime, bodySize, headersSize,
+     * idleConnectionCount, connectionCount, detectedFileExtension, fileAttachment；
+     * 置为 null 的字段：filePath, rawBodyBytes；fileName 保留用于展示文件信息。
+     * 识别出的文件不保留按文本解码出的乱码，并标记内容已省略，渲染时只展示文件信息。
      */
     public void simplify() {
         this.filePath = null;    // 文件下载路径，渲染时不需要
-        this.fileName = null;    // 文件下载名称，渲染时不需要
+        this.rawBodyBytes = null; // 原始响应体字节，渲染时不需要
+        if (detectedFileExtension != null) {
+            this.body = "";
+            this.fileContentOmitted = true;
+        }
         // isSse, idleConnectionCount, connectionCount 保留（Timing标签页可能需要）
     }
 }

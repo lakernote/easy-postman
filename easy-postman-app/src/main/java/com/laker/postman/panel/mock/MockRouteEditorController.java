@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 
 import java.awt.Component;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -172,11 +173,36 @@ final class MockRouteEditorController {
         if (existing != null) {
             response.setCookies(existing.getCookies());
             response.setCostMs(existing.getCostMs());
-            response.setBodySize(existing.getBodySize());
+            response.setBodySize(bodySizeAfterEdit(existing, draft.body()));
             response.setHeadersSize(existing.getHeadersSize());
+            response.setFile(fileInfoAfterEdit(existing, draft.body()));
         }
         response.setOriginalRequest(originalRequest(request, existing, draft, fallbackBaseUrl));
         return response;
+    }
+
+    /**
+     * 正文未改动时保留文件信息（只改延迟/脚本不应让“未保存文件内容”的示例变成 0 字节文件）；
+     * 文本附件的正文本就是可编辑文本，始终保留；其余文件被手动填写正文后以填写内容为准，按普通文本示例处理。
+     */
+    static SavedResponse.FileInfo fileInfoAfterEdit(SavedResponse existing, String editedBody) {
+        SavedResponse.FileInfo file = existing.getFile();
+        if (file == null || file.isContentInBody()) {
+            return file;
+        }
+        String originalBody = existing.getBody() == null ? "" : existing.getBody();
+        return originalBody.equals(editedBody == null ? "" : editedBody) ? file : null;
+    }
+
+    /**
+     * 正文被手动修改后，大小以新正文为准，避免旧的响应大小让手写正文被误认为旧版二进制占位文字。
+     */
+    static long bodySizeAfterEdit(SavedResponse existing, String editedBody) {
+        String originalBody = existing.getBody() == null ? "" : existing.getBody();
+        String body = editedBody == null ? "" : editedBody;
+        return originalBody.equals(body)
+                ? existing.getBodySize()
+                : body.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private SavedResponse.OriginalRequest originalRequest(HttpRequestItem request,

@@ -110,6 +110,7 @@ final class SavedResponseUiController {
         target.setHeaders(source.getHeaders());
         target.setCookies(source.getCookies());
         target.setBody(source.getBody());
+        target.setFile(source.getFile());
         target.setPreviewLanguage(source.getPreviewLanguage());
         target.setCostMs(source.getCostMs());
         target.setBodySize(source.getBodySize());

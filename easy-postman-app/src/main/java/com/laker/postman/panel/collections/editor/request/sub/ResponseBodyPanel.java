@@ -4,15 +4,13 @@ import com.laker.postman.common.component.notification.NotificationCenter;
 
 import cn.hutool.core.util.XmlUtil;
 import com.formdev.flatlaf.FlatClientProperties;
-import com.formdev.flatlaf.util.SystemFileChooser;
-import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.EasyComboBox;
 import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
 import com.laker.postman.common.component.SearchableTextArea;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.*;
 import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.frame.MainFrame;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.*;
@@ -26,10 +24,8 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.List;
-import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * 响应体面板，展示 HTTP 响应体内容
@@ -49,11 +45,9 @@ public class ResponseBodyPanel extends JPanel {
     private final DownloadButton downloadButton;
     @Getter
     private SaveResponseButton saveResponseButton; // 保存响应按钮（仅HTTP请求）
-    private String currentFilePath;
-    private String fileName = DEFAULT_FILE_NAME; // 默认下载文件名
     private final SearchButton searchButton; // 搜索按钮
-    private Map<String, List<String>> lastHeaders;
     private HttpResponse currentResponse;
+    private final ResponseBodyDownloader downloader;
     private final EasyComboBox<String> syntaxComboBox;
     private final FormatButton formatButton;
     private final JToggleButton autoSortJsonKeysButton;
@@ -61,15 +55,17 @@ public class ResponseBodyPanel extends JPanel {
     private final GenerateModelButton generateModelButton;
     private final WrapToggleButton wrapButton;
     private final SearchableTextArea searchableTextArea; // 带搜索功能的文本编辑器
+    private final JPanel centerPanel;
+    private final FileResponsePanel fileResponsePanel;
+    private final JButton fileOverviewButton;
+    private boolean fileRawPreviewActive;
 
     // 常量定义
     private static final int LARGE_RESPONSE_THRESHOLD = 500 * 1024; // 500KB threshold
-    private static final int BUFFER_SIZE = 8192;
-    private static final String DEFAULT_FILE_NAME = "downloaded_file";
-    private static final String CONTENT_TYPE_HEADER = "Content-Type";
     private static final String CARD_TEXT = "TEXT";
     private static final String CARD_IMAGE = "IMAGE";
     private static final String CARD_MEDIA = "MEDIA";
+    private static final String CARD_FILE = "FILE";
 
     // 图片预览组件
     private final JLabel imagePreviewLabel;
@@ -106,13 +102,16 @@ public class ResponseBodyPanel extends JPanel {
         imageScrollPane.setBorder(BorderFactory.createEmptyBorder());
 
         mediaResponsePanel = new MediaResponsePanel();
+        fileResponsePanel = new FileResponsePanel(this::downloadFromFileOverview, this::showFileRawPreview);
+        downloader = new ResponseBodyDownloader(this::onSavingChanged);
 
-        // 使用 CardLayout 在文本、图片和媒体视图之间切换
-        JPanel centerPanel = new JPanel(new CardLayout());
+        // 使用 CardLayout 在文本、图片、媒体和文件概览之间切换
+        centerPanel = new JPanel(new CardLayout());
         ToolWindowSurfaceStyle.applyCard(centerPanel);
         centerPanel.add(searchableTextArea, CARD_TEXT);
         centerPanel.add(imageScrollPane, CARD_IMAGE);
         centerPanel.add(mediaResponsePanel, CARD_MEDIA);
+        centerPanel.add(fileResponsePanel, CARD_FILE);
         add(centerPanel, BorderLayout.CENTER);
 
         JPanel toolBarPanel = new JPanel();
@@ -129,11 +128,29 @@ public class ResponseBodyPanel extends JPanel {
         // 添加大小提示标签
         sizeWarningLabel = new JLabel();
         sizeWarningLabel.setForeground(ModernColors.getWarningDark());
+        sizeWarningLabel.setMinimumSize(new Dimension(
+                0, sizeWarningLabel.getFontMetrics(sizeWarningLabel.getFont()).getHeight()));
         sizeWarningLabel.setVisible(false);
         toolBarPanel.add(sizeWarningLabel);
 
         // 弹性空间，将右侧控件推到右边
         toolBarPanel.add(Box.createHorizontalGlue());
+
+        fileOverviewButton = new JButton();
+        fileOverviewButton.setIcon(IconUtil.createThemed(
+                "icons/file.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        fileOverviewButton.setToolTipText(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_BACK_TO_OVERVIEW));
+        fileOverviewButton.getAccessibleContext().setAccessibleName(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_BACK_TO_OVERVIEW));
+        fileOverviewButton.setFocusable(false);
+        fileOverviewButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        fileOverviewButton.putClientProperty(
+                FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        fileOverviewButton.setVisible(false);
+        fileOverviewButton.addActionListener(event -> showFileOverview());
+        toolBarPanel.add(fileOverviewButton);
+        toolBarPanel.add(Box.createHorizontalStrut(1));
 
         // 搜索按钮
         searchButton = new SearchButton();
@@ -193,7 +210,7 @@ public class ResponseBodyPanel extends JPanel {
 
         add(toolBarPanel, BorderLayout.NORTH);
 
-        downloadButton.addActionListener(e -> saveFile());
+        downloadButton.addActionListener(e -> downloadFromToolbar());
         formatButton.addActionListener(e -> formatContent());
         copyButton.addActionListener(e -> copyToClipboard());
         wrapButton.addActionListener(e -> toggleLineWrap());
@@ -217,7 +234,7 @@ public class ResponseBodyPanel extends JPanel {
         String syntax;
         if (syntaxType == SyntaxType.AUTO_DETECT) {
             // 自动检测语法类型
-            syntax = detectResponseSyntax(responseBodyPane.getText(), getCurrentContentTypeFromHeaders());
+            syntax = detectResponseSyntax(responseBodyPane.getText(), currentContentType());
         } else {
             // 使用用户选择的语法类型
             syntax = syntaxType.getSyntaxStyle();
@@ -236,73 +253,53 @@ public class ResponseBodyPanel extends JPanel {
 
 
     /**
-     * 保存文件
-     * <p>
-     * 支持两种保存模式：
-     * 1. 如果有临时文件路径（大文件或二进制文件），从临时文件复制
-     * 2. 否则直接保存编辑器中的文本内容
-     * </p>
+     * 工具栏下载（文本预览中）：保存成功后以通知提示；若当前响应有文件概览，同步显示保存位置，
+     * 返回概览时不会看到过期的路径。
      */
-    private void saveFile() {
-        SystemFileChooser fileChooser = FileChooserUtil.createSaveFileChooser(
-                "response.body.save",
-                "Save File");
-
-        // 智能设置默认文件名和扩展名
-        String defaultFileName = generateFileName();
-        fileChooser.setSelectedFile(new File(defaultFileName));
-
-        int userSelection = fileChooser.showSaveDialog(UiSingletonFactory.getInstance(MainFrame.class));
-        if (userSelection == SystemFileChooser.APPROVE_OPTION) {
-            File destFile = fileChooser.getSelectedFile();
-            try {
-                if (currentFilePath != null && !currentFilePath.isEmpty()) {
-                    // 如果是文件下载（如二进制文件），从临时文件复制
-                    try (InputStream in = new FileInputStream(currentFilePath);
-                         OutputStream out = new FileOutputStream(destFile)) {
-                        byte[] buffer = new byte[BUFFER_SIZE];
-                        int len;
-                        while ((len = in.read(buffer)) != -1) {
-                            out.write(buffer, 0, len);
-                        }
-                    }
-                } else {
-                    // 如果是文本响应，直接保存文本内容
-                    String content = responseBodyPane.getText();
-                    if (content != null && !content.isEmpty()) {
-                        try (OutputStreamWriter writer = new OutputStreamWriter(
-                                new FileOutputStream(destFile), StandardCharsets.UTF_8)) {
-                            writer.write(content);
-                        }
-                    }
-                }
-                NotificationCenter.showInfo("File saved successfully: " + destFile.getAbsolutePath());
-            } catch (Exception ex) {
-                NotificationCenter.showError("Save File Error: " + ex.getMessage());
+    private void downloadFromToolbar() {
+        HttpResponse responseAtStart = currentResponse;
+        startDownload(savedFile -> {
+            ResponseBodyDownloader.notifySaved(savedFile);
+            if (currentResponse == responseAtStart && FileResponseModel.shouldShow(currentResponse)) {
+                fileResponsePanel.showSavedFile(savedFile);
             }
-        }
+        });
     }
 
     /**
-     * 智能生成文件名，根据内容类型添加合适的扩展名
+     * 文件概览下载：保存成功后在概览中显示保存位置及打开入口。
      */
-    private String generateFileName() {
-        // 如果有明确的文件名（来自 Content-Disposition），使用它
-        if (fileName != null && !fileName.equals(DEFAULT_FILE_NAME) && !fileName.isEmpty()) {
-            return fileName;
-        }
-
-        // 否则根据内容类型生成文件名
-        String contentType = getCurrentContentTypeFromHeaders();
-        String extension = FileExtensionUtil.guessExtension(contentType);
-
-        // 使用统一的智能文件名生成逻辑
-        if (extension == null) {
-            extension = ".txt";
-        }
-        return FileExtensionUtil.generateSmartFileName(extension);
+    private void downloadFromFileOverview() {
+        HttpResponse responseAtStart = currentResponse;
+        startDownload(savedFile -> {
+            // 保存期间已切换到其他响应时，不能把结果显示在新响应的概览上
+            if (currentResponse == responseAtStart) {
+                fileResponsePanel.showSavedFile(savedFile);
+            } else {
+                ResponseBodyDownloader.notifySaved(savedFile);
+            }
+        });
     }
 
+    private void startDownload(Consumer<File> onSaved) {
+        downloader.download(currentBodySource(), ResponseBodyDownloader.defaultFileName(currentResponse), onSaved);
+    }
+
+    private void onSavingChanged(boolean saving) {
+        downloadButton.setEnabled(!saving && isEnabled());
+        fileResponsePanel.setDownloading(saving);
+    }
+
+    /**
+     * 将当前响应体同步写入目标文件，写入规则见 {@link ResponseBodyDownloader.Source}。
+     */
+    void writeResponseBody(File destFile) throws IOException {
+        currentBodySource().writeTo(destFile);
+    }
+
+    private ResponseBodyDownloader.Source currentBodySource() {
+        return ResponseBodyDownloader.Source.of(currentResponse, responseBodyPane.getText());
+    }
 
     /**
      * 格式化内容
@@ -314,7 +311,7 @@ public class ResponseBodyPanel extends JPanel {
             return;
         }
 
-        String contentType = getCurrentContentTypeFromHeaders();
+        String contentType = currentContentType();
 
         try {
             String formatted = null;
@@ -356,23 +353,8 @@ public class ResponseBodyPanel extends JPanel {
         }
     }
 
-    /**
-     * 从响应头中获取 Content-Type
-     *
-     * @return Content-Type 的值，如果不存在则返回空字符串
-     */
-    private String getCurrentContentTypeFromHeaders() {
-        if (lastHeaders != null) {
-            for (Map.Entry<String, List<String>> entry : lastHeaders.entrySet()) {
-                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(CONTENT_TYPE_HEADER)) {
-                    List<String> values = entry.getValue();
-                    if (values != null && !values.isEmpty()) {
-                        return values.get(0);
-                    }
-                }
-            }
-        }
-        return "";
+    private String currentContentType() {
+        return ResponseFiles.contentType(currentResponse);
     }
 
     /**
@@ -392,11 +374,11 @@ public class ResponseBodyPanel extends JPanel {
             return;
         }
 
-        this.currentFilePath = resp.filePath;
         this.currentResponse = resp;
-        this.fileName = resp.fileName;
-        this.lastHeaders = resp.headers;
-        String contentType = extractContentType(resp.headers);
+        this.fileRawPreviewActive = false;
+        sizeWarningLabel.setToolTipText(null);
+        fileResponsePanel.clear();
+        String contentType = ResponseFiles.contentType(resp);
 
         String mainContentType = FileExtensionUtil.extractMainType(contentType);
         boolean isAudio = "audio".equalsIgnoreCase(mainContentType);
@@ -423,6 +405,11 @@ public class ResponseBodyPanel extends JPanel {
         if (resp.isImage && resp.filePath != null && !resp.filePath.isEmpty()) {
             generateModelButton.setEnabled(false);
             showImagePreview(resp.filePath, resp.bodySize);
+            return;
+        }
+
+        if (FileResponseModel.shouldShow(resp)) {
+            showFileResponse(resp);
             return;
         }
 
@@ -461,6 +448,44 @@ public class ResponseBodyPanel extends JPanel {
         }
 
         responseBodyPane.setCaretPosition(0);
+    }
+
+    private void showFileResponse(HttpResponse response) {
+        responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        // 文件概览不展示编辑器，二进制文本延迟到“按文本查看”时再加载，避免在 EDT 上渲染大段乱码
+        responseBodyPane.setText("");
+        syntaxComboBox.setSelectedIndex(SyntaxType.PLAIN_TEXT.getIndex());
+        sizeWarningLabel.setVisible(false);
+        generateModelButton.setEnabled(false);
+        fileResponsePanel.setResponse(FileResponseModel.from(response));
+        switchCard(CARD_FILE);
+    }
+
+    private void showFileRawPreview() {
+        if (currentResponse == null || currentResponse.rawBodyBytes == null) {
+            return;
+        }
+        fileRawPreviewActive = true;
+        responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        responseBodyPane.setText(currentResponse.body == null ? "" : currentResponse.body);
+        responseBodyPane.setCaretPosition(0);
+        sizeWarningLabel.setText("  "
+                + I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_TEXT_PREVIEW_BADGE));
+        sizeWarningLabel.setToolTipText(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_TEXT_PREVIEW_NOTICE));
+        sizeWarningLabel.setVisible(true);
+        switchCard(CARD_TEXT);
+        responseBodyPane.requestFocusInWindow();
+    }
+
+    private void showFileOverview() {
+        if (currentResponse == null || !fileRawPreviewActive) {
+            return;
+        }
+        fileRawPreviewActive = false;
+        sizeWarningLabel.setVisible(false);
+        sizeWarningLabel.setToolTipText(null);
+        switchCard(CARD_FILE);
     }
 
     /**
@@ -587,7 +612,8 @@ public class ResponseBodyPanel extends JPanel {
         responseBodyPane.setEnabled(enabled);
         syntaxComboBox.setEnabled(enabled);
         searchButton.setEnabled(enabled);
-        downloadButton.setEnabled(enabled);
+        downloadButton.setEnabled(enabled && !downloader.isSaving());
+        fileOverviewButton.setEnabled(enabled);
         searchableTextArea.setEnabled(enabled);
 
         if (formatButton != null) formatButton.setEnabled(enabled);
@@ -597,6 +623,7 @@ public class ResponseBodyPanel extends JPanel {
         if (wrapButton != null) wrapButton.setEnabled(enabled);
         if (saveResponseButton != null) saveResponseButton.setEnabled(enabled);
         mediaResponsePanel.setEnabled(enabled);
+        fileResponsePanel.setEnabled(enabled);
     }
 
     private void updateGenerateModelButtonState() {
@@ -606,12 +633,24 @@ public class ResponseBodyPanel extends JPanel {
     // ========== 辅助方法 ==========
 
     /**
-     * 切换中心区域显示的卡片（文本编辑器 或 图片预览）
+     * 切换中心区域显示的响应卡片。
      */
     private void switchCard(String cardName) {
-        syntaxComboBox.setVisible(CARD_TEXT.equals(cardName));
-        Container centerPanel = searchableTextArea.getParent();
-        if (centerPanel != null && centerPanel.getLayout() instanceof CardLayout cl) {
+        boolean fileCard = CARD_FILE.equals(cardName);
+        boolean fileRawPreview = CARD_TEXT.equals(cardName) && fileRawPreviewActive;
+
+        syntaxComboBox.setVisible(CARD_TEXT.equals(cardName) && !fileRawPreview);
+        fileOverviewButton.setVisible(fileRawPreview);
+        // 文件概览卡片自带下载按钮，隐藏工具栏下载按钮避免重复
+        downloadButton.setVisible(!fileCard);
+        searchButton.setVisible(!fileCard);
+        wrapButton.setVisible(!fileCard);
+        copyButton.setVisible(!fileCard);
+        autoSortJsonKeysButton.setVisible(!fileCard && !fileRawPreview);
+        formatButton.setVisible(!fileCard && !fileRawPreview);
+        generateModelButton.setVisible(!fileCard && !fileRawPreview);
+
+        if (centerPanel.getLayout() instanceof CardLayout cl) {
             cl.show(centerPanel, cardName);
         }
     }
@@ -693,35 +732,18 @@ public class ResponseBodyPanel extends JPanel {
     private void clearResponseBody() {
         responseBodyPane.setText("");
         updateGenerateModelButtonState();
-        currentFilePath = null;
         currentResponse = null;
-        fileName = DEFAULT_FILE_NAME;
-        lastHeaders = null;
+        fileRawPreviewActive = false;
         responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         responseBodyPane.setCaretPosition(0);
         syntaxComboBox.setSelectedIndex(SyntaxType.AUTO_DETECT.getIndex());
         sizeWarningLabel.setVisible(false);
+        sizeWarningLabel.setToolTipText(null);
         imagePreviewLabel.setIcon(null);
         imagePreviewLabel.setText(null);
         mediaResponsePanel.clear();
+        fileResponsePanel.clear();
         switchCard(CARD_TEXT);
-    }
-
-    /**
-     * 从响应头中提取 Content-Type
-     */
-    private String extractContentType(Map<String, List<String>> headers) {
-        if (headers != null) {
-            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(CONTENT_TYPE_HEADER)) {
-                    List<String> values = entry.getValue();
-                    if (values != null && !values.isEmpty()) {
-                        return values.get(0);
-                    }
-                }
-            }
-        }
-        return "";
     }
 
     /**

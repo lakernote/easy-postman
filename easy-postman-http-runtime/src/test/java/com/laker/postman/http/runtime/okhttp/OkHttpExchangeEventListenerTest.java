@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class OkHttpExchangeEventListenerTest {
@@ -394,5 +395,38 @@ public class OkHttpExchangeEventListenerTest {
         assertEquals(info.getFollowUpCount(), 1);
         assertTrue(info.getDispatcherQueueStart() > 0);
         assertTrue(info.getDispatcherQueueEnd() > 0);
+    }
+
+    @Test
+    public void shouldDowngradeRetriedFailureToRecoveredError() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.url = "http://127.0.0.1/";
+        preparedRequest.captureProfile = HttpCaptureProfile.COLLECTION_DIAGNOSTIC;
+        OkHttpExchangeEventListener listener = new OkHttpExchangeEventListener(preparedRequest);
+
+        listener.responseFailed(null, new IOException("unexpected end of stream"));
+        listener.retryDecision(null, new IOException("unexpected end of stream"), true);
+        listener.callEnd(null);
+
+        HttpEventInfo info = HttpExchangeTraceSupport.resolveFromRequest(preparedRequest);
+        assertNull(info.getErrorMessage());
+        assertNull(info.getError());
+        assertTrue(info.getRecoveredErrorMessage().contains("unexpected end of stream"));
+    }
+
+    @Test
+    public void shouldKeepErrorWhenRetryAlsoFails() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.url = "http://127.0.0.1/";
+        preparedRequest.captureProfile = HttpCaptureProfile.COLLECTION_DIAGNOSTIC;
+        OkHttpExchangeEventListener listener = new OkHttpExchangeEventListener(preparedRequest);
+
+        listener.responseFailed(null, new IOException("unexpected end of stream"));
+        listener.retryDecision(null, new IOException("unexpected end of stream"), true);
+        listener.callFailed(null, new IOException("Connection refused"));
+
+        HttpEventInfo info = HttpExchangeTraceSupport.resolveFromRequest(preparedRequest);
+        assertTrue(info.getErrorMessage() != null && !info.getErrorMessage().isBlank());
+        assertTrue(info.getRecoveredErrorMessage().contains("unexpected end of stream"));
     }
 }

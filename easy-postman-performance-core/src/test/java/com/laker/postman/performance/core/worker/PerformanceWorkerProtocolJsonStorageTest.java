@@ -157,4 +157,39 @@ public class PerformanceWorkerProtocolJsonStorageTest {
                         .build()))
                 .build();
     }
+
+    @Test
+    public void shouldRoundTripFileMetadataInResultDetails() {
+        PerformanceWorkerProtocolJsonStorage storage = new PerformanceWorkerProtocolJsonStorage();
+        PerformanceWorkerRunDetailsResponse details = PerformanceWorkerRunDetailsResponse.builder()
+                .runId("run-1")
+                .workerId("worker-a")
+                .status(PerformanceRunStatus.SUCCESS)
+                .details(List.of(PerformanceWorkerResultDetail.builder()
+                        .protocol("HTTP")
+                        .name("export")
+                        .response(PerformanceWorkerResultDetail.DetailResponse.builder()
+                                .code(200)
+                                .body("")
+                                .bodySize(2048)
+                                .fileName("orders.xlsx")
+                                .detectedFileExtension(".xlsx")
+                                .fileContentOmitted(true)
+                                .build())
+                        .build()))
+                .build();
+
+        PerformanceWorkerResultDetail.DetailResponse loaded =
+                storage.detailsResponseFromJson(storage.toJson(details)).getDetails().get(0).getResponse();
+
+        assertEquals(loaded.getFileName(), "orders.xlsx");
+        assertEquals(loaded.getDetectedFileExtension(), ".xlsx");
+        assertEquals(loaded.isFileContentOmitted(), true);
+        assertEquals(loaded.getBodySize(), 2048L);
+
+        PerformanceWorkerResultDetail.DetailResponse legacy = storage.detailsResponseFromJson(
+                "{\"details\":[{\"response\":{\"code\":200,\"body\":\"ok\"}}]}").getDetails().get(0).getResponse();
+        assertEquals(legacy.getFileName(), null);
+        assertFalse(legacy.isFileContentOmitted(), "旧 worker 不带文件字段时按普通响应处理");
+    }
 }

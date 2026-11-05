@@ -132,15 +132,20 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
         if (response == null) {
             return null;
         }
+        // 内容被识别为文件时，按文本解码的正文只是乱码，不随详情传输
+        boolean fileContentOmitted = response.fileContentOmitted || response.detectedFileExtension != null;
         return DetailResponse.builder()
                 .code(response.code)
                 .protocol(response.protocol)
                 .headers(copyHeaders(response.headers))
-                .body(response.body)
+                .body(fileContentOmitted ? "" : response.body)
                 .costMs(response.costMs)
                 .endTimeMs(response.endTime)
                 .bodySize(response.bodySize)
                 .headersSize(response.headersSize)
+                .fileName(response.fileName)
+                .detectedFileExtension(response.detectedFileExtension)
+                .fileContentOmitted(fileContentOmitted)
                 .build();
     }
 

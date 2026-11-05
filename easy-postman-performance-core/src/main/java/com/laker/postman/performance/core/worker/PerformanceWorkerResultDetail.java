@@ -40,6 +40,12 @@ public class PerformanceWorkerResultDetail {
         long endTimeMs;
         long bodySize;
         long headersSize;
+        /** 响应文件名，仅文件响应有值。 */
+        String fileName;
+        /** 文件头识别出、与 Content-Type 不符的扩展名。 */
+        String detectedFileExtension;
+        /** 文件正文未随详情传输，只展示文件信息。 */
+        boolean fileContentOmitted;
     }
 
     @Value

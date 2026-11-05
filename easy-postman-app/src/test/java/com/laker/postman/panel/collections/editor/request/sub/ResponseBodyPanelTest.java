@@ -1,9 +1,13 @@
 package com.laker.postman.panel.collections.editor.request.sub;
 
 import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
+import com.laker.postman.common.component.button.DownloadButton;
 import com.laker.postman.common.component.button.WrapToggleButton;
 import com.laker.postman.http.runtime.model.HttpResponse;
+import com.laker.postman.http.runtime.file.ResponseFileFixtures;
 import com.laker.postman.test.AbstractSwingUiTest;
+import com.laker.postman.util.CommonI18n;
+import com.laker.postman.util.CommonMessageKeys;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import com.laker.postman.util.UiI18n;
@@ -14,6 +18,7 @@ import org.testng.annotations.Test;
 import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
 import java.awt.*;
+import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -24,6 +29,7 @@ import java.util.Map;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class ResponseBodyPanelTest extends AbstractSwingUiTest {
@@ -214,6 +220,245 @@ public class ResponseBodyPanelTest extends AbstractSwingUiTest {
         assertTrue(statusHolder[0].getHeight() > 0);
     }
 
+    @Test
+    public void shouldShowFileOverviewAndHideToolbarDownloadForDetectedFile() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(detectedXlsxResponse());
+
+        FileResponsePanel filePanel = findComponent(panel, FileResponsePanel.class);
+        assertNotNull(filePanel);
+        assertTrue(filePanel.isVisible());
+        assertFalse(findComponent(panel, DownloadButton.class).isVisible(), "File overview already provides a download action");
+
+        SwingUtilities.invokeAndWait(() -> panel.setBodyText(responseWithBody("{\"ok\":true}")));
+
+        assertFalse(filePanel.isVisible());
+        assertTrue(findComponent(panel, DownloadButton.class).isVisible());
+    }
+
+    @Test
+    public void shouldLoadAttachmentTextOnlyWhenViewingAsTextAndReturnToOverview() throws Exception {
+        HttpResponse response = csvAttachmentResponse();
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        FileResponsePanel filePanel = findComponent(panel, FileResponsePanel.class);
+        assertNotNull(filePanel);
+        assertEquals(panel.getResponseBodyPane().getText(), "", "File text should not be rendered behind the overview");
+
+        JButton viewAsText = findButton(filePanel, I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_VIEW_AS_TEXT));
+        assertNotNull(viewAsText);
+        assertTrue(viewAsText.isVisible());
+        SwingUtilities.invokeAndWait(viewAsText::doClick);
+
+        assertFalse(filePanel.isVisible());
+        assertEquals(panel.getResponseBodyPane().getText(), response.body);
+        assertTrue(findComponent(panel, DownloadButton.class).isVisible());
+
+        JButton backToOverview = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_BACK_TO_OVERVIEW));
+        assertNotNull(backToOverview);
+        assertTrue(backToOverview.isVisible());
+        SwingUtilities.invokeAndWait(backToOverview::doClick);
+
+        assertTrue(filePanel.isVisible());
+        assertFalse(backToOverview.isVisible());
+    }
+
+    @Test
+    public void shouldExplainMismatchAndHideTextViewForDetectedBinaryFile() throws Exception {
+        HttpResponse response = detectedXlsxResponse();
+        response.headers = Map.of("Content-Type", List.of("application/json;charset=UTF-8"));
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        FileResponsePanel filePanel = findComponent(panel, FileResponsePanel.class);
+        assertNotNull(filePanel);
+
+        JButton viewAsText = findButton(filePanel, I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_VIEW_AS_TEXT));
+        assertNotNull(viewAsText);
+        assertFalse(viewAsText.isVisible(), "Binary formats only show garbled text");
+
+        String expectedNotice = I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_MIME_MISMATCH, "application/json", "XLSX");
+        assertNotNull(findLabel(filePanel, expectedNotice), "Mismatch notice should name declared and detected types");
+        String expectedSummary = I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_SUMMARY,
+                "XLSX", ResponseSizeCalculator.formatBytes(response.bodySize));
+        assertNotNull(findLabel(filePanel, expectedSummary), "File size should match the response status bar format");
+    }
+
+    @Test
+    public void shouldOfferOpenActionsAfterFileIsSaved() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(detectedXlsxResponse());
+        FileResponsePanel filePanel = findComponent(panel, FileResponsePanel.class);
+        assertNotNull(filePanel);
+        File saved = new File(System.getProperty("java.io.tmpdir"), "orders.xlsx");
+        String savedText = I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_SAVED_TO, saved.getAbsolutePath());
+        assertNull(findLabel(filePanel, savedText));
+
+        SwingUtilities.invokeAndWait(() -> filePanel.showSavedFile(saved));
+
+        JLabel savedLabel = findLabel(filePanel, savedText);
+        assertNotNull(savedLabel);
+        assertTrue(savedLabel.isShowing() || savedLabel.getParent().isVisible());
+
+        HttpResponse nextResponse = detectedXlsxResponse();
+        SwingUtilities.invokeAndWait(() -> panel.setBodyText(nextResponse));
+        assertFalse(savedLabel.getParent().isVisible(), "Saved hint belongs to the previous response");
+    }
+
+    @Test
+    public void shouldShowFileInfoWithoutDownloadForExampleWithoutContent() throws Exception {
+        HttpResponse response = new HttpResponse();
+        response.body = "";
+        response.bodySize = 8345;
+        response.fileName = "orders.xlsx";
+        response.detectedFileExtension = ".xlsx";
+        response.fileContentOmitted = true;
+        response.headers = Map.of("Content-Type", List.of("application/json"));
+
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+
+        FileResponsePanel filePanel = findComponent(panel, FileResponsePanel.class);
+        assertNotNull(filePanel);
+        assertTrue(filePanel.isVisible());
+        assertNotNull(findLabel(filePanel, I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_CONTENT_NOT_SAVED)));
+        assertTrue(findLabel(filePanel, I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_CONTENT_NOT_SAVED)).isVisible());
+        JButton download = findButton(filePanel, CommonI18n.get(CommonMessageKeys.BUTTON_DOWNLOAD));
+        assertNotNull(download);
+        assertFalse(download.getParent().isVisible(), "Example without content cannot be downloaded");
+        assertFalse(findComponent(panel, DownloadButton.class).isVisible());
+
+        SwingUtilities.invokeAndWait(() -> panel.setBodyText(responseWithBody("{\"ok\":true}")));
+        assertTrue(findComponent(panel, DownloadButton.class).isVisible());
+    }
+
+    @Test
+    public void shouldShowFileOverviewForTextAttachment() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(csvAttachmentResponse());
+
+        FileResponsePanel filePanel = findComponent(panel, FileResponsePanel.class);
+        assertNotNull(filePanel);
+        assertTrue(filePanel.isVisible());
+    }
+
+    @Test
+    public void shouldWriteOriginalBytesForDetectedFile() throws Exception {
+        HttpResponse response = detectedXlsxResponse();
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        Path target = Files.createTempFile("easy-postman-response-", ".xlsx");
+        try {
+            panel.writeResponseBody(target.toFile());
+
+            assertEquals(Files.readAllBytes(target), response.rawBodyBytes);
+        } finally {
+            Files.deleteIfExists(target);
+        }
+    }
+
+    @Test
+    public void shouldWriteResponseBodyInsteadOfFormattedEditorText() throws Exception {
+        String json = "{\"b\":1,\"a\":\"中文\"}";
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody(json));
+        SwingUtilities.invokeAndWait(() -> panel.getResponseBodyPane().setText("{\n  \"a\": \"中文\"\n}"));
+        Path target = Files.createTempFile("easy-postman-response-", ".json");
+        try {
+            panel.writeResponseBody(target.toFile());
+
+            assertEquals(Files.readAllBytes(target), json.getBytes(StandardCharsets.UTF_8));
+        } finally {
+            Files.deleteIfExists(target);
+        }
+    }
+
+    @Test
+    public void shouldCopyTempFileWhenResponseWasSavedToDisk() throws Exception {
+        byte[] content = {0x00, 0x01, (byte) 0xFF, 0x10};
+        Path source = Files.createTempFile("easy-postman-response-source-", ".bin");
+        Path target = Files.createTempFile("easy-postman-response-target-", ".bin");
+        try {
+            Files.write(source, content);
+            HttpResponse response = new HttpResponse();
+            response.body = "binary";
+            response.filePath = source.toString();
+            response.fileName = "data.bin";
+            response.bodySize = content.length;
+            response.headers = Map.of("Content-Type", List.of("application/octet-stream"));
+            ResponseBodyPanel panel = createPanelWithResponse(response);
+
+            panel.writeResponseBody(target.toFile());
+
+            assertEquals(Files.readAllBytes(target), content);
+        } finally {
+            Files.deleteIfExists(source);
+            Files.deleteIfExists(target);
+        }
+    }
+
+    private HttpResponse csvAttachmentResponse() {
+        byte[] csv = "id,name\n1,Alice\n".getBytes(StandardCharsets.UTF_8);
+        HttpResponse response = new HttpResponse();
+        response.body = new String(csv, StandardCharsets.UTF_8);
+        response.rawBodyBytes = csv;
+        response.bodySize = csv.length;
+        response.fileName = "report.csv";
+        response.fileAttachment = true;
+        response.headers = Map.of(
+                "Content-Type", List.of("text/csv"),
+                "Content-Disposition", List.of("attachment; filename=\"report.csv\""));
+        return response;
+    }
+
+    private JLabel findLabel(Container container, String text) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JLabel label && text.equals(label.getText())) {
+                return label;
+            }
+            if (component instanceof Container child) {
+                JLabel found = findLabel(child, text);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private HttpResponse detectedXlsxResponse() throws Exception {
+        byte[] xlsx = ResponseFileFixtures.xlsx();
+        HttpResponse response = new HttpResponse();
+        response.body = new String(xlsx, StandardCharsets.UTF_8);
+        response.rawBodyBytes = xlsx;
+        response.detectedFileExtension = ".xlsx";
+        response.bodySize = xlsx.length;
+        response.fileName = "export.xlsx";
+        response.headers = Map.of("Content-Type", List.of("application/json"));
+        return response;
+    }
+
+    private JButton findButton(Container container, String text) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JButton button && text.equals(button.getText())) {
+                return button;
+            }
+            if (component instanceof Container child) {
+                JButton found = findButton(child, text);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private JButton findButtonByTooltip(Container container, String tooltip) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JButton button && tooltip.equals(button.getToolTipText())) {
+                return button;
+            }
+            if (component instanceof Container child) {
+                JButton found = findButtonByTooltip(child, tooltip);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
     private ResponseBodyPanel createPanelWithResponse(HttpResponse response) throws Exception {
         ResponseBodyPanel[] holder = new ResponseBodyPanel[1];
         SwingUtilities.invokeAndWait(() -> {
@@ -278,21 +523,6 @@ public class ResponseBodyPanelTest extends AbstractSwingUiTest {
 
     private boolean hasLabel(Container container, String text) {
         return findLabel(container, text) != null;
-    }
-
-    private JLabel findLabel(Container container, String text) {
-        for (Component component : container.getComponents()) {
-            if (component instanceof JLabel label && text.equals(label.getText())) {
-                return label;
-            }
-            if (component instanceof Container child) {
-                JLabel found = findLabel(child, text);
-                if (found != null) {
-                    return found;
-                }
-            }
-        }
-        return null;
     }
 
     private Object getTokenPainter(ResponseBodyPanel panel) {

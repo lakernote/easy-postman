@@ -965,6 +965,12 @@ public class OkHttpExchangeEventListener extends EventListener {
 
     @Override
     public void retryDecision(Call call, IOException ioe, boolean retry) {
+        if (collectMetricsInfo && retry && info.getErrorMessage() != null) {
+            // 失败的尝试会被重试：先降级为“已恢复”，若重试仍失败，callFailed 会重新写入错误
+            info.setRecoveredErrorMessage(info.getErrorMessage());
+            info.setErrorMessage(null);
+            info.setError(null);
+        }
         if (!collectEventInfo) {
             return;
         }

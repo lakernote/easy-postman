@@ -4,6 +4,7 @@ import com.laker.postman.http.runtime.model.HttpEventInfo;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.HttpRouteAttempt;
 import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.history.RequestHistoryItem;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpParam;
@@ -70,7 +71,7 @@ public class HistoryPersistenceService {
      * 添加历史记录
      */
     public RequestHistoryItem addHistory(PreparedRequest request, HttpResponse response, long requestTime) {
-        RequestHistoryItem item = new RequestHistoryItem(request, response, requestTime);
+        RequestHistoryItem item = new RequestHistoryItem(request, toHistoryResponse(response), requestTime);
         historyItems.add(0, item); // 添加到开头
 
         // 限制历史记录数量
@@ -82,6 +83,39 @@ public class HistoryPersistenceService {
         // 异步保存
         saveHistoryAsync();
         return item;
+    }
+
+    /**
+     * 历史只需展示信息：不持有原始字节，识别为文件的响应不保留乱码文本，避免历史列表长期占用内存。
+     */
+    static HttpResponse toHistoryResponse(HttpResponse response) {
+        // 无法由正文无损还原的文本附件（如非法 UTF-8 的 CSV）同样只保留文件信息，避免历史展示有损正文
+        boolean fileResponse = ResponseFiles.isFileResponse(response)
+                || (ResponseFiles.isTextAttachment(response) && !ResponseFiles.canRestoreBytesFromBody(response));
+        if (response == null || (response.rawBodyBytes == null && !fileResponse)) {
+            return response;
+        }
+        HttpResponse copy = new HttpResponse();
+        copy.headers = response.headers;
+        copy.body = fileResponse ? "" : response.body;
+        copy.detectedFileExtension = response.detectedFileExtension;
+        copy.fileAttachment = response.fileAttachment;
+        copy.fileContentOmitted = fileResponse;
+        copy.code = response.code;
+        copy.threadName = response.threadName;
+        copy.filePath = response.filePath;
+        copy.fileName = response.fileName;
+        copy.costMs = response.costMs;
+        copy.endTime = response.endTime;
+        copy.protocol = response.protocol;
+        copy.idleConnectionCount = response.idleConnectionCount;
+        copy.connectionCount = response.connectionCount;
+        copy.httpEventInfo = response.httpEventInfo;
+        copy.bodySize = response.bodySize;
+        copy.headersSize = response.headersSize;
+        copy.isSse = response.isSse;
+        copy.isImage = response.isImage;
+        return copy;
     }
 
     /**
@@ -142,6 +176,33 @@ public class HistoryPersistenceService {
         Thread saveThread = new Thread(this::saveHistory);
         saveThread.setDaemon(true);
         saveThread.start();
+    }
+
+    /**
+     * 响应临时文件在重启或系统清理后可能已不存在，失效路径不再恢复，避免指向不存在的文件。
+     */
+    private static String existingFilePath(String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            return null;
+        }
+        try {
+            return Files.isRegularFile(Paths.get(filePath)) ? filePath : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void restoreFileInfo(HttpResponse response, JSONObject responseJson) {
+        response.fileAttachment = responseJson.getBool("fileAttachment", false);
+        if (responseJson.getBool("fileContentOmitted", false)) {
+            ResponseFiles.markContentOmitted(response, responseJson.getStr("detectedFileExtension"), null);
+            return;
+        }
+        // 兼容旧历史：文件内容被当作文本保存成了乱码，按文件头识别后只展示文件信息
+        String legacyExtension = ResponseFiles.detectFromLegacyText(response.body);
+        if (legacyExtension != null) {
+            ResponseFiles.markContentOmitted(response, legacyExtension, null);
+        }
     }
 
     /**
@@ -326,9 +387,15 @@ public class HistoryPersistenceService {
         JSONObject responseJson = new JSONObject();
         responseJson.set("code", response.code);
         // 限制响应体大小
-        String responseBody = response.body != null ? response.body : "";
+        boolean fileResponse = ResponseFiles.isFileResponse(response);
+        String responseBody = response.body != null && !fileResponse ? response.body : "";
         responseBody = truncateBody(responseBody, MAX_BODY_SIZE);
         responseJson.set("body", responseBody);
+        if (fileResponse) {
+            responseJson.set("fileContentOmitted", true);
+            responseJson.set("detectedFileExtension", response.detectedFileExtension);
+        }
+        responseJson.set("fileAttachment", response.fileAttachment);
         responseJson.set("costMs", response.costMs);
         responseJson.set("threadName", response.threadName);
         responseJson.set("filePath", response.filePath);
@@ -410,6 +477,7 @@ public class HistoryPersistenceService {
             eventInfo.set("routeAttempts", routeAttempts);
             eventInfo.set("tlsVersion", response.httpEventInfo.getTlsVersion());
             eventInfo.set("errorMessage", response.httpEventInfo.getErrorMessage());
+            eventInfo.set("recoveredErrorMessage", response.httpEventInfo.getRecoveredErrorMessage());
             eventInfo.set("threadName", response.httpEventInfo.getThreadName());
             responseJson.set("httpEventInfo", eventInfo);
         }
@@ -479,7 +547,7 @@ public class HistoryPersistenceService {
         response.body = responseJson.getStr("body");
         response.costMs = responseJson.getLong("costMs", 0L);
         response.threadName = responseJson.getStr("threadName");
-        response.filePath = responseJson.getStr("filePath");
+        response.filePath = existingFilePath(responseJson.getStr("filePath"));
         response.fileName = responseJson.getStr("fileName");
         response.protocol = responseJson.getStr("protocol");
         response.idleConnectionCount = responseJson.getInt("idleConnectionCount", 0);
@@ -487,6 +555,7 @@ public class HistoryPersistenceService {
         response.bodySize = responseJson.getInt("bodySize", 0);
         response.headersSize = responseJson.getInt("headersSize", 0);
         response.isSse = responseJson.getBool("isSse", false);
+        restoreFileInfo(response, responseJson);
 
         // 重建响应头
         response.headers = new LinkedHashMap<>();
@@ -572,6 +641,7 @@ public class HistoryPersistenceService {
 
             response.httpEventInfo.setTlsVersion(eventInfoJson.getStr("tlsVersion"));
             response.httpEventInfo.setErrorMessage(eventInfoJson.getStr("errorMessage"));
+            response.httpEventInfo.setRecoveredErrorMessage(eventInfoJson.getStr("recoveredErrorMessage"));
             response.httpEventInfo.setThreadName(eventInfoJson.getStr("threadName"));
         }
 

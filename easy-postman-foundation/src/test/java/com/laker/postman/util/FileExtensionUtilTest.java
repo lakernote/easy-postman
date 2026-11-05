@@ -361,4 +361,32 @@ public class FileExtensionUtilTest {
                     contentType + " 不应该同时被判断为文本和二进制类型");
         }
     }
+
+    @Test(description = "只按媒体类型判断，忽略参数")
+    public void testContentTypeParametersAreIgnored() {
+        String contentType = "application/octet-stream; name=\"data.json\"";
+
+        assertFalse(FileExtensionUtil.isTextType(contentType));
+        assertTrue(FileExtensionUtil.isBinaryType(contentType));
+        assertNull(FileExtensionUtil.guessExtension(contentType));
+        assertTrue(FileExtensionUtil.isTextType("Application/JSON; charset=UTF-8"));
+        assertTrue(FileExtensionUtil.isTextType("application/xml; charset=UTF-8"));
+        assertFalse(FileExtensionUtil.isBinaryType(" ; charset=UTF-8"));
+    }
+
+    @Test
+    public void shouldMapOfficeVariantsOdfAndJavaArchive() {
+        assertEquals(FileExtensionUtil.guessExtension("application/vnd.ms-excel.sheet.macroEnabled.12"), ".xlsm");
+        assertEquals(FileExtensionUtil.guessExtension("application/vnd.ms-excel.sheet.binary.macroEnabled.12"), ".xlsb");
+        assertEquals(FileExtensionUtil.guessExtension(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.template"), ".dotx");
+        assertEquals(FileExtensionUtil.guessExtension("application/vnd.ms-powerpoint.slideshow.macroEnabled.12"), ".ppsm");
+        assertEquals(FileExtensionUtil.guessExtension("application/vnd.oasis.opendocument.text-template"), ".ott");
+        assertEquals(FileExtensionUtil.guessExtension("application/vnd.oasis.opendocument.spreadsheet"), ".ods");
+        assertEquals(FileExtensionUtil.guessExtension("application/java-archive"), ".jar");
+        assertEquals(FileExtensionUtil.guessExtension("application/x-java-archive"), ".jar");
+        assertEquals(FileExtensionUtil.guessExtension("application/vnd.ms-excel"), ".xls");
+        assertFalse(FileExtensionUtil.isTextType("application/x-java-archive"));
+        assertTrue(FileExtensionUtil.isBinaryType("application/x-java-archive"));
+    }
 }

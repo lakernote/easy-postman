@@ -49,6 +49,19 @@ public class FileSizeDisplayUtil {
     }
 
     /**
+     * 响应体大小的紧凑显示（B / KB 一位小数 / MB 两位小数），响应状态栏、文件概览与历史详情共用。
+     */
+    public static String formatCompactSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        }
+        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
+    }
+
+    /**
      * 格式化文件下载进度显示
      *
      * @param totalBytes    已下载字节数

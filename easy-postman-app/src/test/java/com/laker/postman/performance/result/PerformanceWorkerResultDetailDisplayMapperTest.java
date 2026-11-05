@@ -54,4 +54,27 @@ public class PerformanceWorkerResultDetailDisplayMapperTest {
         assertTrue(row.hasAssertionFailed());
         assertFalse(row.isActuallySuccessful());
     }
+
+    @Test
+    public void shouldKeepFileMetadataFromRemoteWorker() {
+        PerformanceWorkerResultDetail detail = PerformanceWorkerResultDetail.builder()
+                .protocol("HTTP")
+                .name("export")
+                .responseCode(200)
+                .response(PerformanceWorkerResultDetail.DetailResponse.builder()
+                        .code(200)
+                        .body("")
+                        .headers(Map.of("Content-Type", List.of("application/json")))
+                        .fileName("orders.xlsx")
+                        .detectedFileExtension(".xlsx")
+                        .fileContentOmitted(true)
+                        .build())
+                .build();
+
+        ResultNodeInfo row = PerformanceWorkerResultDetailDisplayMapper.toResultNodeInfo(detail);
+
+        assertEquals(row.resp.fileName, "orders.xlsx");
+        assertEquals(row.resp.detectedFileExtension, ".xlsx");
+        assertTrue(row.resp.fileContentOmitted);
+    }
 }

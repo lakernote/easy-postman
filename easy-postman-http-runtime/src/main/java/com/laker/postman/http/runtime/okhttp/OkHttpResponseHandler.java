@@ -6,6 +6,9 @@ import com.laker.postman.http.runtime.interaction.DownloadProgressSinkFactory;
 import com.laker.postman.http.runtime.interaction.ResponseSizeLimitWarning;
 import com.laker.postman.http.runtime.interaction.ResponseSizeLimitWarningSink;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
+import com.laker.postman.http.runtime.file.ResponseFileNames;
+import com.laker.postman.http.runtime.file.ResponseFileTypeDetector;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.http.runtime.sse.SseEventReader;
@@ -21,11 +24,17 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * OkHttp 响应处理工具类
@@ -43,12 +52,14 @@ public class OkHttpResponseHandler {
 
     // 常量定义
     private static final String CONTENT_TYPE_HEADER = "Content-Type";
-    private static final String CONTENT_DISPOSITION_HEADER = "Content-Disposition";
     private static final String SSE_CONTENT_TYPE = "text/event-stream";
 
     /**
      * 私有构造函数，防止实例化
      */
+    private static final String UNKNOWN_BINARY_EXTENSION = ".bin";
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of(".png", ".jpg", ".gif", ".webp");
+
     private OkHttpResponseHandler() {
         throw new UnsupportedOperationException("Utility class cannot be instantiated");
     }
@@ -440,39 +451,10 @@ public class OkHttpResponseHandler {
                                              ResponseSizeLimitWarningSink responseSizeLimitWarningSink,
                                              Call call) throws IOException {
         InputStream is = okResponse.body() != null ? okResponse.body().byteStream() : null;
-        String fileName = null;
-        // 优先 Content-Disposition
-        String contentDisposition = getContentDisposition(response.headers);
-        if (contentDisposition != null) {
-            fileName = parseFileNameFromContentDisposition(contentDisposition);
-        }
-        // 其次 URL 路径
-        if (fileName == null) {
-            String url = okResponse.request().url().encodedPath();
-            int lastSlash = url.lastIndexOf('/');
-            if (lastSlash >= 0 && lastSlash < url.length() - 1) {
-                String rawName = url.substring(lastSlash + 1);
-                // 去除 !、?、# 及其后内容
-                int excl = rawName.indexOf('!');
-                int ques = rawName.indexOf('?');
-                int sharp = rawName.indexOf('#');
-                int cut = rawName.length();
-                if (excl >= 0) cut = excl;
-                if (ques >= 0 && ques < cut) cut = ques;
-                if (sharp >= 0 && sharp < cut) cut = sharp;
-                fileName = rawName.substring(0, cut);
-            }
-        }
-        // 如果没有获取到文件名，或者文件名没有扩展名，尝试补充
         String ext = FileExtensionUtil.guessExtension(okResponse.header(CONTENT_TYPE_HEADER));
-        if (fileName == null) {
-            // 完全没有文件名，使用智能生成（根据 Content-Type）
-            fileName = FileExtensionUtil.generateSmartFileName(ext);
-        } else if (!fileName.contains(".") && ext != null) {
-            // 有文件名但没有扩展名，根据 Content-Type 添加扩展名
-            fileName += ext;
-        }
-        response.fileName = fileName;
+        response.fileName = resolveFileName(okResponse, response.headers, ext);
+        String contentDisposition = ResponseFileNames.getContentDisposition(response.headers);
+        response.fileAttachment = ResponseFileNames.isAttachment(contentDisposition);
 
         // 检查文件大小限制
         int maxDownloadSize = getMaxDownloadSize();
@@ -501,9 +483,12 @@ public class OkHttpResponseHandler {
                 response.filePath = fs.file.getAbsolutePath();
                 response.body = I18nUtil.getMessage(MessageKeys.BINARY_SAVED_TEMP_FILE);
                 response.bodySize = fs.size;
+                applyDetectedBinaryType(okResponse, response, fs.file);
                 // 标记是否为图片类型，供 UI 层预览使用
                 String ct = okResponse.header(CONTENT_TYPE_HEADER, "");
-                response.isImage = ct != null && ct.toLowerCase().startsWith("image/");
+                response.isImage = ct.toLowerCase(Locale.ROOT).startsWith("image/")
+                        || (response.detectedFileExtension != null
+                        && IMAGE_EXTENSIONS.contains(response.detectedFileExtension));
             } catch (DownloadSizeLimitException e) {
                 warnResponseTooLarge(responseSizeLimitWarningSink,
                         new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.BINARY,
@@ -527,6 +512,22 @@ public class OkHttpResponseHandler {
         }
     }
 
+
+    /**
+     * 只有声明为笼统的二进制类型（如 application/octet-stream）时才按文件头识别具体格式，用于提示和文件名；
+     * 声明了具体类型（application/pdf、application/vnd.ms-excel 等）时以声明为准。
+     */
+    private static void applyDetectedBinaryType(Response okResponse, HttpResponse response, File file) {
+        if (!ResponseFiles.isGenericBinaryContentType(okResponse.header(CONTENT_TYPE_HEADER, ""))) {
+            return;
+        }
+        String detected = ResponseFileTypeDetector.detectExtension(file.toPath());
+        if (detected == null) {
+            return;
+        }
+        response.detectedFileExtension = detected;
+        response.fileName = resolveFileName(okResponse, response.headers, detected);
+    }
 
     private static boolean isStreamingMediaResponse(Response response, String contentDisposition) {
         String contentType = response.header(CONTENT_TYPE_HEADER, "");
@@ -598,8 +599,8 @@ public class OkHttpResponseHandler {
                 return;
             }
             response.bodySize = bytes.length;
+            String extension = applyFileMetadata(okResponse, response, bytes, ext);
             if (bytes.length > getMaxBodySize()) { // 如果解压后内容超过设置值，保存为临时文件
-                String extension = ext != null ? ext : ".txt";
                 FileAndSize fs = saveInputStreamToTempFile(
                         new ByteArrayInputStream(bytes),
                         "easyPostman_text_download_",
@@ -611,25 +612,11 @@ public class OkHttpResponseHandler {
                         call
                 );
                 response.filePath = fs.file.getAbsolutePath();
-                // 智能生成文件名：根据扩展名生成更友好的名称
-                response.fileName = FileExtensionUtil.generateSmartFileName(extension);
                 int maxBodySizeKB = getMaxBodySize() / 1024;
                 response.body = I18nUtil.getMessage(MessageKeys.BODY_TOO_LARGE_SAVED, maxBodySizeKB);
             } else {
-                // 确定字符集
-                Charset charset = StandardCharsets.UTF_8; // 默认使用 UTF-8
-                MediaType mediaType = body.contentType();
-                if (mediaType != null) {
-                    Charset detectedCharset = mediaType.charset();
-                    if (detectedCharset != null) {
-                        charset = detectedCharset;
-                    }
-                }
-                response.body = new String(bytes, charset);
+                decodeInMemoryBody(response, bytes, body.contentType());
                 response.filePath = null;
-                // 即使不保存为文件，也设置一个默认文件名，方便用户下载
-                String extension = ext != null ? ext : ".txt";
-                response.fileName = FileExtensionUtil.generateSmartFileName(extension);
             }
         } else {
             response.body = "";
@@ -638,86 +625,85 @@ public class OkHttpResponseHandler {
         }
     }
 
+    /**
+     * 根据内容识别文件格式与附件声明，填充文件元信息并返回保存用扩展名。
+     * 普通文本接口保持智能文件名；只有明确的文件响应才从 Content-Disposition / URL 推导文件名。
+     */
+    private static String applyFileMetadata(Response okResponse, HttpResponse response, byte[] bytes, String contentTypeExtension) {
+        String detectedExtension = ResponseFileTypeDetector.detectExtension(bytes);
+        if (detectedExtension == null
+                && mayBeUnlabeledBinary(okResponse.header(CONTENT_TYPE_HEADER, ""), ResponseFiles.declaredCharset(response))
+                && ResponseFileTypeDetector.looksBinary(bytes)) {
+            // 未声明类型（或声明为 text/plain）却含有文本中不会出现的控制字节：按未知二进制文件处理
+            detectedExtension = UNKNOWN_BINARY_EXTENSION;
+        }
+        response.detectedFileExtension = detectedExtension;
+        response.fileAttachment = ResponseFileNames.isAttachment(
+                ResponseFileNames.getContentDisposition(response.headers));
+        String extension = detectedExtension != null
+                ? detectedExtension
+                : (contentTypeExtension != null ? contentTypeExtension : ".txt");
+        response.fileName = detectedExtension != null || response.fileAttachment
+                ? resolveFileName(okResponse, response.headers, extension)
+                : FileExtensionUtil.generateSmartFileName(extension);
+        return extension;
+    }
+
+    /**
+     * 解码内存中的响应体；仅在文本无法无损还原原始字节或响应是文件时保留原始字节，避免普通 UTF-8 文本内存翻倍。
+     */
+    /**
+     * 控制字节判定只适用于 ASCII 兼容的编码；UTF-16/UTF-32 文本本身就含有大量 0x00，不能按此判断。
+     */
+    private static boolean mayBeUnlabeledBinary(String contentType, Charset declaredCharset) {
+        String mediaType = contentType == null ? "" : contentType.split(";", 2)[0].trim();
+        boolean unlabeledOrPlainText = mediaType.isEmpty() || "text/plain".equalsIgnoreCase(mediaType);
+        return unlabeledOrPlainText && isAsciiCompatible(declaredCharset);
+    }
+
+    private static boolean isAsciiCompatible(Charset charset) {
+        try {
+            byte[] encoded = "\t\n\r A~".getBytes(charset);
+            return Arrays.equals(encoded, "\t\n\r A~".getBytes(StandardCharsets.US_ASCII));
+        } catch (UnsupportedOperationException e) {
+            return false;
+        }
+    }
+
+    private static void decodeInMemoryBody(HttpResponse response, byte[] bytes, MediaType mediaType) {
+        Charset charset = mediaType != null && mediaType.charset() != null
+                ? mediaType.charset()
+                : StandardCharsets.UTF_8;
+        String strictText = decodeStrictly(bytes, charset);
+        response.body = strictText != null ? strictText : new String(bytes, charset);
+        boolean losslessUtf8Text = strictText != null && StandardCharsets.UTF_8.equals(charset);
+        if (response.detectedFileExtension != null || response.fileAttachment || !losslessUtf8Text) {
+            response.rawBodyBytes = bytes;
+        }
+    }
+
+    private static String decodeStrictly(byte[] bytes, Charset charset) {
+        try {
+            return charset.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            return null;
+        }
+    }
+
+    private static String resolveFileName(Response okResponse, Map<String, List<String>> headers, String extension) {
+        return ResponseFileNames.resolve(
+                ResponseFileNames.getContentDisposition(headers),
+                okResponse.request().url().encodedPath(),
+                extension);
+    }
+
     private static void warnResponseTooLarge(ResponseSizeLimitWarningSink sink, ResponseSizeLimitWarning warning) {
         ResponseSizeLimitWarningSink resolvedSink = sink == null ? ResponseSizeLimitWarningSink.noop() : sink;
         resolvedSink.warn(warning);
-    }
-
-    /**
-     * 从响应头中提取 Content-Disposition 字段
-     * <p>
-     * Content-Disposition 响应头通常包含文件下载时的文件名信息
-     * </p>
-     *
-     * @param headers 响应头 Map
-     * @return Content-Disposition 的值，如果不存在则返回 null
-     */
-    public static String getContentDisposition(Map<String, List<String>> headers) {
-        if (headers == null) return null;
-        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-            if (entry.getKey() != null && CONTENT_DISPOSITION_HEADER.equalsIgnoreCase(entry.getKey())) {
-                List<String> values = entry.getValue();
-                // 修复：检查 list 不为空，避免 IndexOutOfBoundsException
-                if (values != null && !values.isEmpty()) {
-                    return values.get(0);
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 从 Content-Disposition 响应头中解析文件名
-     * <p>
-     * 支持两种格式：
-     * 1. filename*=UTF-8''filename.txt (RFC 5987 编码格式)
-     * 2. filename="filename.txt" (普通格式)
-     * </p>
-     *
-     * @param contentDisposition Content-Disposition 响应头的值
-     * @return 解析出的文件名，如果无法解析则返回 null
-     */
-    public static String parseFileNameFromContentDisposition(String contentDisposition) {
-        if (contentDisposition == null) return null;
-        String lower = contentDisposition.toLowerCase();
-
-        // 优先解析 filename*= (RFC 5987 编码格式)
-        int idxStar = lower.indexOf("filename*=");
-        if (idxStar >= 0) {
-            // 修复：偏移量应该是 10 ("filename*=" 的长度)
-            String fn = contentDisposition.substring(idxStar + 10).trim();
-            // 跳过编码声明部分 (如 UTF-8'')
-            int firstQuote = fn.indexOf("''");
-            if (firstQuote >= 0) {
-                fn = fn.substring(firstQuote + 2);
-            } else {
-                // 如果没有编码声明，直接去除分号后的内容
-                int semi = fn.indexOf(';');
-                if (semi > 0) fn = fn.substring(0, semi);
-            }
-            // 再次去除可能的分号
-            int semi = fn.indexOf(';');
-            if (semi > 0) fn = fn.substring(0, semi);
-            return fn.trim();
-        }
-
-        // 解析普通的 filename= 格式
-        int idx = lower.indexOf("filename=");
-        if (idx >= 0) {
-            String fn = contentDisposition.substring(idx + 9).trim();
-            // 去除引号
-            if (fn.startsWith("\"")) fn = fn.substring(1);
-            int end = fn.indexOf('"');
-            if (end >= 0) {
-                fn = fn.substring(0, end);
-            } else {
-                // 没有引号，去除分号后的内容
-                int semi = fn.indexOf(';');
-                if (semi > 0) fn = fn.substring(0, semi);
-            }
-            return fn.trim();
-        }
-        return null;
     }
 
     /**

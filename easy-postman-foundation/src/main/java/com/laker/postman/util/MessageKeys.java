@@ -1761,6 +1761,26 @@ public final class MessageKeys {
     public static final String RESPONSE_MEDIA_SYSTEM_UNAVAILABLE = "response.media.system_unavailable";
     public static final String RESPONSE_MEDIA_FILE_UNAVAILABLE = "response.media.file_unavailable";
     public static final String RESPONSE_MEDIA_FILE_SUMMARY = "response.media.file_summary";
+    public static final String RESPONSE_FILE_GENERIC_TYPE = "response.file.generic_type";
+    public static final String RESPONSE_FILE_SUMMARY = "response.file.summary";
+    public static final String RESPONSE_FILE_MIME_MISMATCH = "response.file.mime_mismatch";
+    public static final String RESPONSE_FILE_MIME_MISSING = "response.file.mime_missing";
+    public static final String RESPONSE_FILE_MIME_MISMATCH_TOOLTIP = "response.file.mime_mismatch.tooltip";
+    public static final String RESPONSE_FILE_CONTENT_TYPE_MISSING = "response.file.content_type_missing";
+    public static final String RESPONSE_FILE_VIEW_AS_TEXT = "response.file.view_as_text";
+    public static final String RESPONSE_FILE_BACK_TO_OVERVIEW = "response.file.back_to_overview";
+    public static final String RESPONSE_FILE_TEXT_PREVIEW_BADGE = "response.file.text_preview_badge";
+    public static final String RESPONSE_FILE_SAVED_TO = "response.file.saved_to";
+    public static final String RESPONSE_FILE_SAVE_FAILED = "response.file.save_failed";
+    public static final String RESPONSE_FILE_SAVE_DIALOG_TITLE = "response.file.save_dialog_title";
+    public static final String RESPONSE_FILE_OPEN = "response.file.open";
+    public static final String RESPONSE_FILE_OPEN_FAILED = "response.file.open_failed";
+    public static final String RESPONSE_FILE_CONTENT_NOT_SAVED = "response.file.content_not_saved";
+    public static final String RESPONSE_FILE_TEXT_PREVIEW_NOTICE = "response.file.text_preview_notice";
+    public static final String RESPONSE_FILE_SECTION_TITLE = "response.file.section_title";
+    public static final String RESPONSE_FILE_CONTENT_NOT_KEPT = "response.file.content_not_kept";
+    public static final String MOCK_EXAMPLE_FILE_CONTENT_UNAVAILABLE = "mock.example.file_content_unavailable";
+    public static final String RESPONSE_FILE_BODY_HIDDEN = "response.file.body_hidden";
     public static final String HTTP_EVENT_ROUTE_ATTEMPTS = "http.event.route_attempts";
     public static final String HTTP_EVENT_ROUTE_FAMILY = "http.event.route.family";
     public static final String HTTP_EVENT_ROUTE_ADDRESS = "http.event.route.address";
@@ -1775,6 +1795,7 @@ public final class MessageKeys {
     public static final String HTTP_EVENT_RETRIES = "http.event.retries";
     public static final String HTTP_EVENT_FOLLOW_UPS = "http.event.follow_ups";
     public static final String HTTP_EVENT_DECISIONS = "http.event.decisions";
+    public static final String HTTP_EVENT_RECOVERED_ERROR = "http.event.recovered_error";
 
     // ============ CSV Data Panel related ============
     public static final String CSV_STATUS_NO_DATA = "csv.status.no_data";

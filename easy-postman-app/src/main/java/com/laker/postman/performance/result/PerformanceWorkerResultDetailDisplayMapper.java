@@ -59,6 +59,9 @@ public class PerformanceWorkerResultDetailDisplayMapper {
             response.endTime = source.getEndTimeMs();
             response.bodySize = source.getBodySize();
             response.headersSize = source.getHeadersSize();
+            response.fileName = source.getFileName();
+            response.detectedFileExtension = source.getDetectedFileExtension();
+            response.fileContentOmitted = source.isFileContentOmitted();
         }
         if (response.code <= 0) {
             response.code = Math.max(0, responseCode);

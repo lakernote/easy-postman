@@ -236,6 +236,9 @@ public class PerformanceWorkerProtocolJsonStorage {
         json.put("endTimeMs", response.getEndTimeMs());
         json.put("bodySize", response.getBodySize());
         json.put("headersSize", response.getHeadersSize());
+        json.put("fileName", response.getFileName());
+        json.put("detectedFileExtension", response.getDetectedFileExtension());
+        json.put("fileContentOmitted", response.isFileContentOmitted());
         return json;
     }
 
@@ -299,6 +302,9 @@ public class PerformanceWorkerProtocolJsonStorage {
                 .endTimeMs(longValue(json, "endTimeMs", 0))
                 .bodySize(longValue(json, "bodySize", 0))
                 .headersSize(longValue(json, "headersSize", 0))
+                .fileName(stringValue(json, "fileName", null))
+                .detectedFileExtension(stringValue(json, "detectedFileExtension", null))
+                .fileContentOmitted(booleanValue(json, "fileContentOmitted", false))
                 .build();
     }
 

@@ -259,7 +259,9 @@ public class PerformanceResultDisplayMapperTest {
                 true
         );
 
-        assertFalse(resultNodeInfo.isActuallySuccessful());
+        assertTrue(resultNodeInfo.cancelled);
+        assertFalse(resultNodeInfo.executionFailed, "取消与执行失败分开展示");
+        assertFalse(resultNodeInfo.isActuallySuccessful(), "已握手 101 的取消采样也不算成功");
         assertEquals(resultNodeInfo.errorMsg, "Execution interrupted");
         assertTrue(resultNodeInfo.resp.body.contains("Error: Execution interrupted"));
         assertTrue(resultNodeInfo.resp.body.contains("Sent: 120"));

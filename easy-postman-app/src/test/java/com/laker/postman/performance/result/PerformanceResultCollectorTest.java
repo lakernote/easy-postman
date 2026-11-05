@@ -278,16 +278,13 @@ public class PerformanceResultCollectorTest {
                 0L
         ), false);
 
-        PerformanceStatsSnapshot snapshot = statsCollector.snapshot();
-        assertEquals(snapshot.totalRequests(), 1L);
-        assertEquals(snapshot.summaries().size(), 1);
-
-        PerformanceStatsSnapshot.ApiSummary summary = snapshot.summaries().get(0);
-        assertEquals(snapshot.successRequests(), 0L);
-        assertEquals(summary.sentMessages(), 12L);
-        assertEquals(summary.receivedMessages(), 7L);
-        assertEquals(summary.matchedMessages(), 3L);
-        assertEquals(events.size(), 1);
+        assertEquals(statsCollector.snapshot().totalRequests(), 0L, "取消的采样不计入统计");
+        assertEquals(events.size(), 1, "取消的采样仍保留在结果列表");
+        RequestResult result = events.get(0).getSampleResult().toRequestResult();
+        assertFalse(result.success);
+        assertEquals(result.sentMessages, 12L);
+        assertEquals(result.receivedMessages, 7L);
+        assertEquals(result.matchedMessages, 3L);
     }
 
     @Test
@@ -320,8 +317,8 @@ public class PerformanceResultCollectorTest {
                 0L
         ), true);
 
-        assertEquals(statsCollector.snapshot().totalRequests(), 1L);
-        assertEquals(events.size(), 1);
+        assertEquals(statsCollector.snapshot().totalRequests(), 0L, "取消的采样不计入统计");
+        assertEquals(events.size(), 1, "取消的采样仍保留在结果列表");
     }
 
     @Test
@@ -354,8 +351,8 @@ public class PerformanceResultCollectorTest {
                 0L
         ), true);
 
-        assertEquals(statsCollector.snapshot().totalRequests(), 1L);
-        assertEquals(events.size(), 1);
+        assertEquals(statsCollector.snapshot().totalRequests(), 0L, "取消的采样不计入统计");
+        assertEquals(events.size(), 1, "取消的采样仍保留在结果列表");
     }
 
     @Test
@@ -382,11 +379,9 @@ public class PerformanceResultCollectorTest {
         ), false);
 
         PerformanceStatsSnapshot snapshot = statsCollector.snapshot();
-        assertEquals(snapshot.totalRequests(), 1L);
-        assertEquals(snapshot.successRequests(), 0L);
-        assertEquals(snapshot.summaries().size(), 1);
-        assertEquals(snapshot.summaries().get(0).total(), 1L);
-        assertEquals(events.size(), 1);
+        assertEquals(snapshot.totalRequests(), 0L, "取消的采样不计入统计");
+        assertEquals(snapshot.summaries().size(), 0);
+        assertEquals(events.size(), 1, "取消的采样仍保留在结果列表");
         assertEquals(events.get(0).getSampleResult().getElapsedTimeMs(), 2500L);
         assertFalse(events.get(0).getSampleResult().isSuccessful());
     }

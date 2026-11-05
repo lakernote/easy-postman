@@ -1492,6 +1492,8 @@ public class ModuleArchitectureBoundaryTest {
         try (Stream<Path> files = Files.walk(root)) {
             metadataFiles = files
                     .filter(path -> path.getFileName().toString().equals(".DS_Store"))
+                    // 只检查会被打包的源码目录；仓库根目录等处的 Finder 文件已被 .gitignore 忽略，不影响产物
+                    .filter(path -> path.toString().contains("/src/"))
                     .filter(path -> !path.toString().contains("/.git/"))
                     .filter(path -> !path.toString().contains("/target/"))
                     .toList();

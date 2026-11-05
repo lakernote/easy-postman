@@ -120,7 +120,8 @@ public class ResultNodeInfo {
      * 4. 无响应 → false
      */
     public boolean isActuallySuccessful() {
-        return isActuallySuccessful(executionFailed, resp, testResults);
+        // 与采样记录一致：被取消的请求不算成功（即使 WebSocket 已握手 101）
+        return !cancelled && isActuallySuccessful(executionFailed, resp, testResults);
     }
 
     public static boolean isActuallySuccessful(boolean executionFailed,

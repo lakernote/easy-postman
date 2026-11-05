@@ -659,7 +659,7 @@ public class PerformanceResultTablePanel extends JPanel {
                     break;
                 case 1: // 接口名称 - 左对齐
                     setHorizontalAlignment(SwingConstants.LEFT);
-                    if (!isSelected && info != null && !info.isActuallySuccessful()) {
+                    if (!isSelected && info != null && !info.cancelled && !info.isActuallySuccessful()) {
                         setForeground(PerformanceTheme.resultFailureForeground());
                         setFont(table.getFont().deriveFont(Font.BOLD));
                     }
@@ -702,9 +702,8 @@ public class PerformanceResultTablePanel extends JPanel {
             int leftInset = modelColumn == 1 ? 8 : 6;
 
             if (modelColumn == 1 && info != null && !isSelected) {
-                Color stripeColor = info.isActuallySuccessful()
-                        ? PerformanceTheme.resultSuccessStripe()
-                        : info.cancelled ? PerformanceTheme.resultMutedForeground()
+                Color stripeColor = info.cancelled ? PerformanceTheme.resultMutedForeground()
+                        : info.isActuallySuccessful() ? PerformanceTheme.resultSuccessStripe()
                         : PerformanceTheme.resultFailureStripe();
                 return BorderFactory.createCompoundBorder(
                         BorderFactory.createMatteBorder(0, 4, 0, 0, stripeColor),

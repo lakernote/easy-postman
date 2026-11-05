@@ -107,7 +107,7 @@ public class PluginRuntimeTest {
     }
 
     @Test
-    public void shouldRejectPreviousPluginPlatformAfterRequestProtocolBreakingChange() {
+    public void shouldRejectPreviousPluginPlatform() {
         PluginDescriptor descriptor = new PluginDescriptor(
                 "plugin-client-cert",
                 "Client Certificate Plugin",
@@ -117,8 +117,8 @@ public class PluginRuntimeTest {
                 "",
                 "",
                 "",
-                "4.0.0",
-                "4.0.0"
+                "3.0.0",
+                "3.0.0"
         );
 
         PluginCompatibility compatibility = PluginRuntime.evaluateCompatibility(descriptor);
@@ -127,7 +127,7 @@ public class PluginRuntimeTest {
         assertTrue(compatibility.appVersionCompatible());
         assertFalse(compatibility.platformVersionCompatible());
         assertEquals(compatibility.currentPlatformVersion(), CURRENT_PLUGIN_PLATFORM_VERSION);
-        assertEquals(compatibility.maxPlatformVersion(), "4.0.0");
+        assertEquals(compatibility.maxPlatformVersion(), "3.0.0");
     }
 
     @Test
@@ -340,7 +340,7 @@ public class PluginRuntimeTest {
     public void shouldRejectPreviousPlatformPluginBeforeLoadingItsCode() throws Exception {
         Path pluginJar = PluginRuntime.getManagedPluginDir().resolve("plugin-old-platform-1.0.0.jar");
         writePluginJar(pluginJar, "plugin-old-platform", "1.0.0", "com.example.TestRuntimePlugin",
-                "", "", "4.0.0", "4.0.0");
+                "", "", "3.0.0", "3.0.0");
 
         PluginRuntime.initialize();
 

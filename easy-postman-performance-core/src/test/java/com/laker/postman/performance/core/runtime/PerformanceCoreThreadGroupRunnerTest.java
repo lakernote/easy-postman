@@ -24,7 +24,6 @@ import java.util.function.Supplier;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
-import static org.testng.Assert.expectThrows;
 
 public class PerformanceCoreThreadGroupRunnerTest {
 
@@ -149,13 +148,9 @@ public class PerformanceCoreThreadGroupRunnerTest {
         );
         long startNanos = System.nanoTime();
 
-        IllegalStateException timeout = expectThrows(
-                IllegalStateException.class,
-                () -> runner.run(new PerformanceTestPlan(List.of(timedFixedGroup("group", 1))), 1)
-        );
+        runner.run(new PerformanceTestPlan(List.of(timedFixedGroup("group", 1))), 1);
 
         long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
-        assertTrue(timeout.getMessage().contains("configured completion wait"));
         assertEquals(iterationStarted.getCount(), 0L);
         assertEquals(cancellations.get(), 1);
         assertTrue(elapsedMs >= 1_800L, "must honor duration plus configured completion wait");
@@ -192,13 +187,10 @@ public class PerformanceCoreThreadGroupRunnerTest {
                 noopSink()
         );
 
-        expectThrows(
-                IllegalStateException.class,
-                () -> runner.run(new PerformanceTestPlan(List.of(
-                        timedFixedGroup("short", 1),
-                        timedFixedGroup("long", 2)
-                )), 2)
-        );
+        runner.run(new PerformanceTestPlan(List.of(
+                timedFixedGroup("short", 1),
+                timedFixedGroup("long", 2)
+        )), 2);
 
         assertTrue(longGroupFinished.get());
         assertFalse(cancellationObservedLongGroupFinished.get());

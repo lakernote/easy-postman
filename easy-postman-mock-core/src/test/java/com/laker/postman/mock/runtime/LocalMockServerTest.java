@@ -85,6 +85,53 @@ public class LocalMockServerTest {
     }
 
     @Test
+    public void shouldEncodeBodyWithDeclaredCharset() throws Exception {
+        MockServerDefinition definition = new MockServerDefinition();
+        definition.setPort(0);
+        MockRoute route = new MockRoute(
+                "route-gbk", "request-gbk", "Export", "example-gbk", "gbk",
+                "GET", "/export.csv", Map.of(), Map.of(), "",
+                new MockResponse(200, Map.of("Content-Type", "text/csv; charset=GBK"), "名称,数量\n"), ""
+        );
+
+        try (LocalMockServer server = new LocalMockServer(definition, List.of(route), null)) {
+            server.start();
+            HttpResponse<byte[]> response = HttpClient.newHttpClient().send(
+                    request(server, "/export.csv"), HttpResponse.BodyHandlers.ofByteArray());
+
+            assertEquals(response.body(), "名称,数量\n".getBytes(java.nio.charset.Charset.forName("GBK")));
+        }
+        assertEquals(LocalMockServer.declaredCharset("text/plain; charset=\"UTF-16LE\"; format=flowed"),
+                java.nio.charset.StandardCharsets.UTF_16LE);
+        assertEquals(LocalMockServer.declaredCharset("text/plain; charset=bogus"), java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(LocalMockServer.declaredCharset(null), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    @Test
+    public void shouldNotWriteBodyForBodylessResponses() throws Exception {
+        MockServerDefinition definition = new MockServerDefinition();
+        definition.setPort(0);
+        MockRoute route = new MockRoute(
+                "route-205", "request-205", "Reset", "example-205", "reset",
+                "GET", "/reset", Map.of(), Map.of(), "",
+                new MockResponse(205, Map.of(), "should not be sent"), ""
+        );
+
+        try (LocalMockServer server = new LocalMockServer(definition, List.of(route), null)) {
+            server.start();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    request(server, "/reset"), HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(response.statusCode(), 205);
+            assertEquals(response.body(), "");
+            assertEquals(server.logs().get(0).responseBody(), "", "日志只记录实际发送的正文");
+        }
+        assertTrue(LocalMockServer.isBodyless("HEAD", 200));
+        assertTrue(LocalMockServer.isBodyless("GET", 205));
+        assertFalse(LocalMockServer.isBodyless("GET", 200));
+    }
+
+    @Test
     public void shouldAllowCallLoggingToBeDisabledForLoadTests() throws Exception {
         MockServerDefinition definition = new MockServerDefinition();
         definition.setPort(0);

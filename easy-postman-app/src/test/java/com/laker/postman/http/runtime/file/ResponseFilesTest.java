@@ -85,4 +85,32 @@ public class ResponseFilesTest {
         response.headers.put("Content-Type", List.of(contentType));
         return response;
     }
+
+    @Test
+    public void shouldKeepFileStateWhenSimplifyingCorrectlyDeclaredBinary() {
+        HttpResponse pdf = new HttpResponse();
+        pdf.headers = new LinkedHashMap<>();
+        pdf.headers.put("Content-Type", List.of("application/pdf"));
+        pdf.body = "binary saved to temp file";
+        pdf.bodySize = 2048;
+        pdf.filePath = "/tmp/x.pdf";
+        pdf.fileName = "report.pdf";
+
+        pdf.simplify();
+
+        assertNull(pdf.filePath);
+        assertEquals(pdf.body, "");
+        assertTrue(pdf.fileContentOmitted);
+        assertTrue(ResponseFiles.isFileResponse(pdf));
+        assertEquals(pdf.fileName, "report.pdf");
+
+        HttpResponse json = new HttpResponse();
+        json.headers = new LinkedHashMap<>();
+        json.headers.put("Content-Type", List.of("application/json"));
+        json.body = "{}";
+        json.bodySize = 2;
+        json.simplify();
+        assertEquals(json.body, "{}");
+        assertFalse(json.fileContentOmitted);
+    }
 }

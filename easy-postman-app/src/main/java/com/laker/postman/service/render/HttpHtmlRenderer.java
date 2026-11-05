@@ -263,11 +263,11 @@ public class HttpHtmlRenderer {
                 : I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_GENERIC_TYPE);
         StringBuilder info = new StringBuilder();
         if (isNotEmpty(resp.fileName)) {
-            info.append(kvRow(colorPrimary(), "Name", escapeHtml(resp.fileName), false));
+            info.append(kvRow(colorPrimary(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_LABEL_NAME), escapeHtml(resp.fileName), false));
         }
-        info.append(kvRow(colorPrimary(), "Type", escapeHtml(type), true));
+        info.append(kvRow(colorPrimary(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_LABEL_TYPE), escapeHtml(type), true));
         if (resp.bodySize > 0) {
-            info.append(kvRow(colorPrimary(), "Size", escapeHtml(FileSizeDisplayUtil.formatCompactSize(resp.bodySize)), false));
+            info.append(kvRow(colorPrimary(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_LABEL_SIZE), escapeHtml(FileSizeDisplayUtil.formatCompactSize(resp.bodySize)), false));
         }
         sb.append(info);
         String hint = resp.fileContentOmitted

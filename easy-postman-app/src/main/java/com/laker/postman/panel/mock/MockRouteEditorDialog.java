@@ -48,7 +48,7 @@ final class MockRouteEditorDialog extends JDialog {
     private final EasyComboBox<String> methodBox = new EasyComboBox<>();
     private final JTextField pathField = new JTextField();
     private final JTextField responseNameField = new JTextField();
-    private final EasyJSpinner statusSpinner = new EasyJSpinner(new SpinnerNumberModel(200, 100, 599, 1));
+    private final EasyJSpinner statusSpinner = new EasyJSpinner(new SpinnerNumberModel(200, 200, 599, 1));
     private final EasyJSpinner delaySpinner = new EasyJSpinner(new SpinnerNumberModel(0, 0, 60_000, 50));
     private final JTextArea headersArea = new JTextArea(4, 40);
     private final RSyntaxTextArea bodyEditor = editor(SyntaxConstants.SYNTAX_STYLE_JSON);

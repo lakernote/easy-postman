@@ -35,7 +35,26 @@ public class ResponseFileTypeDetectorTest {
                 {ole2("Workbook"), ".xls"},
                 {ole2("WordDocument"), ".doc"},
                 {ole2("PowerPoint Document"), ".ppt"},
+                {ole2("Book"), ".xls"},
                 {ole2("Unknown"), ".bin"},
+                {ResponseFileFixtures.ooxml("xl/workbook.xml",
+                        "application/vnd.ms-excel.sheet.macroEnabled.main+xml"), ".xlsm"},
+                {ResponseFileFixtures.ooxml("xl/workbook.xml",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml"), ".xltx"},
+                {ResponseFileFixtures.ooxml("word/document.xml",
+                        "application/vnd.ms-word.document.macroEnabled.main+xml"), ".docm"},
+                {ResponseFileFixtures.ooxml("ppt/presentation.xml",
+                        "application/vnd.openxmlformats-officedocument.presentationml.slideshow.main+xml"), ".ppsx"},
+                {odf("application/vnd.oasis.opendocument.text"), ".odt"},
+                {odf("application/vnd.oasis.opendocument.spreadsheet-template"), ".ots"},
+                {odf("application/vnd.oasis.opendocument.text-master"), ".odm"},
+                {odf("application/epub+zip"), ".epub"},
+                {odf("application/vnd.oasis.opendocument.graphics-template"), ".otg"},
+                {odf("application/vnd.oasis.opendocument.chart"), ".odc"},
+                {odf("application/vnd.oasis.opendocument.formula"), ".odf"},
+                {odf("text/plain"), ".zip"},
+                {odf("application/vnd.oasis.opendocument.unknown"), ".zip"},
+                {zip("OFD.xml", "<ofd:OFD/>"), ".ofd"},
                 {gzip("hello"), ".gz"},
                 {bytes(0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04), ".7z"},
                 {bytes(0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00), ".rar"},
@@ -108,6 +127,84 @@ public class ResponseFileTypeDetectorTest {
         }
 
         assertEquals(ResponseFileTypeDetector.detectExtension(out.toByteArray()), ".zip");
+    }
+
+    @Test
+    public void shouldDetectOoxmlVariantWhenContentTypesIsNotFirstEntry() throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            zip.putNextEntry(new ZipEntry("_rels/.rels"));
+            zip.write("<Relationships/>".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("[Content_Types].xml"));
+            zip.write(("<Types><Override PartName=\"/xl/workbook.xml\" "
+                    + "ContentType=\"application/vnd.ms-excel.sheet.macroEnabled.main+xml\"/></Types>")
+                    .getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("xl/workbook.xml"));
+            zip.write("<workbook/>".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+
+        assertEquals(ResponseFileTypeDetector.detectExtension(out.toByteArray()), ".xlsm");
+    }
+
+    @Test
+    public void shouldTrustConfirmedStandardOoxmlOverClaimedVariant() throws IOException {
+        ResponseFileTypeDetector.Detection confirmed = ResponseFileTypeDetector.detect(ResponseFileFixtures.ooxml(
+                "xl/workbook.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"));
+        ResponseFileTypeDetector.Detection guessed = ResponseFileTypeDetector.detect(ResponseFileFixtures.xlsx());
+
+        assertEquals(confirmed, new ResponseFileTypeDetector.Detection(".xlsx", true));
+        assertEquals(guessed, new ResponseFileTypeDetector.Detection(".xlsx", false), "只按关键字认出时未确认子类型");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xlsm", confirmed), ".xlsx", "已确认是标准 xlsx，纠正错误的 .xlsm");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xlsm", guessed), ".xlsm");
+        assertEquals(ResponseFileTypeDetector.reconcile(".jpeg",
+                new ResponseFileTypeDetector.Detection(".jpg", true)), ".jpeg", "同一格式的写法始终保留");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xlt", ResponseFileTypeDetector.detect(ole2("Workbook"))), ".xlt",
+                "OLE2 无法区分模板");
+        assertNull(ResponseFileTypeDetector.detect("plain".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    public void shouldReconcileClaimedExtensionWithSignature() {
+        assertEquals(ResponseFileTypeDetector.reconcile(".png", ".pdf"), ".pdf", "唯一文件头冲突时以内容为准");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xls", ".xlsx"), ".xlsx");
+        assertEquals(ResponseFileTypeDetector.reconcile(".png", ".zip"), ".zip");
+        assertEquals(ResponseFileTypeDetector.reconcile(".yaml", ".zip"), ".zip", "只保留允许列表中的容器格式");
+        assertEquals(ResponseFileTypeDetector.reconcile(".exe", ".zip"), ".zip");
+        assertEquals(ResponseFileTypeDetector.reconcile(".mp4", ".bin"), ".bin");
+        assertEquals(ResponseFileTypeDetector.reconcile(".odt", ".zip"), ".odt");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xlsm", ".xlsx"), ".xlsm", "识别结果宽泛时保留更具体的扩展名");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xlsx", ".xlsm"), ".xlsm", "识别出明确变体时以识别结果为准");
+        assertEquals(ResponseFileTypeDetector.reconcile(".docx", ".dotm"), ".dotm");
+        assertEquals(ResponseFileTypeDetector.reconcile(".JPEG", ".jpg"), ".JPEG");
+        assertEquals(ResponseFileTypeDetector.reconcile(".jar", ".zip"), ".jar", "通用容器不否定基于容器的格式");
+        assertEquals(ResponseFileTypeDetector.reconcile(".xlsx", ".bin"), ".xlsx", "加密 Office 是 OLE2 容器");
+        assertEquals(ResponseFileTypeDetector.reconcile(".msg", ".bin"), ".msg");
+        assertEquals(ResponseFileTypeDetector.reconcile(null, ".pdf"), ".pdf");
+        assertEquals(ResponseFileTypeDetector.reconcile(".pdf", (String) null), ".pdf");
+    }
+
+    /** ODF/EPUB：第一个条目是未压缩的 mimetype。 */
+    private static byte[] odf(String mimeType) throws IOException {
+        byte[] content = mimeType.getBytes(StandardCharsets.US_ASCII);
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        crc.update(content);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            ZipEntry entry = new ZipEntry("mimetype");
+            entry.setMethod(ZipEntry.STORED);
+            entry.setSize(content.length);
+            entry.setCrc(crc.getValue());
+            zip.putNextEntry(entry);
+            zip.write(content);
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("content.xml"));
+            zip.write("<office:document/>".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return out.toByteArray();
     }
 
     private static byte[] zip(String name, String content) throws IOException {

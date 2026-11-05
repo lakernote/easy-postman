@@ -1,5 +1,7 @@
 package com.laker.postman.panel.mock;
 
+import com.laker.postman.http.runtime.file.ResponseFileNames;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.mock.app.MockCollectionRouteProvider;
 import com.laker.postman.mock.app.MockRouteEntry;
 import com.laker.postman.mock.app.MockServerManager;
@@ -11,18 +13,20 @@ import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.request.model.SavedResponse;
 import com.laker.postman.util.JsonUtil;
+import com.laker.postman.util.FileExtensionUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.RequiredArgsConstructor;
 
 import java.awt.Component;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -147,7 +151,8 @@ final class MockRouteEditorController {
                 response == null
                         ? I18nUtil.getMessage(MessageKeys.MOCK_SERVER_ROUTE_DEFAULT_RESPONSE_NAME)
                         : response.getName(),
-                response == null || response.getCode() < 100 ? 200 : response.getCode(),
+                // Mock Server 无法以 1xx 作为最终响应，编辑器只允许 200–599
+                response == null || response.getCode() < 200 || response.getCode() > 599 ? 200 : response.getCode(),
                 response == null ? 0 : response.getMockDelayMs(),
                 response == null ? java.util.List.of() : response.getHeaders(),
                 response == null ? "{\n    \"ok\": true\n}" : response.getBody(),
@@ -173,36 +178,104 @@ final class MockRouteEditorController {
         if (existing != null) {
             response.setCookies(existing.getCookies());
             response.setCostMs(existing.getCostMs());
-            response.setBodySize(bodySizeAfterEdit(existing, draft.body()));
+            response.setFile(fileInfoAfterEdit(existing, draft.body(), response.getHeaders()));
+            response.setBodySize(bodySizeAfterEdit(existing, draft.body(), response.getHeaders(), response.getFile()));
             response.setHeadersSize(existing.getHeadersSize());
-            response.setFile(fileInfoAfterEdit(existing, draft.body()));
         }
         response.setOriginalRequest(originalRequest(request, existing, draft, fallbackBaseUrl));
         return response;
     }
 
     /**
-     * 正文未改动时保留文件信息（只改延迟/脚本不应让“未保存文件内容”的示例变成 0 字节文件）；
-     * 文本附件的正文本就是可编辑文本，始终保留；其余文件被手动填写正文后以填写内容为准，按普通文本示例处理。
+     * 编辑后仍有效的文件信息，按编辑后的响应头更新文件名：
+     * <ul>
+     *     <li>文本附件：正文本就是可编辑文本，只要响应头仍声明 attachment 就保留</li>
+     *     <li>其余文件：正文未改动时保留（只改延迟/脚本不应让“未保存文件内容”的示例变成 0 字节文件），
+     *     手动填写正文，或把响应头改成既非附件也非二进制类型后，按普通文本示例处理</li>
+     *     <li>文件名优先取 Content-Disposition；文本附件未声明文件名时按 Content-Type 更新扩展名</li>
+     * </ul>
      */
-    static SavedResponse.FileInfo fileInfoAfterEdit(SavedResponse existing, String editedBody) {
+    static SavedResponse.FileInfo fileInfoAfterEdit(SavedResponse existing, String editedBody, List<HttpHeader> editedHeaders) {
         SavedResponse.FileInfo file = existing.getFile();
-        if (file == null || file.isContentInBody()) {
-            return file;
+        if (file == null) {
+            return null;
         }
-        String originalBody = existing.getBody() == null ? "" : existing.getBody();
-        return originalBody.equals(editedBody == null ? "" : editedBody) ? file : null;
+        String contentDisposition = header(editedHeaders, "Content-Disposition");
+        if (file.isContentInBody()
+                ? !ResponseFileNames.isAttachment(contentDisposition)
+                : (!bodyOf(existing).equals(editedBody == null ? "" : editedBody)
+                || abandonedFileHeaders(existing, editedHeaders))) {
+            return null;
+        }
+        SavedResponse.FileInfo updated = new SavedResponse.FileInfo();
+        updated.setExtension(file.getExtension());
+        updated.setContentInBody(file.isContentInBody());
+        updated.setAttachment(ResponseFileNames.isAttachment(contentDisposition));
+        String dispositionName = ResponseFileNames.parseFileNameFromContentDisposition(contentDisposition);
+        if (dispositionName != null && !dispositionName.isBlank()) {
+            updated.setFileName(dispositionName);
+        } else if (file.isContentInBody()) {
+            updated.setFileName(withExtension(file.getFileName(),
+                    FileExtensionUtil.guessExtension(header(editedHeaders, "Content-Type"))));
+        } else {
+            updated.setFileName(file.getFileName());
+        }
+        return updated;
     }
 
     /**
-     * 正文被手动修改后，大小以新正文为准，避免旧的响应大小让手写正文被误认为旧版二进制占位文字。
+     * 用户改动了 Content-Type / Content-Disposition，且新响应头既不是附件也不是二进制类型：不再按文件处理。
+     * 响应头未改动时保留（例如服务端声明 JSON、实际返回 xlsx 的示例）。
      */
-    static long bodySizeAfterEdit(SavedResponse existing, String editedBody) {
-        String originalBody = existing.getBody() == null ? "" : existing.getBody();
+    private static boolean abandonedFileHeaders(SavedResponse existing, List<HttpHeader> editedHeaders) {
+        String contentType = header(editedHeaders, "Content-Type");
+        String contentDisposition = header(editedHeaders, "Content-Disposition");
+        boolean unchanged = Objects.equals(contentType, header(existing.getHeaders(), "Content-Type"))
+                && Objects.equals(contentDisposition, header(existing.getHeaders(), "Content-Disposition"));
+        return !unchanged && !ResponseFileNames.isAttachment(contentDisposition)
+                && !FileExtensionUtil.isBinaryType(contentType == null ? "" : contentType);
+    }
+
+    private static String withExtension(String fileName, String extension) {
+        if (fileName == null || extension == null) {
+            return fileName;
+        }
+        String current = ResponseFileNames.extensionOf(fileName);
+        return (current == null ? fileName : fileName.substring(0, fileName.length() - current.length())) + extension;
+    }
+
+    /**
+     * 编辑后的正文大小：正文与字符集都未变，或编辑后仍是未保存内容的文件时沿用原大小；否则按编辑后声明的字符集计算。
+     */
+    static long bodySizeAfterEdit(SavedResponse existing, String editedBody, List<HttpHeader> editedHeaders,
+                                  SavedResponse.FileInfo editedFile) {
         String body = editedBody == null ? "" : editedBody;
-        return originalBody.equals(body)
-                ? existing.getBodySize()
-                : body.getBytes(StandardCharsets.UTF_8).length;
+        Charset charset = ResponseFiles.charsetOf(header(editedHeaders, "Content-Type"));
+        boolean bodyUnchanged = bodyOf(existing).equals(body);
+        boolean omittedFile = editedFile != null && !editedFile.isContentInBody();
+        // 原本是未保存内容的文件、编辑后降级为普通文本时，旧大小不再对应正文
+        boolean wasOmittedFile = existing.getFile() != null && !existing.getFile().isContentInBody();
+        boolean sameCharset = charset.equals(ResponseFiles.charsetOf(header(existing.getHeaders(), "Content-Type")));
+        if (bodyUnchanged && (omittedFile || (!wasOmittedFile && sameCharset))) {
+            return existing.getBodySize();
+        }
+        return body.getBytes(charset).length;
+    }
+
+    private static String bodyOf(SavedResponse response) {
+        return response.getBody() == null ? "" : response.getBody();
+    }
+
+    private static String header(List<HttpHeader> headers, String name) {
+        if (headers == null) {
+            return null;
+        }
+        for (HttpHeader header : headers) {
+            if (header != null && header.isEnabled() && name.equalsIgnoreCase(header.getKey())) {
+                return header.getValue();
+            }
+        }
+        return null;
     }
 
     private SavedResponse.OriginalRequest originalRequest(HttpRequestItem request,

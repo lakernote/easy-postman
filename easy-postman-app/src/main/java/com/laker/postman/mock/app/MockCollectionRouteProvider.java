@@ -6,6 +6,7 @@ import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.ioc.Component;
 import com.laker.postman.mock.model.MockResponse;
 import com.laker.postman.mock.model.MockRoute;
+import com.laker.postman.mock.runtime.LocalMockServer;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpParam;
 import com.laker.postman.request.model.HttpRequestItem;
@@ -24,8 +25,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * App adapter that turns collection requests and saved Examples into mock-core routes.
@@ -200,11 +199,6 @@ public class MockCollectionRouteProvider {
                 ? fileContentUnavailableResponse(example)
                 : new MockResponse(statusCode, singleValueHeaders(example.getHeaders()),
                 example.getBody() == null ? "" : example.getBody());
-        String declaredContentType = response.getHeader("Content-Type");
-        if (declaredContentType != null) {
-            // Mock Server 统一按 UTF-8 写出正文，charset 必须一致，否则 GBK/UTF-16 示例在客户端会乱码
-            response.setHeader("Content-Type", withUtf8Charset(declaredContentType));
-        }
         response.setDelayMs(Math.max(0, example.getMockDelayMs()));
         if (response.getHeader("Content-Type") == null) {
             response.setHeader("Content-Type", contentType(example.getPreviewLanguage()));
@@ -235,8 +229,8 @@ public class MockCollectionRouteProvider {
      * 文件示例只保存了文件信息（或是旧版本保存的乱码文本），没有可返回的原始内容。
      */
     static boolean isFileContentUnavailable(SavedResponse example, String method, int statusCode) {
-        // HEAD、1xx、204、304 本就没有正文，Mock 时无需文件内容
-        if ("HEAD".equals(method) || statusCode < 200 || statusCode == 204 || statusCode == 304) {
+        // HEAD、1xx、204、205、304 本就没有正文，Mock 时无需文件内容
+        if (LocalMockServer.isBodyless(method, statusCode)) {
             return false;
         }
         SavedResponse.FileInfo file = example.getFile();
@@ -247,21 +241,6 @@ public class MockCollectionRouteProvider {
         return ResponseFiles.detectFromLegacyText(example.getBody()) != null
                 || SavedResponseSnapshotMapper.isLegacyBinaryPlaceholder(example);
     }
-
-    /**
-     * 把 Content-Type 中的 charset 改为 UTF-8；未声明 charset 时保持原样（UTF-8 正文对 JSON 等类型即默认值）。
-     */
-    static String withUtf8Charset(String contentType) {
-        Matcher matcher = CHARSET_PARAMETER.matcher(contentType);
-        if (!matcher.find() || "utf-8".equalsIgnoreCase(matcher.group(2))) {
-            return contentType;
-        }
-        return contentType.substring(0, matcher.start()) + matcher.group(1) + "UTF-8"
-                + contentType.substring(matcher.end());
-    }
-
-    private static final Pattern CHARSET_PARAMETER =
-            Pattern.compile("(?i)(;\\s*charset\\s*=\\s*)\"?([^;\"\\s]+)\"?");
 
     /**
      * 不能用原状态码和响应头返回空正文（客户端会收到 0 字节的“文件”），改为明确的 501 说明；

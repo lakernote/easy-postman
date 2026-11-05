@@ -269,41 +269,69 @@ public class ResponseFileNames {
     }
 
     /**
+     * 解析下载文件名，内容无法通过文件头识别时使用。
+     *
+     * @see #resolve(String, String, String, String)
+     */
+    public static String resolve(String contentDisposition, String urlEncodedPath, String extension) {
+        return resolve(contentDisposition, urlEncodedPath, extension, (ResponseFileTypeDetector.Detection) null);
+    }
+
+    /**
      * 解析下载文件名。
      * <ol>
      *     <li>Content-Disposition 携带文件名时优先使用，缺少扩展名时补上 {@code extension}</li>
      *     <li>否则使用 URL 最后一段：没有扩展名时补上 {@code extension}；
-     *     后缀是接口路由或文本类后缀（/export.do、/download.json）且与 {@code extension} 不同时替换，其余后缀保留</li>
+     *     接口路由或文本类后缀（/export.do、/download.json）替换为 {@code extension}；
+     *     其余后缀与文件头识别结果冲突时按 {@link ResponseFileTypeDetector#reconcile} 纠正（/photo.png 实际是 PDF → photo.pdf）</li>
      *     <li>都没有时生成带时间戳的智能文件名</li>
      * </ol>
      *
      * @param contentDisposition Content-Disposition 响应头，可为空
      * @param urlEncodedPath     请求 URL 的 path，可为空
      * @param extension          内容对应的扩展名（含点），可为空
+     * @param detectedExtension  文件头识别出的扩展名（含点），可为空
      */
-    public static String resolve(String contentDisposition, String urlEncodedPath, String extension) {
+    public static String resolve(String contentDisposition,
+                                 String urlEncodedPath,
+                                 String extension,
+                                 String detectedExtension) {
+        return resolve(contentDisposition, urlEncodedPath, extension,
+                detectedExtension == null ? null : new ResponseFileTypeDetector.Detection(detectedExtension, false));
+    }
+
+    /**
+     * 同 {@link #resolve(String, String, String, String)}，使用带确认信息的识别结果调和 URL 后缀。
+     */
+    public static String resolve(String contentDisposition,
+                                 String urlEncodedPath,
+                                 String extension,
+                                 ResponseFileTypeDetector.Detection detection) {
+        String detectedExtension = detection == null ? null : detection.extension();
+        String target = extension != null ? extension : detectedExtension;
         String fileName = parseFileNameFromContentDisposition(contentDisposition);
         if (fileName != null && !fileName.isBlank()) {
-            return fileName.contains(".") || extension == null ? fileName : fileName + extension;
+            return fileName.contains(".") || target == null ? fileName : fileName + target;
         }
 
         fileName = fileNameFromUrlPath(urlEncodedPath);
         fileName = fileName == null ? null : sanitize(percentDecodeUtf8(fileName));
         if (fileName == null) {
-            return FileExtensionUtil.generateSmartFileName(extension);
+            return FileExtensionUtil.generateSmartFileName(target);
         }
         String urlExtension = extensionOf(fileName);
-        if (extension == null) {
+        if (target == null) {
             return fileName;
         }
         if (urlExtension == null) {
-            return fileName + extension;
+            return fileName + target;
         }
-        if (REPLACEABLE_URL_EXTENSIONS.contains(urlExtension.toLowerCase(Locale.ROOT))
-                && !extension.equalsIgnoreCase(urlExtension)) {
-            return fileName.substring(0, fileName.length() - urlExtension.length()) + extension;
+        String baseName = fileName.substring(0, fileName.length() - urlExtension.length());
+        if (REPLACEABLE_URL_EXTENSIONS.contains(urlExtension.toLowerCase(Locale.ROOT))) {
+            return target.equalsIgnoreCase(urlExtension) ? fileName : baseName + target;
         }
-        return fileName;
+        String reconciled = ResponseFileTypeDetector.reconcile(urlExtension, detection);
+        return reconciled.equals(urlExtension) ? fileName : baseName + reconciled;
     }
 
     /**

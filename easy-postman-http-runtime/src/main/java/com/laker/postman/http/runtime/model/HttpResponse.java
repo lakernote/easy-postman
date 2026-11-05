@@ -1,5 +1,6 @@
 package com.laker.postman.http.runtime.model;
 
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.util.HttpHeaderConstants;
 
 import java.util.List;
@@ -71,12 +72,15 @@ public class HttpResponse {
      * 保留的字段：code, protocol, threadName, httpEventInfo, headers, body, costMs, endTime, bodySize, headersSize,
      * idleConnectionCount, connectionCount, detectedFileExtension, fileAttachment；
      * 置为 null 的字段：filePath, rawBodyBytes；fileName 保留用于展示文件信息。
-     * 识别出的文件不保留按文本解码出的乱码，并标记内容已省略，渲染时只展示文件信息。
+     * 文件响应（见 {@link ResponseFiles#isFileResponse}）不保留按文本解码出的乱码或临时文件提示，
+     * 并标记内容已省略，渲染时只展示文件信息。
      */
     public void simplify() {
+        // 正确声明 MIME 的二进制文件（PDF/PNG 等）不会设置 detectedFileExtension，同样按文件处理
+        boolean file = ResponseFiles.isFileResponse(this);
         this.filePath = null;    // 文件下载路径，渲染时不需要
         this.rawBodyBytes = null; // 原始响应体字节，渲染时不需要
-        if (detectedFileExtension != null) {
+        if (file) {
             this.body = "";
             this.fileContentOmitted = true;
         }

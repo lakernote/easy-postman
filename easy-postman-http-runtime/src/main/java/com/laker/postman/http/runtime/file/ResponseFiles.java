@@ -87,7 +87,16 @@ public class ResponseFiles {
      * Content-Type 声明的字符集，未声明或无法识别时为 UTF-8（与解码响应体时的默认值一致）。
      */
     public static Charset declaredCharset(HttpResponse response) {
-        String contentType = contentType(response);
+        return charsetOf(contentType(response));
+    }
+
+    /**
+     * Content-Type 字符串声明的字符集，未声明或无法识别时为 UTF-8。
+     */
+    public static Charset charsetOf(String contentType) {
+        if (contentType == null) {
+            return StandardCharsets.UTF_8;
+        }
         for (String parameter : contentType.split(";")) {
             int eq = parameter.indexOf('=');
             if (eq > 0 && "charset".equalsIgnoreCase(parameter.substring(0, eq).trim())) {

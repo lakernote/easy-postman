@@ -19,6 +19,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.URLDecoder;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -230,7 +231,8 @@ public final class LocalMockServer implements AutoCloseable {
             delay(resolveDelay(request, response));
             statusCode = sanitizeStatusCode(response.getStatusCode());
             response.setStatusCode(statusCode);
-            responseBody = response.getBody();
+            // 日志只记录实际发送的内容
+            responseBody = isBodyless(exchange.getRequestMethod(), statusCode) ? "" : response.getBody();
             writeResponse(exchange, response);
         } catch (RequestTooLargeException ex) {
             statusCode = 413;
@@ -312,13 +314,41 @@ public final class LocalMockServer implements AutoCloseable {
         if (definition.isCorsEnabled()) {
             applyCors(responseHeaders);
         }
-        byte[] bytes = Optional.ofNullable(response.getBody()).orElse("").getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = Optional.ofNullable(response.getBody()).orElse("")
+                .getBytes(declaredCharset(responseHeaders.getFirst("Content-Type")));
         int status = sanitizeStatusCode(response.getStatusCode());
-        boolean noBody = "HEAD".equalsIgnoreCase(exchange.getRequestMethod()) || status == 204 || status == 304;
+        boolean noBody = isBodyless(exchange.getRequestMethod(), status);
         exchange.sendResponseHeaders(status, noBody ? -1 : bytes.length);
         if (!noBody) {
             exchange.getResponseBody().write(bytes);
         }
+    }
+
+    /**
+     * HEAD 请求以及 1xx、204、205、304 响应按 HTTP 规范不携带正文。
+     * Mock Server 实际只发送 200–599（见 {@link #sanitizeStatusCode}），1xx 用于判断示例本身是否需要正文。
+     */
+    public static boolean isBodyless(String method, int status) {
+        return "HEAD".equalsIgnoreCase(method) || status < 200 || status == 204 || status == 205 || status == 304;
+    }
+
+    /**
+     * 按 Content-Type 声明的 charset 编码正文，保证 GBK/UTF-16 等示例返回与响应头一致的原始字节；未声明或不支持时用 UTF-8。
+     */
+    static Charset declaredCharset(String contentType) {
+        if (contentType != null) {
+            for (String parameter : contentType.split(";")) {
+                int eq = parameter.indexOf('=');
+                if (eq > 0 && "charset".equalsIgnoreCase(parameter.substring(0, eq).trim())) {
+                    try {
+                        return Charset.forName(parameter.substring(eq + 1).trim().replace("\"", ""));
+                    } catch (IllegalArgumentException e) {
+                        return StandardCharsets.UTF_8;
+                    }
+                }
+            }
+        }
+        return StandardCharsets.UTF_8;
     }
 
     private void applyCors(Headers headers) {

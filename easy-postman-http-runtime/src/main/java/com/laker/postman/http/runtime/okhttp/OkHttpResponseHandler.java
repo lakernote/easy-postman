@@ -452,7 +452,7 @@ public class OkHttpResponseHandler {
                                              Call call) throws IOException {
         InputStream is = okResponse.body() != null ? okResponse.body().byteStream() : null;
         String ext = FileExtensionUtil.guessExtension(okResponse.header(CONTENT_TYPE_HEADER));
-        response.fileName = resolveFileName(okResponse, response.headers, ext);
+        response.fileName = resolveFileName(okResponse, response.headers, ext, (ResponseFileTypeDetector.Detection) null);
         String contentDisposition = ResponseFileNames.getContentDisposition(response.headers);
         response.fileAttachment = ResponseFileNames.isAttachment(contentDisposition);
 
@@ -483,12 +483,13 @@ public class OkHttpResponseHandler {
                 response.filePath = fs.file.getAbsolutePath();
                 response.body = I18nUtil.getMessage(MessageKeys.BINARY_SAVED_TEMP_FILE);
                 response.bodySize = fs.size;
-                applyDetectedBinaryType(okResponse, response, fs.file);
+                applyDetectedBinaryType(okResponse, response, fs.file, ext);
                 // 标记是否为图片类型，供 UI 层预览使用
                 String ct = okResponse.header(CONTENT_TYPE_HEADER, "");
-                response.isImage = ct.toLowerCase(Locale.ROOT).startsWith("image/")
-                        || (response.detectedFileExtension != null
-                        && IMAGE_EXTENSIONS.contains(response.detectedFileExtension));
+                // 内容与声明冲突时以识别结果为准，避免把声明为 image/png 的 PDF 当作图片预览
+                response.isImage = response.detectedFileExtension != null
+                        ? IMAGE_EXTENSIONS.contains(response.detectedFileExtension)
+                        : ct.toLowerCase(Locale.ROOT).startsWith("image/");
             } catch (DownloadSizeLimitException e) {
                 warnResponseTooLarge(responseSizeLimitWarningSink,
                         new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.BINARY,
@@ -514,19 +515,32 @@ public class OkHttpResponseHandler {
 
 
     /**
-     * 只有声明为笼统的二进制类型（如 application/octet-stream）时才按文件头识别具体格式，用于提示和文件名；
-     * 声明了具体类型（application/pdf、application/vnd.ms-excel 等）时以声明为准。
+     * 所有二进制响应都检查文件头：声明笼统（application/octet-stream）时采用识别结果；
+     * 声明具体但与内容冲突（application/vnd.ms-excel 实际是 xlsx）时以内容为准并提示；
+     * 一致或声明更具体（声明 .xlsm、文件头只能确定 .xlsx）时以声明为准。识别结果同时用于纠正 URL 中错误的后缀。
      */
-    private static void applyDetectedBinaryType(Response okResponse, HttpResponse response, File file) {
-        if (!ResponseFiles.isGenericBinaryContentType(okResponse.header(CONTENT_TYPE_HEADER, ""))) {
+    private static void applyDetectedBinaryType(Response okResponse, HttpResponse response, File file, String declaredExtension) {
+        ResponseFileTypeDetector.Detection detection = ResponseFileTypeDetector.detect(file.toPath());
+        if (detection == null) {
             return;
         }
-        String detected = ResponseFileTypeDetector.detectExtension(file.toPath());
-        if (detected == null) {
+        String detected = detection.extension();
+        String contentType = okResponse.header(CONTENT_TYPE_HEADER, "");
+        // application/zip 同样只说明是容器，docx/jar 等基于 ZIP 的具体格式不算类型冲突
+        boolean genericDeclared = contentType.isBlank() || ".zip".equals(declaredExtension)
+                || ResponseFiles.isGenericBinaryContentType(contentType);
+        if (!genericDeclared && declaredExtension == null && ResponseFileTypeDetector.isGenericContainer(detected)) {
+            // 具体但没有扩展名映射的 MIME（如 APK 的 application/vnd.android.package-archive），只识别到容器时信任声明
             return;
         }
-        response.detectedFileExtension = detected;
-        response.fileName = resolveFileName(okResponse, response.headers, detected);
+        String naming = genericDeclared ? detected : ResponseFileTypeDetector.reconcile(declaredExtension, detection);
+        // 只有内容与声明不一致时才提示：application/pdf + PDF、application/zip + ZIP/docx/jar 都不提示
+        boolean consistent = naming.equalsIgnoreCase(String.valueOf(declaredExtension))
+                || (".zip".equals(declaredExtension) && ResponseFileTypeDetector.reconcile(naming, ".zip").equals(naming));
+        if (!consistent) {
+            response.detectedFileExtension = detected;
+        }
+        response.fileName = resolveFileName(okResponse, response.headers, naming, detection);
     }
 
     private static boolean isStreamingMediaResponse(Response response, String contentDisposition) {
@@ -630,7 +644,8 @@ public class OkHttpResponseHandler {
      * 普通文本接口保持智能文件名；只有明确的文件响应才从 Content-Disposition / URL 推导文件名。
      */
     private static String applyFileMetadata(Response okResponse, HttpResponse response, byte[] bytes, String contentTypeExtension) {
-        String detectedExtension = ResponseFileTypeDetector.detectExtension(bytes);
+        ResponseFileTypeDetector.Detection signature = ResponseFileTypeDetector.detect(bytes);
+        String detectedExtension = signature == null ? null : signature.extension();
         if (detectedExtension == null
                 && mayBeUnlabeledBinary(okResponse.header(CONTENT_TYPE_HEADER, ""), ResponseFiles.declaredCharset(response))
                 && ResponseFileTypeDetector.looksBinary(bytes)) {
@@ -644,7 +659,7 @@ public class OkHttpResponseHandler {
                 ? detectedExtension
                 : (contentTypeExtension != null ? contentTypeExtension : ".txt");
         response.fileName = detectedExtension != null || response.fileAttachment
-                ? resolveFileName(okResponse, response.headers, extension)
+                ? resolveFileName(okResponse, response.headers, extension, signature)
                 : FileExtensionUtil.generateSmartFileName(extension);
         return extension;
     }
@@ -694,11 +709,13 @@ public class OkHttpResponseHandler {
         }
     }
 
-    private static String resolveFileName(Response okResponse, Map<String, List<String>> headers, String extension) {
+    private static String resolveFileName(Response okResponse, Map<String, List<String>> headers,
+                                          String extension, ResponseFileTypeDetector.Detection detection) {
         return ResponseFileNames.resolve(
                 ResponseFileNames.getContentDisposition(headers),
                 okResponse.request().url().encodedPath(),
-                extension);
+                extension,
+                detection);
     }
 
     private static void warnResponseTooLarge(ResponseSizeLimitWarningSink sink, ResponseSizeLimitWarning warning) {

@@ -1778,6 +1778,9 @@ public final class MessageKeys {
     public static final String RESPONSE_FILE_CONTENT_NOT_SAVED = "response.file.content_not_saved";
     public static final String RESPONSE_FILE_TEXT_PREVIEW_NOTICE = "response.file.text_preview_notice";
     public static final String RESPONSE_FILE_SECTION_TITLE = "response.file.section_title";
+    public static final String RESPONSE_FILE_LABEL_NAME = "response.file.label.name";
+    public static final String RESPONSE_FILE_LABEL_TYPE = "response.file.label.type";
+    public static final String RESPONSE_FILE_LABEL_SIZE = "response.file.label.size";
     public static final String RESPONSE_FILE_CONTENT_NOT_KEPT = "response.file.content_not_kept";
     public static final String MOCK_EXAMPLE_FILE_CONTENT_UNAVAILABLE = "mock.example.file_content_unavailable";
     public static final String RESPONSE_FILE_BODY_HIDDEN = "response.file.body_hidden";

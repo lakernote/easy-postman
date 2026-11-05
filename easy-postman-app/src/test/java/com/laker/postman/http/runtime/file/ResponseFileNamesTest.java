@@ -152,6 +152,22 @@ public class ResponseFileNamesTest {
     }
 
     @Test
+    public void shouldCorrectUrlSuffixThatConflictsWithSignature() {
+        assertEquals(ResponseFileNames.resolve(null, "/photo.png", ".pdf", ".pdf"), "photo.pdf");
+        assertEquals(ResponseFileNames.resolve(null, "/photo.png", ".zip", ".zip"), "photo.zip");
+        assertEquals(ResponseFileNames.resolve(null, "/report.xls", ".xlsx", ".xlsx"), "report.xlsx");
+        assertEquals(ResponseFileNames.resolve(null, "/report.xlsm", ".xlsx", ".xlsx"), "report.xlsm");
+        assertEquals(ResponseFileNames.resolve(null, "/app.jar", ".zip", ".zip"), "app.jar");
+        assertEquals(ResponseFileNames.resolve(null, "/secret.xlsx", ".bin", ".bin"), "secret.xlsx");
+        assertEquals(ResponseFileNames.resolve(null, "/data.yaml", ".zip", ".zip"), "data.zip");
+        assertEquals(ResponseFileNames.resolve(null, "/run.exe", ".zip", ".zip"), "run.zip");
+        assertEquals(ResponseFileNames.resolve(null, "/movie.mp4", ".zip", ".zip"), "movie.zip");
+        assertEquals(ResponseFileNames.resolve(null, "/report.xlsx", ".xlsm", ".xlsm"), "report.xlsm");
+        assertEquals(ResponseFileNames.resolve(null, "/export.do", ".xlsm", ".xlsx"), "export.xlsm",
+                "接口路由后缀按调和后的扩展名替换");
+    }
+
+    @Test
     public void shouldReplaceDynamicRouteSuffixWithDeclaredExtension() {
         assertEquals(ResponseFileNames.resolve(null, "/stream.do", ".mp4"), "stream.mp4");
         assertEquals(ResponseFileNames.resolve(null, "/export.php", ".csv"), "export.csv");

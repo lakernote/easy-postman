@@ -1,5 +1,6 @@
 package com.laker.postman.performance.runtime;
 
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.HttpHeader;
@@ -132,8 +133,8 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
         if (response == null) {
             return null;
         }
-        // 内容被识别为文件时，按文本解码的正文只是乱码，不随详情传输
-        boolean fileContentOmitted = response.fileContentOmitted || response.detectedFileExtension != null;
+        // 文件响应的正文只是乱码或临时文件提示，不随详情传输
+        boolean fileContentOmitted = ResponseFiles.isFileResponse(response);
         return DetailResponse.builder()
                 .code(response.code)
                 .protocol(response.protocol)

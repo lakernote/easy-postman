@@ -40,6 +40,7 @@ public class FileExtensionUtil {
             Map.entry("application/vnd.oasis.opendocument.base", ".odb"),
             Map.entry("application/ofd", ".ofd"),
             Map.entry("application/epub+zip", ".epub"),
+            Map.entry("application/vnd.android.package-archive", ".apk"),
             Map.entry("application/java-archive", ".jar"),
             Map.entry("application/x-java-archive", ".jar"));
 

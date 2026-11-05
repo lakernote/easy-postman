@@ -162,7 +162,7 @@ public class MockCollectionRouteProviderTest {
     }
 
     @Test
-    public void shouldRewriteNonUtf8CharsetBecauseMockWritesUtf8() {
+    public void shouldKeepDeclaredCharsetSoMockReturnsOriginalBytes() {
         HttpRequestItem request = new HttpRequestItem();
         request.setId("request-gbk");
         request.setMethod("GET");
@@ -179,17 +179,8 @@ public class MockCollectionRouteProviderTest {
                 .buildRoutes(new CollectionDocument(List.of(collection("c", "Files", request))), List.of("c"))
                 .get(0);
 
-        assertEquals(route.response().getHeader("Content-Type"), "text/csv; charset=UTF-8");
+        assertEquals(route.response().getHeader("Content-Type"), "text/csv; charset=GBK");
         assertEquals(route.response().getBody(), "名称,数量\n");
-    }
-
-    @Test
-    public void shouldNormalizeCharsetParameterVariants() {
-        assertEquals(MockCollectionRouteProvider.withUtf8Charset("text/plain; charset=\"UTF-16LE\"; format=flowed"),
-                "text/plain; charset=UTF-8; format=flowed");
-        assertEquals(MockCollectionRouteProvider.withUtf8Charset("application/json;charset=utf-8"),
-                "application/json;charset=utf-8");
-        assertEquals(MockCollectionRouteProvider.withUtf8Charset("application/json"), "application/json");
     }
 
     @Test
@@ -203,6 +194,7 @@ public class MockCollectionRouteProviderTest {
         assertTrue(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 200));
         assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "HEAD", 200));
         assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 204));
+        assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 205));
         assertFalse(MockCollectionRouteProvider.isFileContentUnavailable(example, "GET", 304));
 
         example.setBodySize(0);

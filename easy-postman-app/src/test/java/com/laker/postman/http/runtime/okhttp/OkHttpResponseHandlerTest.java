@@ -186,7 +186,7 @@ public class OkHttpResponseHandlerTest {
     }
 
     @Test
-    public void shouldSniffOnlyGenericBinaryAndTrustSpecificDeclaredType() throws Exception {
+    public void shouldSniffDeclaredBinaryResponseAndPreferDetectedTypeForFileName() throws Exception {
         byte[] xlsx = ResponseFileFixtures.xlsx();
         HttpResponse octetStream = new HttpResponse();
         HttpResponse wrongExcelMime = new HttpResponse();
@@ -201,9 +201,8 @@ public class OkHttpResponseHandlerTest {
             assertNotNull(octetStream.filePath);
             assertEquals(octetStream.detectedFileExtension, ".xlsx");
             assertEquals(octetStream.fileName, "export.xlsx");
-            // 声明了具体类型时以声明为准，不再嗅探
-            assertNull(wrongExcelMime.detectedFileExtension);
-            assertEquals(wrongExcelMime.fileName, "report.xls");
+            assertEquals(wrongExcelMime.detectedFileExtension, ".xlsx", "声明具体但与内容冲突时提示");
+            assertEquals(wrongExcelMime.fileName, "report.xlsx");
         } finally {
             deleteTempFile(octetStream);
             deleteTempFile(wrongExcelMime);
@@ -231,6 +230,91 @@ public class OkHttpResponseHandlerTest {
             deleteTempFile(declaredPng);
             deleteTempFile(octetPng);
         }
+    }
+
+    @Test
+    public void shouldPreferSignatureOverConflictingImageTypeAndUrlSuffix() throws Exception {
+        byte[] pdf = "%PDF-1.7\n%\u00e2\u00e3\n".getBytes(StandardCharsets.ISO_8859_1);
+        HttpResponse response = new HttpResponse();
+        try {
+            OkHttpResponseHandler.handleResponse(
+                    response("http://example.test/photo.png", "image/png", null, pdf), response, null);
+
+            assertEquals(response.detectedFileExtension, ".pdf");
+            assertEquals(response.fileName, "photo.pdf");
+            assertFalse(response.isImage, "实际是 PDF，不能按图片预览");
+        } finally {
+            deleteTempFile(response);
+        }
+    }
+
+    @Test
+    public void shouldNotFlagZipDeclaredAsZipButAdoptDetectedVariant() throws Exception {
+        HttpResponse zip = new HttpResponse();
+        HttpResponse docx = new HttpResponse();
+        HttpResponse xlsm = new HttpResponse();
+        try {
+            OkHttpResponseHandler.handleResponse(
+                    response("http://example.test/archive", "application/zip", null, zipWithEntry("a.csv")), zip, null);
+            OkHttpResponseHandler.handleResponse(response("http://example.test/doc", "application/zip", null,
+                    com.laker.postman.http.runtime.file.ResponseFileFixtures.ooxml("word/document.xml")), docx, null);
+            OkHttpResponseHandler.handleResponse(response("http://example.test/report.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", null,
+                    com.laker.postman.http.runtime.file.ResponseFileFixtures.ooxml("xl/workbook.xml",
+                            "application/vnd.ms-excel.sheet.macroEnabled.main+xml")), xlsm, null);
+
+            assertNull(zip.detectedFileExtension, "application/zip + ZIP 不提示类型不符");
+            assertEquals(zip.fileName, "archive.zip");
+            assertNull(docx.detectedFileExtension);
+            assertEquals(docx.fileName, "doc.docx");
+            assertEquals(xlsm.detectedFileExtension, ".xlsm");
+            assertEquals(xlsm.fileName, "report.xlsm", "启用宏的工作簿必须使用 .xlsm 才能被 Excel 打开");
+
+            HttpResponse plainXlsx = new HttpResponse();
+            OkHttpResponseHandler.handleResponse(response("http://example.test/report.xlsm",
+                    "application/vnd.ms-excel.sheet.macroEnabled.12", null,
+                    com.laker.postman.http.runtime.file.ResponseFileFixtures.ooxml("xl/workbook.xml",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml")), plainXlsx, null);
+            deleteTempFile(plainXlsx);
+            assertEquals(plainXlsx.detectedFileExtension, ".xlsx");
+            assertEquals(plainXlsx.fileName, "report.xlsx", "已确认是标准 xlsx 时纠正错误声明的 .xlsm");
+        } finally {
+            deleteTempFile(zip);
+            deleteTempFile(docx);
+            deleteTempFile(xlsm);
+        }
+    }
+
+    @Test
+    public void shouldTrustSpecificDeclaredTypeWhenOnlyContainerIsDetected() throws Exception {
+        byte[] zip = zipWithEntry("classes.dex");
+        HttpResponse apk = new HttpResponse();
+        HttpResponse unmapped = new HttpResponse();
+        try {
+            OkHttpResponseHandler.handleResponse(response("http://example.test/download",
+                    "application/vnd.android.package-archive", null, zip), apk, null);
+            OkHttpResponseHandler.handleResponse(response("http://example.test/download",
+                    "application/vnd.example.bundle", null, zip), unmapped, null);
+
+            assertNull(apk.detectedFileExtension);
+            assertEquals(apk.fileName, "download.apk");
+            assertNull(unmapped.detectedFileExtension, "未映射的具体 MIME 不应被通用 ZIP 识别误报为不符");
+            assertEquals(unmapped.fileName, "download");
+        } finally {
+            deleteTempFile(apk);
+            deleteTempFile(unmapped);
+        }
+    }
+
+    @Test
+    public void shouldKeepUrlSuffixForUnknownBinaryWithoutSignature() throws Exception {
+        byte[] protobuf = {0x08, (byte) 0x96, 0x01, 0x12, 0x03, 0x61, 0x62, 0x63};
+        HttpResponse response = new HttpResponse();
+        OkHttpResponseHandler.handleResponse(
+                response("http://example.test/data.pb", null, null, protobuf), response, null);
+
+        assertEquals(response.detectedFileExtension, ".bin");
+        assertEquals(response.fileName, "data.pb", "仅按控制字节判断的未知二进制不能否定 URL 后缀");
     }
 
     @Test
@@ -292,7 +376,7 @@ public class OkHttpResponseHandlerTest {
 
             assertEquals(download.fileName, "download.zip");
             assertEquals(download.detectedFileExtension, ".zip");
-            assertEquals(disguised.fileName, "photo.png", "URL 中的文件后缀保留");
+            assertEquals(disguised.fileName, "photo.zip", "png 有唯一文件头，ZIP 内容的 .png 后缀一定是错的");
             assertEquals(jar.fileName, "app.jar");
             assertNull(jar.detectedFileExtension, "具体的声明类型不应被通用 ZIP 识别误报为不符");
         } finally {
@@ -363,7 +447,7 @@ public class OkHttpResponseHandlerTest {
             assertEquals(pdfResponse.fileName, "export.pdf");
             assertNull(pdfResponse.detectedFileExtension, "内容与声明一致，不提示类型不符");
             assertEquals(pngResponse.fileName, "avatar.png");
-            assertEquals(yamlZip.fileName, "data.yaml", "非接口路由/文本类后缀保留");
+            assertEquals(yamlZip.fileName, "data.zip", "非容器格式的后缀以内容为准");
         } finally {
             deleteTempFile(pdfResponse);
             deleteTempFile(pngResponse);

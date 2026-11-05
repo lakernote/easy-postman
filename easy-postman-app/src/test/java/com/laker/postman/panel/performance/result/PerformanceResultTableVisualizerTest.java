@@ -16,11 +16,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class PerformanceResultTableVisualizerTest extends AbstractSwingUiTest {
 
     @Test
-    public void shouldRecordInterruptedStreamResultWhenResponseContainsCollectedMetrics() {
+    public void shouldShowInterruptedStreamResultAsCancelledWithoutCountingStats() {
         PerformanceStatsCollector statsCollector = new PerformanceStatsCollector();
         RecordingResultTablePanel tablePanel = new RecordingResultTablePanel();
         try {
@@ -49,13 +51,10 @@ public class PerformanceResultTableVisualizerTest extends AbstractSwingUiTest {
                     0L
             ), false);
 
-            PerformanceStatsSnapshot snapshot = statsCollector.snapshot();
-            assertEquals(snapshot.totalRequests(), 1L);
-            assertEquals(snapshot.successRequests(), 0L);
-            assertEquals(snapshot.summaries().get(0).sentMessages(), 12L);
-            assertEquals(snapshot.summaries().get(0).receivedMessages(), 7L);
-            assertEquals(snapshot.summaries().get(0).matchedMessages(), 3L);
-            assertEquals(tablePanel.recordedRows, 1);
+            assertEquals(statsCollector.snapshot().totalRequests(), 0L, "取消的采样不计入统计");
+            assertEquals(tablePanel.recordedRows, 1, "取消的采样仍显示在结果表");
+            assertTrue(tablePanel.lastResult.cancelled);
+            assertFalse(tablePanel.lastResult.isActuallySuccessful());
         } finally {
             tablePanel.dispose();
         }
@@ -110,15 +109,18 @@ public class PerformanceResultTableVisualizerTest extends AbstractSwingUiTest {
 
     private static final class RecordingResultTablePanel extends PerformanceResultTablePanel {
         private int recordedRows;
+        private ResultNodeInfo lastResult;
 
         @Override
         public void addResult(ResultNodeInfo info) {
             recordedRows++;
+            lastResult = info;
         }
 
         @Override
         public void addResult(ResultNodeInfo info, boolean compactRetention) {
             recordedRows++;
+            lastResult = info;
         }
     }
 }

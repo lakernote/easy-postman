@@ -27,6 +27,10 @@ public class OkHttpExchangeEventListenerLoggingTest {
         Logger logger = (Logger) LoggerFactory.getLogger(OkHttpExchangeEventListener.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
+        Level originalLevel = logger.getLevel();
+        boolean originalAdditive = logger.isAdditive();
+        logger.setLevel(Level.WARN);
+        logger.setAdditive(false);
         logger.addAppender(appender);
         try {
             HttpRuntimeSettingsProvider.set(new HttpRuntimeSettings() {
@@ -70,6 +74,8 @@ public class OkHttpExchangeEventListenerLoggingTest {
         } finally {
             HttpRuntimeSettingsProvider.reset();
             logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            logger.setAdditive(originalAdditive);
             appender.stop();
         }
     }

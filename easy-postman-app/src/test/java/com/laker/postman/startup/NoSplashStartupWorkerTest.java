@@ -40,6 +40,7 @@ public class NoSplashStartupWorkerTest {
                 "-Djava.awt.headless=true",
                 "-Duser.home=" + directory,
                 "-DCONSOLE_LOG_LEVEL=ERROR",
+                "-Dtest.log.level=ERROR",
                 "-cp", System.getProperty("java.class.path"),
                 StartupProbe.class.getName(), mode
         ).redirectErrorStream(true).start();

@@ -78,9 +78,8 @@ git checkout -b fix/your-bug-fix
 # 3. 进行开发
 # ... 编码 ...
 
-# 4. 编译测试
+# 4. 编译测试（package 已包含测试；测试日志默认关闭，排查时加 -Dtest.log.level=DEBUG）
 mvn clean package
-mvn test
 
 # 5. 提交代码
 git add .

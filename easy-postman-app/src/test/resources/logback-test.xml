@@ -6,7 +6,8 @@
         </encoder>
     </appender>
 
-    <root level="WARN">
+    <!-- 测试默认静默，排查时使用 -Dtest.log.level=DEBUG 打开 -->
+    <root level="${test.log.level:-OFF}">
         <appender-ref ref="console"/>
     </root>
 </configuration>

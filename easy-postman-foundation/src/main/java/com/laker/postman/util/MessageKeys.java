@@ -58,6 +58,8 @@ public final class MessageKeys {
     public static final String UPDATE_CANCEL_DOWNLOAD = "update.cancel_download";
     public static final String UPDATE_DOWNLOAD_CANCELLED = "update.download_cancelled";
     public static final String UPDATE_DOWNLOAD_FAILED = "update.download_failed";
+    public static final String UPDATE_DOWNLOAD_IN_PROGRESS = "update.download_in_progress";
+    public static final String UPDATE_INSTALL_FAILED = "update.install_failed";
     public static final String UPDATE_NO_INSTALLER_FOUND = "update.no_installer_found";
     public static final String UPDATE_WHATS_NEW = "update.whats_new";
     public static final String UPDATE_SAVE_TIP = "update.save_tip";

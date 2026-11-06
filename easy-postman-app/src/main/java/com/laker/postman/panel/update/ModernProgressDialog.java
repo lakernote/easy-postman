@@ -166,10 +166,17 @@ public class ModernProgressDialog {
 
     public void updateProgress(int percentage, long downloaded, long total, double speed) {
         SwingUtilities.invokeLater(() -> {
-            progressBar.setValue(percentage);
-            percentLabel.setText(percentage + "%");
+            boolean totalKnown = total > 0;
+            progressBar.setIndeterminate(!totalKnown);
+            if (totalKnown) {
+                progressBar.setValue(percentage);
+                percentLabel.setText(percentage + "%");
+                sizeLabel.setText(formatBytes(downloaded) + " / " + formatBytes(total));
+            } else {
+                percentLabel.setText("--");
+                sizeLabel.setText(formatBytes(downloaded));
+            }
             statusLabel.setText(I18nUtil.getMessage(MessageKeys.UPDATE_DOWNLOADING));
-            sizeLabel.setText(formatBytes(downloaded) + " / " + formatBytes(total));
             speedLabel.setText(formatSpeed(speed));
         });
     }
@@ -208,6 +215,7 @@ public class ModernProgressDialog {
     }
 
     private void showOnEdt() {
+        progressBar.setIndeterminate(false);
         progressBar.setValue(0);
         percentLabel.setText("0%");
         statusLabel.setText(I18nUtil.getMessage(MessageKeys.UPDATE_CONNECTING));

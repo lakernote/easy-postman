@@ -21,8 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class VersionChecker {
 
-    private static final String SOURCE_KEY = "_source";
-
     private final UpdateSourceSelector sourceSelector;
     private final PlatformDownloadUrlResolver downloadUrlResolver;
 
@@ -58,7 +56,7 @@ public class VersionChecker {
             }
 
             String latestVersion = releaseInfo.getStr("tag_name");
-            String sourceName = releaseInfo.getStr(SOURCE_KEY, "unknown");
+            String sourceName = releaseInfo.getStr(UpdateSource.SOURCE_METADATA_KEY, "unknown");
             log.info("Current version: {}, Latest version: {} (from {})", currentVersion, latestVersion, sourceName);
 
             if (latestVersion == null) {
@@ -98,7 +96,7 @@ public class VersionChecker {
             return null;
         }
 
-        String source = releaseInfo.getStr(SOURCE_KEY, "unknown");
+        String source = releaseInfo.getStr(UpdateSource.SOURCE_METADATA_KEY, "unknown");
         String downloadUrl = downloadUrlResolver.resolveDownloadUrl(assets);
 
         if (downloadUrl != null) {

@@ -10,6 +10,9 @@ import cn.hutool.json.JSONObject;
  */
 public interface UpdateSource {
 
+    /** 发布信息中标记来源的内部字段。 */
+    String SOURCE_METADATA_KEY = "_source";
+
     /**
      * 获取更新源的名称
      *
@@ -51,6 +54,18 @@ public interface UpdateSource {
      * @return 发布信息的 JSON 对象，如果获取失败返回 null
      */
     JSONObject fetchLatestReleaseInfo();
+
+    /**
+     * 按发布标签获取单个版本信息。
+     *
+     * <p>不支持按标签查询的自定义更新源可以保留默认实现。</p>
+     *
+     * @param tagName 完整发布标签，例如 {@code v6.3.1}
+     * @return 对应发布信息；标签不存在、请求失败或当前更新源不支持时返回 {@code null}
+     */
+    default JSONObject fetchReleaseByTag(String tagName) {
+        return null;
+    }
 
     /**
      * 获取所有版本发布信息

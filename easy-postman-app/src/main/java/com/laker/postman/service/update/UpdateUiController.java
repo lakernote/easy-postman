@@ -8,6 +8,7 @@ import com.laker.postman.panel.update.AutoUpdateNotification;
 import com.laker.postman.panel.update.ModernProgressDialog;
 import com.laker.postman.panel.update.ModernUpdateDialog;
 import com.laker.postman.panel.update.NoAssetDialog;
+import com.laker.postman.platform.update.asset.FallbackDownloadUrlResolver;
 import com.laker.postman.platform.update.asset.PlatformDownloadUrlResolver;
 import com.laker.postman.platform.update.source.UpdateSource;
 import com.laker.postman.platform.update.source.UpdateSourceSelector;
@@ -31,11 +32,13 @@ public class UpdateUiController {
     private final UpdateDownloader downloader;
     private final UpdateSourceSelector sourceSelector;
     private final PlatformDownloadUrlResolver downloadUrlResolver;
+    private final FallbackDownloadUrlResolver fallbackDownloadUrlResolver;
 
     public UpdateUiController() {
         this.downloader = new UpdateDownloader();
         this.sourceSelector = new UpdateSourceSelector(SettingManager::getUpdateSourcePreference);
         this.downloadUrlResolver = new PlatformDownloadUrlResolver();
+        this.fallbackDownloadUrlResolver = new FallbackDownloadUrlResolver(sourceSelector);
     }
 
     /**
@@ -169,7 +172,7 @@ public class UpdateUiController {
         }
 
         // 直接开始全量更新
-        startAutomaticUpdate(installerUrl);
+        startAutomaticUpdate(updateInfo, installerUrl);
     }
 
     /**
@@ -185,9 +188,10 @@ public class UpdateUiController {
      * 这样进度回调的 invokeLater 就能正常排进 EDT 队列，进度条才会滚动。
      * </p>
      *
+     * @param updateInfo  更新发布信息
      * @param downloadUrl 下载链接
      */
-    private void startAutomaticUpdate(String downloadUrl) {
+    private void startAutomaticUpdate(UpdateInfo updateInfo, String downloadUrl) {
         if (downloadUrl == null) {
             NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.UPDATE_NO_INSTALLER_FOUND));
             return;
@@ -200,32 +204,43 @@ public class UpdateUiController {
         progressDialog.setOnCancelListener(downloader::cancel);
 
         // 2. 先在后台线程启动下载
-        downloader.downloadAsync(downloadUrl, new UpdateDownloader.DownloadProgressCallback() {
-            @Override
-            public void onProgress(int percentage, long downloaded, long total, double speed) {
-                // show() 阻塞 EDT，invokeLater 排队后等 EDT 空出来就会执行
-                progressDialog.updateProgress(percentage, downloaded, total, speed);
-            }
+        String primarySourceName = updateInfo.getReleaseInfo() == null ? null
+                : updateInfo.getReleaseInfo().getStr(UpdateSource.SOURCE_METADATA_KEY);
+        try {
+            downloader.downloadAsync(
+                    downloadUrl,
+                    () -> fallbackDownloadUrlResolver.resolve(updateInfo.getLatestVersion(), primarySourceName),
+                    new UpdateDownloader.DownloadProgressCallback() {
+                        @Override
+                        public void onProgress(int percentage, long downloaded, long total, double speed) {
+                            // show() 阻塞 EDT，invokeLater 排队后等 EDT 空出来就会执行
+                            progressDialog.updateProgress(percentage, downloaded, total, speed);
+                        }
 
-            @Override
-            public void onCompleted(File downloadedFile) {
-                progressDialog.hide(); // 解除 modal 阻塞
-                SwingUtilities.invokeLater(() -> showInstallPrompt(downloadedFile));
-            }
+                        @Override
+                        public void onCompleted(File downloadedFile) {
+                            progressDialog.hide(); // 解除 modal 阻塞
+                            SwingUtilities.invokeLater(() -> showInstallPrompt(downloadedFile));
+                        }
 
-            @Override
-            public void onError(String errorMessage) {
-                progressDialog.hide(); // 解除 modal 阻塞
-                SwingUtilities.invokeLater(() -> NotificationCenter.showError(errorMessage));
-            }
+                        @Override
+                        public void onError(String errorMessage) {
+                            progressDialog.hide(); // 解除 modal 阻塞
+                            SwingUtilities.invokeLater(() -> NotificationCenter.showError(errorMessage));
+                        }
 
-            @Override
-            public void onCancelled() {
-                // triggerCancel() 已经调了 hideNow()，这里只需通知
-                SwingUtilities.invokeLater(() ->
-                        NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.UPDATE_DOWNLOAD_CANCELLED)));
-            }
-        });
+                        @Override
+                        public void onCancelled() {
+                            // triggerCancel() 已经调了 hideNow()，这里只需通知
+                            SwingUtilities.invokeLater(() -> NotificationCenter.showInfo(
+                                    I18nUtil.getMessage(MessageKeys.UPDATE_DOWNLOAD_CANCELLED)));
+                        }
+                    });
+        } catch (UpdateDownloader.DownloadInProgressException ex) {
+            progressDialog.hide();
+            NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.UPDATE_DOWNLOAD_IN_PROGRESS));
+            return;
+        }
 
         // 3. 最后 show() — modal 阻塞 EDT，直到 hide() 被调用才返回
         //    此方法本身已经在 EDT 上（由 showUpdateTypeSelectionAndStart -> SwingUtilities.invokeLater 保证）
@@ -248,14 +263,17 @@ public class UpdateUiController {
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE);
 
-        if (choice == JOptionPane.YES_OPTION) {
-            downloader.installUpdate(installerFile, success -> {
-                if (!success) {
-                    SwingUtilities.invokeLater(() -> NotificationCenter.showError(I18nUtil.isChinese()
-                            ? "更新失败，请手动下载最新版本。"
-                            : "Update failed. Please download the latest version manually."));
-                }
-            });
+        if (choice != JOptionPane.YES_OPTION) {
+            downloader.discardDownloadedInstaller(installerFile);
+            return;
         }
+
+        downloader.installUpdate(installerFile, success -> {
+            if (!success) {
+                downloader.discardDownloadedInstaller(installerFile);
+                SwingUtilities.invokeLater(() -> NotificationCenter.showError(
+                        I18nUtil.getMessage(MessageKeys.UPDATE_INSTALL_FAILED)));
+            }
+        });
     }
 }

@@ -132,6 +132,23 @@ public class UpdateSourceSelector {
     }
 
     /**
+     * 根据发布信息中的来源名称获取备用源。
+     * 未知来源不做猜测，避免把下载请求发往错误的镜像。
+     */
+    public UpdateSource getFallbackSource(String primarySourceName) {
+        if (primarySourceName == null) {
+            return null;
+        }
+        if (githubSource.getName().equalsIgnoreCase(primarySourceName)) {
+            return giteeSource;
+        }
+        if (giteeSource.getName().equalsIgnoreCase(primarySourceName)) {
+            return githubSource;
+        }
+        return null;
+    }
+
+    /**
      * 清除缓存的最佳源
      */
     public void clearCache() {

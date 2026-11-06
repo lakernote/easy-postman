@@ -14,6 +14,7 @@ import java.util.List;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class AbstractUpdateSourceTest {
@@ -43,6 +44,50 @@ public class AbstractUpdateSourceTest {
             assertTrue(requestedQueries.get(0).contains("per_page=21"));
             assertTrue(requestedQueries.get(0).contains("page=1"));
             assertTrue(requestedQueries.get(1).contains("page=2"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void shouldFetchReleaseDirectlyByEncodedTag() throws IOException {
+        List<String> requestedRawPaths = new ArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/releases/tags", exchange -> {
+            requestedRawPaths.add(exchange.getRequestURI().getRawPath());
+            writeJson(exchange, release("v6.3.1+build/test"));
+        });
+        server.start();
+
+        try {
+            TestUpdateSource source = new TestUpdateSource(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/releases?direction=desc");
+
+            JSONObject release = source.fetchReleaseByTag("v6.3.1+build/test");
+
+            assertNotNull(release);
+            assertEquals(release.getStr("tag_name"), "v6.3.1+build/test");
+            assertEquals(release.getStr(UpdateSource.SOURCE_METADATA_KEY), "Test");
+            assertEquals(requestedRawPaths, List.of("/releases/tags/v6.3.1%2Bbuild%2Ftest"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void shouldReturnNullWhenReleaseTagDoesNotExist() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/releases/tags", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            TestUpdateSource source = new TestUpdateSource(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/releases");
+
+            assertNull(source.fetchReleaseByTag("v9.9.9"));
         } finally {
             server.stop(0);
         }
@@ -81,8 +126,8 @@ public class AbstractUpdateSourceTest {
         return release;
     }
 
-    private static void writeJson(HttpExchange exchange, JSONArray releases) throws IOException {
-        byte[] response = releases.toString().getBytes(StandardCharsets.UTF_8);
+    private static void writeJson(HttpExchange exchange, Object body) throws IOException {
+        byte[] response = body.toString().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, response.length);
         exchange.getResponseBody().write(response);

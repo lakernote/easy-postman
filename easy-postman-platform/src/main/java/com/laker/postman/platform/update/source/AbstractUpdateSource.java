@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
@@ -33,9 +34,6 @@ public abstract class AbstractUpdateSource implements UpdateSource {
 
     /** 获取发布信息时的读取超时时间（毫秒） */
     protected static final int FETCH_READ_TIMEOUT = 10000;
-
-    /** 源标识键 */
-    protected static final String SOURCE_KEY = "_source";
 
     @Override
     public long testConnectionSpeed() {
@@ -83,9 +81,42 @@ public abstract class AbstractUpdateSource implements UpdateSource {
         }
 
         JSONObject releaseInfo = releases.getJSONObject(0);
-        releaseInfo.set(SOURCE_KEY, getName());
+        releaseInfo.set(SOURCE_METADATA_KEY, getName());
         log.info("Selected latest stable app release from {}", getName());
         return releaseInfo;
+    }
+
+    @Override
+    public JSONObject fetchReleaseByTag(String tagName) {
+        if (tagName == null || tagName.isBlank()) {
+            return null;
+        }
+
+        HttpURLConnection conn = null;
+        try {
+            conn = openFetchConnection(new URL(buildReleaseByTagApiUrl(tagName)));
+            int code = conn.getResponseCode();
+            if (code == HttpURLConnection.HTTP_OK) {
+                JSONObject releaseInfo = new JSONObject(readResponse(conn));
+                releaseInfo.set(SOURCE_METADATA_KEY, getName());
+                log.info("Successfully fetched release {} from {}", tagName, getName());
+                return releaseInfo;
+            }
+
+            String errorResponse = readErrorResponse(conn);
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) {
+                log.info("Release {} is not available from {}", tagName, getName());
+            } else {
+                log.warn("Failed to fetch release {} from {}, HTTP code: {}, response: {}",
+                        tagName, getName(), code, errorResponse);
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("Error fetching release {} from {}: {}", tagName, getName(), e.getMessage());
+            return null;
+        } finally {
+            closeConnection(conn);
+        }
     }
 
     @Override
@@ -133,14 +164,7 @@ public abstract class AbstractUpdateSource implements UpdateSource {
             url += (url.contains("?") ? "&" : "?") + "page=" + page;
 
             URL apiUrl = new URL(url);
-            conn = (HttpURLConnection) apiUrl.openConnection();
-            conn.setConnectTimeout(FETCH_CONNECTION_TIMEOUT);
-            conn.setReadTimeout(FETCH_READ_TIMEOUT);
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("User-Agent", buildUserAgent());
-            conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-            conn.setRequestProperty("Cache-Control", "no-cache");
+            conn = openFetchConnection(apiUrl);
 
             int code = conn.getResponseCode();
             if (code == 200) {
@@ -168,6 +192,35 @@ public abstract class AbstractUpdateSource implements UpdateSource {
             return 100;
         }
         return Math.min(100, Math.max(requestedLimit * 5, requestedLimit + 20));
+    }
+
+    /**
+     * 构造按标签查询单个发布的 API 地址。GitHub 与 Gitee 均采用
+     * {@code /releases/tags/{tag}} 路径；查询参数不属于基础路径，需要先移除。
+     */
+    protected String buildReleaseByTagApiUrl(String tagName) {
+        String releasesUrl = getAllReleasesApiUrl();
+        int queryStart = releasesUrl.indexOf('?');
+        if (queryStart >= 0) {
+            releasesUrl = releasesUrl.substring(0, queryStart);
+        }
+        if (releasesUrl.endsWith("/")) {
+            releasesUrl = releasesUrl.substring(0, releasesUrl.length() - 1);
+        }
+        String encodedTag = URLEncoder.encode(tagName, StandardCharsets.UTF_8).replace("+", "%20");
+        return releasesUrl + "/tags/" + encodedTag;
+    }
+
+    private HttpURLConnection openFetchConnection(URL apiUrl) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) apiUrl.openConnection();
+        conn.setConnectTimeout(FETCH_CONNECTION_TIMEOUT);
+        conn.setReadTimeout(FETCH_READ_TIMEOUT);
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setRequestProperty("User-Agent", buildUserAgent());
+        conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+        conn.setRequestProperty("Cache-Control", "no-cache");
+        return conn;
     }
 
     /**

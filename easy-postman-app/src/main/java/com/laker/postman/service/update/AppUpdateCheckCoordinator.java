@@ -70,6 +70,8 @@ public class AppUpdateCheckCoordinator {
         String osInfo = SystemUtil.getOsInfo();
         log.info("Detected operating system: \n{} ", osInfo);
 
+        UPDATE_EXECUTOR.execute(() -> UpdateInstallerFileStore.forCurrentUser().cleanupStale());
+
         UpdatePolicy policy = updateCenter.policy(UpdateTarget.APP);
         if (!policy.enabled()) {
             log.info("Auto-update check is disabled");

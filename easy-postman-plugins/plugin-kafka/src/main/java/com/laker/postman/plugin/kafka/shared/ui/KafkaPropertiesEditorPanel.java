@@ -7,12 +7,13 @@ import com.laker.postman.util.FontsUtil;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.util.function.Supplier;
 
 public class KafkaPropertiesEditorPanel extends JPanel {
 
     private final PlaceholderTextArea textArea;
 
-    public KafkaPropertiesEditorPanel(String title, String hint, String placeholder, Color separatorColor, Color hintColor) {
+    public KafkaPropertiesEditorPanel(String title, String hint, String placeholder, Supplier<Color> hintColor) {
         super(new BorderLayout(0, 0));
         setOpaque(false);
 
@@ -23,9 +24,8 @@ public class KafkaPropertiesEditorPanel extends JPanel {
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, -2));
 
-        JLabel hintLabel = new JLabel(hint);
+        JLabel hintLabel = new ThemedLabel(hint, hintColor);
         hintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -3));
-        hintLabel.setForeground(hintColor);
 
         JPanel labels = new JPanel(new BorderLayout(0, 2));
         labels.setOpaque(false);

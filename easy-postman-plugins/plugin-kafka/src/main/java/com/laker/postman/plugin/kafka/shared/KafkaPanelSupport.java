@@ -5,11 +5,13 @@ import com.laker.postman.plugin.kafka.consumer.KafkaConsumeStartMode;
 import com.laker.postman.util.JsonUtil;
 import com.laker.postman.common.component.notification.NotificationCenter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 
@@ -63,6 +65,50 @@ public final class KafkaPanelSupport {
 
     public static String escapeJaasValue(String text) {
         return text.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    public static boolean isSaslProtocol(String securityProtocol) {
+        return securityProtocol != null && securityProtocol.startsWith("SASL");
+    }
+
+    /**
+     * 构建 Admin/Producer/Consumer 共用的连接属性（bootstrap、client.id、security.protocol、SASL JAAS）。
+     */
+    public static Properties buildClientProperties(String bootstrapServers,
+                                                   String clientId,
+                                                   String securityProtocol,
+                                                   String saslMechanism,
+                                                   String username,
+                                                   String password,
+                                                   String missingCredentialMessage) {
+        Properties props = new Properties();
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        if (clientId != null && !clientId.isBlank()) {
+            props.put(CommonClientConfigs.CLIENT_ID_CONFIG, clientId);
+        }
+        props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol);
+        if (isSaslProtocol(securityProtocol)) {
+            if (username == null || username.isBlank() || password == null || password.isBlank()) {
+                throw new IllegalArgumentException(missingCredentialMessage);
+            }
+            String loginModule = saslMechanism.startsWith("SCRAM")
+                    ? "org.apache.kafka.common.security.scram.ScramLoginModule"
+                    : "org.apache.kafka.common.security.plain.PlainLoginModule";
+            props.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
+            props.put(SaslConfigs.SASL_JAAS_CONFIG, loginModule
+                    + " required username=\"" + escapeJaasValue(username)
+                    + "\" password=\"" + escapeJaasValue(password) + "\";");
+        }
+        return props;
+    }
+
+    public static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String msg = current.getMessage();
+        return (msg == null || msg.isBlank()) ? current.toString() : msg;
     }
 
     public static Long parseConsumeStartValue(KafkaConsumeStartMode consumeStartMode, String startValueText) {

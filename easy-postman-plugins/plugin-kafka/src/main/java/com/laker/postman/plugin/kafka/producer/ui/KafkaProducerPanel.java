@@ -2,7 +2,9 @@ package com.laker.postman.plugin.kafka.producer.ui;
 
 import com.formdev.flatlaf.FlatClientProperties;
 import com.laker.postman.plugin.kafka.MessageKeys;
+import com.laker.postman.plugin.kafka.shared.ui.ThemedLabel;
 import com.laker.postman.plugin.kafka.shared.ui.KafkaPropertiesEditorPanel;
+import com.laker.postman.plugin.kafka.shared.ui.KafkaSwingSupport;
 import com.laker.postman.common.component.PlaceholderTextArea;
 import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
 import com.laker.postman.common.component.SearchableTextArea;
@@ -13,7 +15,6 @@ import com.laker.postman.common.component.button.CompactPrimaryButton;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.FontsUtil;
-import com.laker.postman.util.IconUtil;
 import net.miginfocom.swing.MigLayout;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -36,22 +37,15 @@ public class KafkaProducerPanel extends JPanel {
     public final RSyntaxTextArea payloadArea;
     public final KafkaPropertiesEditorPanel customPropsPanel;
     public final CompactPrimaryButton sendBtn;
-    public final JLabel statusLabel;
+    public final ThemedLabel statusLabel;
     public final JPanel advancedPanel;
 
     public KafkaProducerPanel(Runnable sendAction) {
         super(new BorderLayout(0, 0));
         setOpaque(false);
 
-        JToggleButton advancedToggleBtn = new JToggleButton();
-        advancedToggleBtn.setIcon(IconUtil.createThemed("icons/more.svg", 16, 16));
-        advancedToggleBtn.setSelectedIcon(IconUtil.createColored("icons/more.svg", 16, 16, ModernColors.getPrimary()));
-        advancedToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_ADVANCED_OPTIONS));
-        advancedToggleBtn.setSelected(false);
-        advancedToggleBtn.setPreferredSize(new Dimension(28, 28));
-        advancedToggleBtn.setFocusable(false);
-        advancedToggleBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        advancedToggleBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        JToggleButton advancedToggleBtn = KafkaSwingSupport.toolbarToggle(
+                "icons/more.svg", t(MessageKeys.TOOLBOX_KAFKA_ADVANCED_OPTIONS));
 
         JPanel form = new JPanel(new MigLayout(
                 "insets 4 6 4 6, fillx, novisualpadding",
@@ -70,6 +64,7 @@ public class KafkaProducerPanel extends JPanel {
 
         partitionSpinner = new JSpinner(new SpinnerNumberModel(-1, -1, Integer.MAX_VALUE, 1));
         partitionSpinner.setPreferredSize(new Dimension(90, 30));
+        partitionSpinner.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_PARTITION_AUTO_TOOLTIP));
 
         sendBtn = new CompactPrimaryButton(t(MessageKeys.TOOLBOX_KAFKA_SEND), "icons/send.svg");
         sendBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_SEND));
@@ -79,7 +74,9 @@ public class KafkaProducerPanel extends JPanel {
         form.add(topicField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_KEY)));
         form.add(keyField, MIG_GROWX);
-        form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_PARTITION)));
+        JLabel partitionLabel = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_PARTITION));
+        partitionLabel.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_PARTITION_AUTO_TOOLTIP));
+        form.add(partitionLabel);
         form.add(partitionSpinner, "w 90!");
         form.add(sendBtn);
         form.add(advancedToggleBtn);
@@ -88,8 +85,7 @@ public class KafkaProducerPanel extends JPanel {
                 t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_CUSTOM_PROPERTIES),
                 t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_CUSTOM_PROPERTIES_HINT),
                 t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_CUSTOM_PROPERTIES_PLACEHOLDER),
-                ModernColors.getDividerBorderColor(),
-                ModernColors.getTextSecondary());
+                ModernColors::getTextSecondary);
         advancedPanel = customPropsPanel;
         advancedPanel.setVisible(false);
         advancedToggleBtn.addActionListener(e -> advancedPanel.setVisible(advancedToggleBtn.isSelected()));
@@ -117,7 +113,7 @@ public class KafkaProducerPanel extends JPanel {
         JPanel payloadHeader = new JPanel(new MigLayout("insets 4 8 4 8, fillx", "[]push[]", "[]"));
         ToolWindowSurfaceStyle.applySectionHeader(payloadHeader);
         JLabel payloadLbl = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_PAYLOAD));
-        payloadLbl.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        payloadLbl.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, -2));
         ClearButton clearButton = new ClearButton();
         clearButton.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_CLEAR_PAYLOAD));
         payloadHeader.add(payloadLbl);
@@ -147,8 +143,7 @@ public class KafkaProducerPanel extends JPanel {
         editorSplit.setDividerLocation(100);
         editorSplit.setResizeWeight(0.25);
 
-        statusLabel = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_READY));
-        statusLabel.setForeground(ModernColors.getTextSecondary());
+        statusLabel = new ThemedLabel(t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_READY), ModernColors::getTextSecondary);
         statusLabel.setBorder(new EmptyBorder(4, 8, 4, 8));
 
         JPanel content = new JPanel(new BorderLayout(0, 0));

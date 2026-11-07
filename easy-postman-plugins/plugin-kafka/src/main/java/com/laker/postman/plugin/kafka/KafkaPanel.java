@@ -10,6 +10,7 @@ import com.laker.postman.plugin.kafka.consumer.KafkaConsumedMessage;
 import com.laker.postman.plugin.kafka.consumer.ui.KafkaConsumerPanel;
 import com.laker.postman.plugin.kafka.producer.ui.KafkaProducerPanel;
 import com.laker.postman.plugin.kafka.shared.KafkaPanelSupport;
+import com.laker.postman.plugin.kafka.shared.ui.KafkaSwingSupport;
 import com.laker.postman.plugin.kafka.ui.KafkaTopicItem;
 import com.laker.postman.plugin.kafka.ui.KafkaTopicPanel;
 import com.laker.postman.common.component.ToolWindowChrome;
@@ -18,16 +19,16 @@ import com.laker.postman.common.component.dialog.TextInputDialog;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.*;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.DescribeClusterResult;
+import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -42,6 +43,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static com.laker.postman.plugin.kafka.KafkaI18n.t;
 
@@ -51,8 +53,6 @@ import static com.laker.postman.plugin.kafka.KafkaI18n.t;
 @Slf4j
 public class KafkaPanel extends JPanel {
 
-    private static final String CARD_CONNECT = "connect";
-    private static final String CARD_DISCONNECT = "disconnect";
     private static final String TIMEOUT_MS = String.valueOf(KafkaPanelSupport.CLIENT_TIMEOUT_MS);
     private static final long PRODUCER_DELIVERY_TIMEOUT_MS = 15_000L;
     private static final long ADMIN_FUTURE_WAIT_MS = KafkaPanelSupport.futureWaitMs(KafkaPanelSupport.CLIENT_TIMEOUT_MS);
@@ -79,6 +79,15 @@ public class KafkaPanel extends JPanel {
     private final KafkaConnectionProfileStore connectionProfileStore;
     private final Map<String, KafkaConnectionProfile> connectionProfilesByName = new LinkedHashMap<>();
     private boolean loadingConnectionProfiles;
+    /**
+     * Topic 加载代次（仅在 EDT 读写）。每次连接/刷新与断开都会递增，后台任务完成时代次不一致则丢弃结果，
+     * 避免断开后或被新刷新取代的旧任务把界面改回"已连接"。
+     */
+    private int topicLoadGeneration;
+    /**
+     * 最近一次成功加载 Topic 的地址；未连接时为 null。用于作废加载后恢复准确的连接状态。
+     */
+    private String connectedBootstrap;
 
     public KafkaPanel() {
         this(PluginStorage.noop());
@@ -94,7 +103,7 @@ public class KafkaPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         ToolWindowSurfaceStyle.applyCard(this);
 
-        connectionPanel = new KafkaConnectionPanel(this::loadTopics, this::doDisconnect);
+        connectionPanel = new KafkaConnectionPanel(this::loadTopics, this::doDisconnect, this::testConnection);
         connectionPanel.profileCombo.addActionListener(e -> applySelectedConnectionProfile());
         connectionPanel.newProfileBtn.addActionListener(e -> createNewConnectionProfile());
         connectionPanel.saveProfileBtn.addActionListener(e -> saveCurrentConnectionProfile(true));
@@ -108,42 +117,12 @@ public class KafkaPanel extends JPanel {
         consumerPanel.messageTablePanel.setViewDataChangedListener(this::updateDetailBySelection);
         consumerPanel.autoOffsetCombo.addActionListener(e -> updateConsumeStartValueEnabledState());
         topicPanel = new KafkaTopicPanel(this::loadTopics, this::applyTopicSelection);
-        consumerPanel.topicField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                syncPartitionSelector();
-            }
-
-            @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                syncPartitionSelector();
-            }
-
-            @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
-                syncPartitionSelector();
-            }
-        });
+        KafkaSwingSupport.onTextChange(consumerPanel.topicField, this::syncPartitionSelector);
         updateSecurityFieldsEnabledState();
         updateConsumeStartValueEnabledState();
         syncPartitionSelector();
         updateEditorFont();
-        topicPanel.topicSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                applyTopicFilter();
-            }
-
-            @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                applyTopicFilter();
-            }
-
-            @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
-                applyTopicFilter();
-            }
-        });
+        KafkaSwingSupport.onTextChange(topicPanel.topicSearchField, this::applyTopicFilter);
 
         add(connectionPanel, BorderLayout.NORTH);
 
@@ -200,11 +179,7 @@ public class KafkaPanel extends JPanel {
 
 
     private void updateSecurityFieldsEnabledState() {
-        boolean saslEnabled = selectedSecurityProtocol().startsWith("SASL");
-        connectionPanel.saslMechanismCombo.setEnabled(saslEnabled);
-        connectionPanel.usernameField.setEnabled(saslEnabled);
-        connectionPanel.passwordField.setEnabled(saslEnabled);
-        connectionPanel.setOptionsVisible(true);
+        connectionPanel.setSaslFieldsEnabled(KafkaPanelSupport.isSaslProtocol(selectedSecurityProtocol()));
     }
 
     private void registerConnectionProfileShortcuts(JComponent component) {
@@ -254,7 +229,6 @@ public class KafkaPanel extends JPanel {
         if (legacyBootstrap != null && !legacyBootstrap.isBlank()) {
             connectionPanel.bootstrapField.setText(legacyBootstrap);
         }
-        connectionPanel.setOptionsVisible(true);
     }
 
     private KafkaConnectionProfile selectProfile(List<KafkaConnectionProfile> profiles, String preferredProfileId) {
@@ -291,7 +265,6 @@ public class KafkaPanel extends JPanel {
         connectionPanel.usernameField.setText(defaultString(profile.getUsername()));
         connectionPanel.passwordField.setText(defaultString(profile.getPassword()));
         updateSecurityFieldsEnabledState();
-        connectionPanel.setOptionsVisible(true);
     }
 
     private void createNewConnectionProfile() {
@@ -460,10 +433,10 @@ public class KafkaPanel extends JPanel {
         consumerPanel.consumeStartValueField.setEnabled(enabled);
         if (consumeStartMode == KafkaConsumeStartMode.TIMESTAMP) {
             consumerPanel.consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
-                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER) + " (e.g. 2024-01-01 00:00:00 or ms)");
+                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_TIMESTAMP_PLACEHOLDER));
         } else if (consumeStartMode == KafkaConsumeStartMode.OFFSET) {
             consumerPanel.consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
-                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER) + " (e.g. 100)");
+                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_OFFSET_PLACEHOLDER));
         } else {
             consumerPanel.consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER));
@@ -472,6 +445,8 @@ public class KafkaPanel extends JPanel {
     }
 
     private void loadTopics() {
+        // 任何新的连接/刷新提交（包括随后校验失败的）都先作废进行中的旧任务，避免旧配置的结果被当作当前状态
+        invalidatePendingTopicLoad();
         String bootstrap = connectionPanel.bootstrapField.getText().trim();
         if (bootstrap.isBlank()) {
             NotificationCenter.showWarning(t(MessageKeys.TOOLBOX_KAFKA_ERR_HOST_REQUIRED));
@@ -486,8 +461,10 @@ public class KafkaPanel extends JPanel {
             return;
         }
 
+        final int generation = topicLoadGeneration;
         connectionPanel.connectBtn.setEnabled(false);
-        setConnectionStatus(ModernColors.getInfo(), t(MessageKeys.TOOLBOX_KAFKA_STATUS_LOADING_TOPICS));
+        topicPanel.setLoading(true);
+        setConnectionStatus(ModernColors::getInfo, t(MessageKeys.TOOLBOX_KAFKA_STATUS_LOADING_TOPICS));
 
         SwingWorker<List<KafkaTopicItem>, Void> worker = new SwingWorker<>() {
             @Override
@@ -515,7 +492,12 @@ public class KafkaPanel extends JPanel {
 
             @Override
             protected void done() {
+                if (generation != topicLoadGeneration) {
+                    log.debug("Discard stale kafka topic load result, generation={}", generation);
+                    return;
+                }
                 connectionPanel.connectBtn.setEnabled(true);
+                topicPanel.setLoading(false);
                 try {
                     List<KafkaTopicItem> topics = get();
                     topicPartitionCountMap.clear();
@@ -530,23 +512,87 @@ public class KafkaPanel extends JPanel {
                         consumerPanel.topicField.setText(topics.get(0).name());
                     }
                     syncPartitionSelector();
-                    String status = t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECTED, bootstrap);
-                    setConnectionStatus(ModernColors.getSuccess(), status);
-                    connectionPanel.btnCardLayout.show(connectionPanel.btnCard, CARD_DISCONNECT);
-                    producerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_TOPICS_LOADED, topics.size()));
+                    topicPanel.setConnected(true);
+                    connectedBootstrap = bootstrap;
+                    setConnectionStatus(ModernColors::getSuccess, t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECTED, bootstrap));
+                    connectionPanel.showConnected(true);
                     NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_STATUS_TOPICS_LOADED, topics.size()));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("Load kafka topics interrupted", ex);
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
-                    setConnectionStatus(ModernColors.getError(), t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, describeFailure(cause)));
+                    setConnectionStatus(ModernColors::getError, t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, describeFailure(cause)));
                     NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, describeFailure(cause)));
                     log.warn("Load kafka topics failed", cause);
                 }
             }
         };
         worker.execute();
+    }
+
+    /**
+     * 仅验证当前表单配置能否连通集群，不加载 Topic、不改变已连接状态，适合保存配置前确认或已连接时验证另一组参数。
+     */
+    private void testConnection() {
+        final Properties baseProps;
+        try {
+            baseProps = buildCommonClientProperties();
+        } catch (IllegalArgumentException ex) {
+            NotificationCenter.showWarning(rootMessage(ex));
+            return;
+        }
+        JButton testBtn = connectionPanel.testConnectionBtn;
+        testBtn.setEnabled(false);
+        testBtn.setText(t(MessageKeys.TOOLBOX_KAFKA_TEST_CONNECTION_RUNNING));
+        final long startNanos = System.nanoTime();
+        new SwingWorker<String[], Void>() {
+            @Override
+            protected String[] doInBackground() throws Exception {
+                return KafkaClassLoaderSupport.withPluginContextClassLoader(() -> {
+                    Properties props = new Properties();
+                    props.putAll(baseProps);
+                    props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
+                    props.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
+                    try (AdminClient adminClient = AdminClient.create(props)) {
+                        // Apache Kafka 仅在 includeClusterAuthorizedOperations=true 时校验 Cluster Describe；
+                        // 兜底兼容更严格的第三方授权实现：认证已通过只是缺少集群描述权限，不应判定为连接失败
+                        DescribeClusterResult cluster = adminClient.describeCluster();
+                        try {
+                            String clusterId = cluster.clusterId().get(ADMIN_FUTURE_WAIT_MS, TimeUnit.MILLISECONDS);
+                            int brokers = cluster.nodes().get(ADMIN_FUTURE_WAIT_MS, TimeUnit.MILLISECONDS).size();
+                            return new String[]{clusterId == null ? "-" : clusterId, String.valueOf(brokers)};
+                        } catch (ExecutionException ex) {
+                            if (ex.getCause() instanceof ClusterAuthorizationException) {
+                                return null;
+                            }
+                            throw ex;
+                        }
+                    }
+                });
+            }
+
+            @Override
+            protected void done() {
+                testBtn.setEnabled(true);
+                testBtn.setText(t(MessageKeys.TOOLBOX_KAFKA_TEST_CONNECTION));
+                long costMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+                try {
+                    String[] result = get();
+                    if (result == null) {
+                        NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_TEST_CONNECTION_SUCCESS_NO_CLUSTER_ACL, costMs));
+                    } else {
+                        NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_TEST_CONNECTION_SUCCESS, result[0], result[1], costMs));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception ex) {
+                    Throwable cause = unwrapException(ex);
+                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_TEST_CONNECTION_FAILED, describeFailure(cause)));
+                    log.warn("Test kafka connection failed", cause);
+                }
+            }
+        }.execute();
     }
 
     private void applyTopicFilter() {
@@ -613,7 +659,7 @@ public class KafkaPanel extends JPanel {
                 producerProps.get(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG), PRODUCER_DELIVERY_TIMEOUT_MS));
 
         producerPanel.sendBtn.setEnabled(false);
-        producerPanel.statusLabel.setForeground(ModernColors.getTextSecondary());
+        producerPanel.statusLabel.setForegroundSupplier(ModernColors::getTextSecondary);
         producerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SENDING));
 
         SwingWorker<RecordMetadata, Void> worker = new SwingWorker<>() {
@@ -641,7 +687,7 @@ public class KafkaPanel extends JPanel {
                 try {
                     RecordMetadata metadata = get();
                     String msg = t(MessageKeys.TOOLBOX_KAFKA_STATUS_SENT, metadata.partition(), metadata.offset());
-                    producerPanel.statusLabel.setForeground(ModernColors.getSuccess());
+                    producerPanel.statusLabel.setForegroundSupplier(ModernColors::getSuccess);
                     producerPanel.statusLabel.setText(msg);
                     NotificationCenter.showSuccess(msg);
                 } catch (InterruptedException ex) {
@@ -651,7 +697,7 @@ public class KafkaPanel extends JPanel {
                     Throwable cause = unwrapException(ex);
                     // 发送失败时关闭缓存的 Producer，下次重建
                     closeAndClearCachedProducer();
-                    producerPanel.statusLabel.setForeground(ModernColors.getError());
+                    producerPanel.statusLabel.setForegroundSupplier(ModernColors::getError);
                     producerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, describeFailure(cause)));
                     NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, describeFailure(cause)));
                     log.warn("Send kafka message failed", cause);
@@ -750,7 +796,7 @@ public class KafkaPanel extends JPanel {
 
         clearConsumedMessages();
         setConsuming(true);
-        consumerPanel.statusLabel.setForeground(ModernColors.getTextSecondary());
+        consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getTextSecondary);
         consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUMING, topic));
 
         SwingWorker<Void, List<KafkaConsumedMessage>> worker = new SwingWorker<>() {
@@ -820,7 +866,7 @@ public class KafkaPanel extends JPanel {
                 }
                 trimConsumedMessages();
                 refreshMessageTable();
-                consumerPanel.statusLabel.setForeground(ModernColors.getInfo());
+                consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getInfo);
                 consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_RECORDS, consumedMessages.size()));
             }
 
@@ -828,20 +874,20 @@ public class KafkaPanel extends JPanel {
             protected void done() {
                 setConsuming(false);
                 if (isCancelled()) {
-                    consumerPanel.statusLabel.setForeground(ModernColors.getTextSecondary());
+                    consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getTextSecondary);
                     consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_STOPPED));
                     return;
                 }
                 try {
                     get();
-                    consumerPanel.statusLabel.setForeground(ModernColors.getTextSecondary());
+                    consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getTextSecondary);
                     consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_STOPPED));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("Consume kafka interrupted", ex);
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
-                    consumerPanel.statusLabel.setForeground(ModernColors.getError());
+                    consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getError);
                     consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUME_FAILED, describeFailure(cause)));
                     NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUME_FAILED, describeFailure(cause)));
                     log.warn("Consume kafka message failed", cause);
@@ -871,10 +917,10 @@ public class KafkaPanel extends JPanel {
         boolean consuming = worker != null && !worker.isDone();
         if (consuming) {
             String topic = consumerPanel.topicField.getText().trim();
-            consumerPanel.statusLabel.setForeground(ModernColors.getInfo());
+            consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getInfo);
             consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUMING, topic.isBlank() ? "-" : topic));
         } else {
-            consumerPanel.statusLabel.setForeground(ModernColors.getTextSecondary());
+            consumerPanel.statusLabel.setForegroundSupplier(ModernColors::getTextSecondary);
             consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_READY));
         }
     }
@@ -1070,36 +1116,14 @@ public class KafkaPanel extends JPanel {
         if (bootstrap.isBlank()) {
             throw new IllegalArgumentException(t(MessageKeys.TOOLBOX_KAFKA_ERR_HOST_REQUIRED));
         }
-
-        Properties props = new Properties();
-        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
-
-        String clientId = connectionPanel.clientIdField.getText().trim();
-        if (!clientId.isBlank()) {
-            props.put(CommonClientConfigs.CLIENT_ID_CONFIG, clientId);
-        }
-
-        String securityProtocol = selectedSecurityProtocol();
-        props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol);
-
-        if (securityProtocol.startsWith("SASL")) {
-            String username = connectionPanel.usernameField.getText().trim();
-            String password = new String(connectionPanel.passwordField.getPassword());
-            if (username.isBlank() || password.isBlank()) {
-                throw new IllegalArgumentException(t(MessageKeys.TOOLBOX_KAFKA_ERR_SASL_CREDENTIAL_REQUIRED));
-            }
-
-            String mechanism = selectedSaslMechanism();
-            props.put(SaslConfigs.SASL_MECHANISM, mechanism);
-            String loginModule = mechanism.startsWith("SCRAM")
-                    ? "org.apache.kafka.common.security.scram.ScramLoginModule"
-                    : "org.apache.kafka.common.security.plain.PlainLoginModule";
-            props.put(SaslConfigs.SASL_JAAS_CONFIG,
-                    loginModule + " required username=\"" + KafkaPanelSupport.escapeJaasValue(username)
-                            + "\" password=\"" + KafkaPanelSupport.escapeJaasValue(password) + "\";");
-        }
-
-        return props;
+        return KafkaPanelSupport.buildClientProperties(
+                bootstrap,
+                connectionPanel.clientIdField.getText().trim(),
+                selectedSecurityProtocol(),
+                selectedSaslMechanism(),
+                connectionPanel.usernameField.getText().trim(),
+                new String(connectionPanel.passwordField.getPassword()),
+                t(MessageKeys.TOOLBOX_KAFKA_ERR_SASL_CREDENTIAL_REQUIRED));
     }
 
     private Properties buildProducerProperties(Properties baseProps, Properties producerCustomProps) {
@@ -1180,15 +1204,35 @@ public class KafkaPanel extends JPanel {
         return KafkaPanelSupport.buildPropertiesSignature(properties);
     }
 
+    /**
+     * 递增加载代次使进行中的 Topic 加载结果失效；若确有加载在进行，恢复按钮并把状态还原为当前真实连接状态。
+     */
+    private void invalidatePendingTopicLoad() {
+        topicLoadGeneration++;
+        if (!topicPanel.isLoading()) {
+            return;
+        }
+        connectionPanel.connectBtn.setEnabled(true);
+        topicPanel.setLoading(false);
+        if (connectedBootstrap != null) {
+            setConnectionStatus(ModernColors::getSuccess, t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECTED, connectedBootstrap));
+        } else {
+            setConnectionStatus(ModernColors::getTextSecondary, t(MessageKeys.TOOLBOX_KAFKA_STATUS_NOT_CONNECTED));
+        }
+    }
+
     private void doDisconnect() {
+        invalidatePendingTopicLoad();
+        connectedBootstrap = null;
         stopConsuming();
         closeAndClearCachedProducer();
         topicPanel.topicListModel.clear();
         topicPanel.topicFilteredModel.clear();
         topicPartitionCountMap.clear();
         consumerPanel.partitionSelector.setAvailablePartitions(Collections.emptyList());
-        connectionPanel.btnCardLayout.show(connectionPanel.btnCard, CARD_CONNECT);
-        setConnectionStatus(ModernColors.getTextSecondary(), t(MessageKeys.TOOLBOX_KAFKA_STATUS_NOT_CONNECTED));
+        topicPanel.setConnected(false);
+        connectionPanel.showConnected(false);
+        setConnectionStatus(ModernColors::getTextSecondary, t(MessageKeys.TOOLBOX_KAFKA_STATUS_NOT_CONNECTED));
         NotificationCenter.showInfo(t(MessageKeys.TOOLBOX_KAFKA_DISCONNECT_SUCCESS));
     }
 
@@ -1209,10 +1253,9 @@ public class KafkaPanel extends JPanel {
         consumerPanel.partitionSelector.setAvailablePartitions(partitions);
     }
 
-    private void setConnectionStatus(Color color, String message) {
-        if (producerPanel != null) {
-            producerPanel.statusLabel.setForeground(color);
-            producerPanel.statusLabel.setText(message);
+    private void setConnectionStatus(Supplier<Color> color, String message) {
+        if (topicPanel != null) {
+            topicPanel.setStatus(color, message);
         }
     }
 
@@ -1242,11 +1285,6 @@ public class KafkaPanel extends JPanel {
     }
 
     private static String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null && current.getCause() != current) {
-            current = current.getCause();
-        }
-        String msg = current.getMessage();
-        return (msg == null || msg.isBlank()) ? current.toString() : msg;
+        return KafkaPanelSupport.rootMessage(throwable);
     }
 }

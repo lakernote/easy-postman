@@ -5,23 +5,62 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 import static com.laker.postman.plugin.kafka.KafkaI18n.t;
 
-import com.formdev.flatlaf.FlatClientProperties;
 import com.laker.postman.common.component.EasyComboBox;
-import com.laker.postman.common.component.connection.ConnectionToolbarUi;
 import com.laker.postman.plugin.kafka.MessageKeys;
 import com.laker.postman.util.I18nUtil;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.util.Locale;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.ListCellRenderer;
+import javax.swing.SwingUtilities;
 import org.testng.annotations.Test;
 
 public class KafkaConnectionPanelLayoutTest {
+
+    @Test
+    public void saslFieldsShouldBeDisabledButStayVisibleForNonSaslProtocols() {
+        KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
+        }, () -> {
+        });
+
+        panel.setSaslFieldsEnabled(false);
+        assertTrue(panel.clientIdField.isEnabled(), "client id should stay editable for non-SASL protocols");
+        assertTrue(panel.saslMechanismCombo.isVisible() && panel.usernameField.isVisible()
+                && panel.passwordField.isVisible(), "SASL inputs should stay visible to keep the layout stable");
+        assertTrue(!panel.saslMechanismCombo.isEnabled() && !panel.usernameField.isEnabled()
+                && !panel.passwordField.isEnabled(), "SASL inputs should be disabled for non-SASL protocols");
+
+        panel.setSaslFieldsEnabled(true);
+        assertTrue(panel.saslMechanismCombo.isEnabled() && panel.usernameField.isEnabled()
+                && panel.passwordField.isEnabled(), "SASL inputs should be enabled for SASL protocols");
+    }
+
+    @Test
+    public void connectionActionsShouldAlignWithPasswordRightEdge() {
+        KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
+        }, () -> {
+        });
+        panel.setSize(new Dimension(1800, 90));
+        for (boolean saslEnabled : new boolean[]{true, false}) {
+            panel.setSaslFieldsEnabled(saslEnabled);
+            layoutRecursively(panel);
+            Point cardOrigin = SwingUtilities.convertPoint(panel.btnCard.getParent(), panel.btnCard.getLocation(), panel.formGrid);
+            assertEquals(cardOrigin.x + panel.btnCard.getWidth(), panel.passwordField.getX() + panel.passwordField.getWidth(),
+                    "connect button right edge should align with password field right edge, sasl=" + saslEnabled);
+            Point testOrigin = SwingUtilities.convertPoint(panel.testConnectionBtn.getParent(),
+                    panel.testConnectionBtn.getLocation(), panel.formGrid);
+            assertTrue(testOrigin.x + panel.testConnectionBtn.getWidth() < cardOrigin.x,
+                    "test connection button should sit left of connect button");
+            assertTrue(testOrigin.x >= panel.usernameField.getX() + panel.usernameField.getWidth(),
+                    "connection actions should stay inside the last column group");
+        }
+    }
 
     @Test
     public void securityProtocolComboShouldUseFixedMaxEasyComboBox() {
@@ -46,25 +85,25 @@ public class KafkaConnectionPanelLayoutTest {
     }
 
     @Test
-    public void optionsRowShouldStayNearContentWidthInWideContainer() {
+    public void formGridShouldStayNearContentWidthInWideContainer() {
         KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
         }, () -> {
         });
         panel.setSize(new Dimension(1800, 90));
         layoutRecursively(panel);
 
-        assertTrue(panel.optionsRow.getWidth() > 0, "options row should be laid out");
-        assertTrue(panel.optionsRow.getWidth() <= panel.optionsRow.getPreferredSize().width + 16,
-                "options row width " + panel.optionsRow.getWidth()
-                        + " should stay near preferred width " + panel.optionsRow.getPreferredSize().width);
+        assertTrue(panel.formGrid.getWidth() > 0, "form grid should be laid out");
+        assertTrue(panel.formGrid.getWidth() <= panel.formGrid.getPreferredSize().width + 16,
+                "form grid width " + panel.formGrid.getWidth()
+                        + " should stay near preferred width " + panel.formGrid.getPreferredSize().width);
     }
 
     @Test
-    public void connectionActionsShouldUseIconOnlyToolbarButtonsWithTooltips() {
+    public void connectionActionsShouldUseLabeledButtons() {
         Locale originalLocale = I18nUtil.currentLocale();
         try {
-            assertConnectionActionsUseIconOnlyButtons(Locale.CHINESE);
-            assertConnectionActionsUseIconOnlyButtons(Locale.ENGLISH);
+            assertConnectionActionsUseLabeledButtons(Locale.CHINESE);
+            assertConnectionActionsUseLabeledButtons(Locale.ENGLISH);
         } finally {
             I18nUtil.setLocale(originalLocale);
         }
@@ -92,7 +131,7 @@ public class KafkaConnectionPanelLayoutTest {
         }
     }
 
-    private static void assertConnectionActionsUseIconOnlyButtons(Locale locale) {
+    private static void assertConnectionActionsUseLabeledButtons(Locale locale) {
         I18nUtil.setLocale(locale);
         KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
         }, () -> {
@@ -100,8 +139,9 @@ public class KafkaConnectionPanelLayoutTest {
         panel.setSize(new Dimension(1320, 90));
         layoutRecursively(panel);
 
-        assertIconOnlyToolbarButton(panel, t(MessageKeys.TOOLBOX_KAFKA_CONNECT));
-        assertIconOnlyToolbarButton(panel, t(MessageKeys.TOOLBOX_KAFKA_DISCONNECT));
+        assertLabeledButton(panel.connectBtn, t(MessageKeys.TOOLBOX_KAFKA_CONNECT));
+        assertLabeledButton(panel.disconnectBtn, t(MessageKeys.TOOLBOX_KAFKA_DISCONNECT));
+        assertLabeledButton(panel.testConnectionBtn, t(MessageKeys.TOOLBOX_KAFKA_TEST_CONNECTION));
     }
 
     private static void assertConnectionRowsAlign(Locale locale) {
@@ -112,18 +152,27 @@ public class KafkaConnectionPanelLayoutTest {
         panel.setSize(new Dimension(1800, 90));
         layoutRecursively(panel);
 
-        assertEquals(panel.bootstrapField.getX(), panel.clientIdField.getX(),
-                locale + " Host and Client ID fields should start at the same x position");
-        assertEquals(panel.bootstrapField.getWidth(), panel.clientIdField.getWidth(),
-                locale + " Host and Client ID fields should use the same width");
-        assertEquals(panel.securityProtocolCombo.getX(), panel.saslMechanismCombo.getX(),
-                locale + " Protocol and SASL fields should start at the same x position");
-        assertEquals(panel.securityProtocolCombo.getWidth(), panel.saslMechanismCombo.getWidth(),
-                locale + " Protocol and SASL fields should use the same width");
-        assertTrue(panel.usernameField.getX() > panel.saslMechanismCombo.getX() + panel.saslMechanismCombo.getWidth(),
-                locale + " User field should remain to the right of the SASL selector");
-        assertTrue(panel.passwordField.getX() > panel.usernameField.getX() + panel.usernameField.getWidth(),
-                locale + " Password field should remain to the right of the User field");
+        Point profileOrigin = SwingUtilities.convertPoint(panel.profileCombo.getParent(),
+                panel.profileCombo.getLocation(), panel.formGrid);
+        Point deleteOrigin = SwingUtilities.convertPoint(panel.deleteProfileBtn.getParent(),
+                panel.deleteProfileBtn.getLocation(), panel.formGrid);
+        assertColumn(locale, "Profile group / Protocol", profileOrigin.x,
+                deleteOrigin.x + panel.deleteProfileBtn.getWidth(), panel.securityProtocolCombo);
+        assertColumn(locale, "Host / SASL", panel.bootstrapField.getX(),
+                panel.bootstrapField.getX() + panel.bootstrapField.getWidth(), panel.saslMechanismCombo);
+        assertColumn(locale, "Client ID / User", panel.clientIdField.getX(),
+                panel.clientIdField.getX() + panel.clientIdField.getWidth(), panel.usernameField);
+        assertEquals(panel.bootstrapField.getY(), panel.clientIdField.getY(),
+                locale + " Host and Client ID should share the first row");
+        assertEquals(panel.securityProtocolCombo.getY(), panel.passwordField.getY(),
+                locale + " security fields should share the second row");
+        assertTrue(panel.securityProtocolCombo.getY() > panel.bootstrapField.getY(),
+                locale + " security row should sit below the connection row");
+    }
+
+    private static void assertColumn(Locale locale, String name, int topLeft, int topRight, Component bottom) {
+        assertEquals(bottom.getX(), topLeft, locale + " " + name + " should share the left edge");
+        assertEquals(bottom.getX() + bottom.getWidth(), topRight, locale + " " + name + " should share the right edge");
     }
 
     private static void assertSecurityLabelsUseShortTextWithFullTooltips(Locale locale,
@@ -161,38 +210,11 @@ public class KafkaConnectionPanelLayoutTest {
         return null;
     }
 
-    private static void assertIconOnlyToolbarButton(KafkaConnectionPanel panel, String tooltip) {
-        JButton button = findButtonByTooltip(panel, tooltip);
-        assertNotNull(button, "button not found: " + tooltip);
-        assertTrue(button.getText() == null || button.getText().isBlank(),
-                tooltip + " should use icon-only text");
-        assertNotNull(button.getIcon(), tooltip + " should expose an SVG icon");
-        assertTrue(FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON.equals(
-                        button.getClientProperty(FlatClientProperties.BUTTON_TYPE)),
-                tooltip + " should reuse the shared toolbar button style");
-        Dimension expectedSize = new Dimension(ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE,
-                ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE);
-        assertEquals(button.getPreferredSize(), expectedSize,
-                tooltip + " should use the shared toolbar button preferred size");
-        assertEquals(button.getMinimumSize(), expectedSize,
-                tooltip + " should use the shared toolbar button minimum size");
-        assertEquals(button.getMaximumSize(), expectedSize,
-                tooltip + " should use the shared toolbar button maximum size");
-    }
-
-    private static JButton findButtonByTooltip(Component component, String tooltip) {
-        if (component instanceof JButton button && tooltip.equals(button.getToolTipText())) {
-            return button;
-        }
-        if (component instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                JButton found = findButtonByTooltip(child, tooltip);
-                if (found != null) {
-                    return found;
-                }
-            }
-        }
-        return null;
+    private static void assertLabeledButton(JButton button, String text) {
+        assertEquals(button.getText(), text, "connection action should show readable text");
+        assertNotNull(button.getIcon(), text + " should keep its icon");
+        assertTrue(button.getPreferredSize().width >= button.getFontMetrics(button.getFont()).stringWidth(text),
+                text + " should not be clipped");
     }
 
     private static void assertFixedMaxWidth(JComboBox<String> comboBox) {

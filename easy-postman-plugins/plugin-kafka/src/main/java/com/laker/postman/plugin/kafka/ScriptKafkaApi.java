@@ -3,7 +3,6 @@ package com.laker.postman.plugin.kafka;
 import com.laker.postman.model.script.ScriptOptionUtil;
 import com.laker.postman.plugin.kafka.shared.KafkaPanelSupport;
 
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
@@ -13,7 +12,6 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -46,7 +44,7 @@ public class ScriptKafkaApi {
                 Collections.sort(topics);
                 return topics;
             } catch (Exception e) {
-                throw new RuntimeException("Kafka listTopics failed: " + rootMessage(e), e);
+                throw new RuntimeException("Kafka listTopics failed: " + KafkaPanelSupport.rootMessage(e), e);
             }
         });
     }
@@ -85,7 +83,7 @@ public class ScriptKafkaApi {
                 RecordMetadata metadata = producer.send(record).get(KafkaPanelSupport.futureWaitMs(timeoutMs), TimeUnit.MILLISECONDS);
                 return new KafkaSendResult(metadata.topic(), metadata.partition(), metadata.offset(), metadata.timestamp());
             } catch (Exception e) {
-                throw new RuntimeException("Kafka send failed: " + rootMessage(e), e);
+                throw new RuntimeException("Kafka send failed: " + KafkaPanelSupport.rootMessage(e), e);
             }
         });
     }
@@ -148,39 +146,20 @@ public class ScriptKafkaApi {
                 }
                 return messages;
             } catch (Exception e) {
-                throw new RuntimeException("Kafka poll failed: " + rootMessage(e), e);
+                throw new RuntimeException("Kafka poll failed: " + KafkaPanelSupport.rootMessage(e), e);
             }
         });
     }
 
     private Properties buildCommonClientProperties(Map<String, Object> map) {
-        String bootstrap = ScriptOptionUtil.getRequiredString(map, "bootstrapServers", "bootstrap", "host");
-        String securityProtocol = ScriptOptionUtil.getString(map, "PLAINTEXT", "securityProtocol");
-        String mechanism = ScriptOptionUtil.getString(map, "PLAIN", "saslMechanism");
-
-        Properties props = new Properties();
-        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
-        String clientId = ScriptOptionUtil.getString(map, "", "clientId");
-        if (!clientId.isBlank()) {
-            props.put(CommonClientConfigs.CLIENT_ID_CONFIG, clientId);
-        }
-        props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol);
-
-        if (securityProtocol.startsWith("SASL")) {
-            String username = ScriptOptionUtil.getString(map, "", "username", "user");
-            String password = ScriptOptionUtil.getString(map, "", "password", "pass");
-            if (username.isBlank() || password.isBlank()) {
-                throw new IllegalArgumentException("SASL username/password are required");
-            }
-            props.put(SaslConfigs.SASL_MECHANISM, mechanism);
-            String loginModule = mechanism.startsWith("SCRAM")
-                    ? "org.apache.kafka.common.security.scram.ScramLoginModule"
-                    : "org.apache.kafka.common.security.plain.PlainLoginModule";
-            props.put(SaslConfigs.SASL_JAAS_CONFIG,
-                    loginModule + " required username=\"" + escapeJaasValue(username)
-                            + "\" password=\"" + escapeJaasValue(password) + "\";");
-        }
-        return props;
+        return KafkaPanelSupport.buildClientProperties(
+                ScriptOptionUtil.getRequiredString(map, "bootstrapServers", "bootstrap", "host"),
+                ScriptOptionUtil.getString(map, "", "clientId"),
+                ScriptOptionUtil.getString(map, "PLAINTEXT", "securityProtocol"),
+                ScriptOptionUtil.getString(map, "PLAIN", "saslMechanism"),
+                ScriptOptionUtil.getString(map, "", "username", "user"),
+                ScriptOptionUtil.getString(map, "", "password", "pass"),
+                "SASL username/password are required");
     }
 
     private void applyStartPosition(
@@ -277,19 +256,6 @@ public class ScriptKafkaApi {
             }
         }
         return utf8Text;
-    }
-
-    private static String escapeJaasValue(String text) {
-        return text.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
-    private static String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null && current.getCause() != current) {
-            current = current.getCause();
-        }
-        String msg = current.getMessage();
-        return (msg == null || msg.isBlank()) ? current.toString() : msg;
     }
 
     public static class KafkaSendResult {

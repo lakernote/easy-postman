@@ -17,12 +17,13 @@ import com.laker.postman.common.component.connection.ConnectionToolbarUi;
 import com.laker.postman.common.component.table.EnhancedTablePanel;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.plugin.kafka.MessageKeys;
+import com.laker.postman.plugin.kafka.shared.ui.ThemedLabel;
 import com.laker.postman.plugin.kafka.consumer.KafkaConsumedMessage;
 import com.laker.postman.plugin.kafka.shared.KafkaPanelSupport;
 import com.laker.postman.plugin.kafka.shared.ui.KafkaPropertiesEditorPanel;
+import com.laker.postman.plugin.kafka.shared.ui.KafkaSwingSupport;
 import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.FontsUtil;
-import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.JsonUtil;
 import com.laker.postman.common.component.notification.NotificationCenter;
 import net.miginfocom.swing.MigLayout;
@@ -36,6 +37,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 import static com.laker.postman.plugin.kafka.KafkaI18n.t;
 
@@ -57,7 +59,7 @@ public class KafkaConsumerPanel extends JPanel {
     public final KafkaPropertiesEditorPanel customPropsPanel;
     public final CardLayout consumeBtnCardLayout;
     public final JPanel consumeBtnCard;
-    public final JLabel statusLabel;
+    public final ThemedLabel statusLabel;
     public final EnhancedTablePanel messageTablePanel;
     public final RSyntaxTextArea detailArea;
     public final JSplitPane detailSplit;
@@ -76,25 +78,10 @@ public class KafkaConsumerPanel extends JPanel {
         super(new BorderLayout(0, 0));
         setOpaque(false);
 
-        JToggleButton detailToggleBtn = new JToggleButton();
-        detailToggleBtn.setIcon(IconUtil.createThemed("icons/detail.svg", 16, 16));
-        detailToggleBtn.setSelectedIcon(IconUtil.createColored("icons/detail.svg", 16, 16, ModernColors.getPrimary()));
-        detailToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_MESSAGE_DETAIL));
-        detailToggleBtn.setSelected(false);
-        detailToggleBtn.setPreferredSize(new Dimension(28, 28));
-        detailToggleBtn.setFocusable(false);
-        detailToggleBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        detailToggleBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
-
-        JToggleButton advancedToggleBtn = new JToggleButton();
-        advancedToggleBtn.setIcon(IconUtil.createThemed("icons/more.svg", 16, 16));
-        advancedToggleBtn.setSelectedIcon(IconUtil.createColored("icons/more.svg", 16, 16, ModernColors.getPrimary()));
-        advancedToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_ADVANCED_OPTIONS));
-        advancedToggleBtn.setSelected(false);
-        advancedToggleBtn.setPreferredSize(new Dimension(28, 28));
-        advancedToggleBtn.setFocusable(false);
-        advancedToggleBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        advancedToggleBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        JToggleButton detailToggleBtn = KafkaSwingSupport.toolbarToggle(
+                "icons/detail.svg", t(MessageKeys.TOOLBOX_KAFKA_MESSAGE_DETAIL));
+        JToggleButton advancedToggleBtn = KafkaSwingSupport.toolbarToggle(
+                "icons/more.svg", t(MessageKeys.TOOLBOX_KAFKA_ADVANCED_OPTIONS));
 
         ClearButton clearConsumeBtn = new ClearButton();
         clearConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CLEAR));
@@ -198,8 +185,7 @@ public class KafkaConsumerPanel extends JPanel {
                 t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES),
                 t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES_HINT),
                 t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES_PLACEHOLDER),
-                ModernColors.getDividerBorderColor(),
-                ModernColors.getTextSecondary());
+                ModernColors::getTextSecondary);
 
         advancedPanel.add(advancedRowPanel, BorderLayout.NORTH);
         advancedPanel.add(customPropsPanel, BorderLayout.CENTER);
@@ -233,10 +219,10 @@ public class KafkaConsumerPanel extends JPanel {
         JPanel detailHeader = new JPanel(new MigLayout("insets 4 10 4 8, fillx", "[]8[]8[]8[]8[]push[]4[]", "[]2[]"));
         ToolWindowSurfaceStyle.applySectionHeader(detailHeader);
 
-        detailTopicLabel = buildChipLabel("Topic: —", ModernColors.getInfo());
-        detailPartitionLabel = buildChipLabel("Partition: —", ModernColors.getSecondary());
-        detailOffsetLabel = buildChipLabel("Offset: —", ModernColors.getSuccess());
-        detailKeyLabel = buildChipLabel("Key: —", ModernColors.getWarningDark());
+        detailTopicLabel = buildChipLabel("Topic: —", ModernColors::getInfo);
+        detailPartitionLabel = buildChipLabel("Partition: —", ModernColors::getSecondary);
+        detailOffsetLabel = buildChipLabel("Offset: —", ModernColors::getSuccess);
+        detailKeyLabel = buildChipLabel("Key: —", ModernColors::getWarningDark);
         detailMessageTimeLabel = buildMetaLabel(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_MESSAGE_TIME, EMPTY_VALUE));
         detailConsumeTimeLabel = buildMetaLabel(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_CONSUME_TIME, EMPTY_VALUE));
         detailLagLabel = buildMetaLabel(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_LAG, EMPTY_VALUE));
@@ -293,8 +279,7 @@ public class KafkaConsumerPanel extends JPanel {
             }
         });
 
-        statusLabel = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_READY));
-        statusLabel.setForeground(ModernColors.getTextSecondary());
+        statusLabel = new ThemedLabel(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_READY), ModernColors::getTextSecondary);
         statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
         statusLabel.setBorder(new EmptyBorder(3, 10, 3, 8));
 
@@ -419,14 +404,33 @@ public class KafkaConsumerPanel extends JPanel {
     }
 
     private JLabel buildMetaLabel(String text) {
-        JLabel lbl = new JLabel(text);
+        JLabel lbl = new ThemedLabel(text, ModernColors::getTextSecondary);
         lbl.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -3));
-        lbl.setForeground(ModernColors.getTextSecondary());
         lbl.setBorder(new EmptyBorder(0, 0, 0, 0));
         return lbl;
     }
 
-    private JLabel buildChipLabel(String text, Color bgColor) {
-        return new ChipLabel(text, bgColor);
+    private JLabel buildChipLabel(String text, Supplier<Color> accentColor) {
+        return new ThemedChipLabel(text, accentColor);
+    }
+
+    /**
+     * 主题切换时重新取语义强调色，避免亮/暗模式下仍沿用旧主题的 chip 底色。
+     */
+    private static final class ThemedChipLabel extends ChipLabel {
+        private final transient Supplier<Color> accentSupplier;
+
+        private ThemedChipLabel(String text, Supplier<Color> accentSupplier) {
+            super(text, accentSupplier.get());
+            this.accentSupplier = accentSupplier;
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            if (accentSupplier != null) {
+                setAccentColor(accentSupplier.get());
+            }
+        }
     }
 }

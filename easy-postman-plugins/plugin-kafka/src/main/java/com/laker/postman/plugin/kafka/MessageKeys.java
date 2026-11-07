@@ -42,6 +42,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_WARN_TIMESTAMP_OUT_OF_RANGE = "toolbox.kafka.warn.timestamp_out_of_range";
     public static final String TOOLBOX_KAFKA_ERR_PROPERTY_FORMAT = "toolbox.kafka.err.property_format";
     public static final String TOOLBOX_KAFKA_ERR_SASL_CREDENTIAL_REQUIRED = "toolbox.kafka.err.sasl_credential_required";
+    public static final String TOOLBOX_KAFKA_ERR_TIMEOUT_HINT = "toolbox.kafka.err.timeout_hint";
     public static final String TOOLBOX_KAFKA_ERR_TOPIC_REQUIRED = "toolbox.kafka.err.topic_required";
     public static final String TOOLBOX_KAFKA_GROUP_ID = "toolbox.kafka.group.id";
     public static final String TOOLBOX_KAFKA_GROUP_ID_PLACEHOLDER = "toolbox.kafka.group.id.placeholder";

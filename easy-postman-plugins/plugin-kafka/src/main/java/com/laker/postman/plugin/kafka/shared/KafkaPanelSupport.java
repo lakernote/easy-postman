@@ -28,8 +28,39 @@ public final class KafkaPanelSupport {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
 
+    /**
+     * Admin/Producer 客户端超时。远程 SASL 握手 + 元数据 + 连接 advertised broker 在慢网络下 3 秒不够。
+     */
+    public static final int CLIENT_TIMEOUT_MS = 10_000;
+
+    /**
+     * 外层 Future 等待额外宽限，确保 Kafka 客户端自身的超时（带具体原因）先于
+     * 无信息的 java.util.concurrent.TimeoutException 触发。
+     */
+    public static final long FUTURE_WAIT_GRACE_MS = 5_000;
+
     private KafkaPanelSupport() {
     }
+
+    public static long futureWaitMs(long clientTimeoutMs) {
+        return clientTimeoutMs + FUTURE_WAIT_GRACE_MS;
+    }
+
+    public static boolean isTimeout(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof java.util.concurrent.TimeoutException
+                    || current instanceof org.apache.kafka.common.errors.TimeoutException) {
+                return true;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     public static String escapeJaasValue(String text) {
         return text.replace("\\", "\\\\").replace("\"", "\\\"");
     }

@@ -53,7 +53,9 @@ public class KafkaPanel extends JPanel {
 
     private static final String CARD_CONNECT = "connect";
     private static final String CARD_DISCONNECT = "disconnect";
-    private static final String TIMEOUT_MS = "3000";
+    private static final String TIMEOUT_MS = String.valueOf(KafkaPanelSupport.CLIENT_TIMEOUT_MS);
+    private static final long PRODUCER_DELIVERY_TIMEOUT_MS = 15_000L;
+    private static final long ADMIN_FUTURE_WAIT_MS = KafkaPanelSupport.futureWaitMs(KafkaPanelSupport.CLIENT_TIMEOUT_MS);
     private static final String LEGACY_USER_SETTING_KAFKA_BOOTSTRAP = "toolbox.kafka.bootstrapServers";
 
     private KafkaConnectionPanel connectionPanel;
@@ -497,10 +499,10 @@ public class KafkaPanel extends JPanel {
                     props.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
                     try (AdminClient adminClient = AdminClient.create(props)) {
                         ListTopicsOptions options = new ListTopicsOptions().listInternal(false).timeoutMs(Integer.parseInt(TIMEOUT_MS));
-                        List<String> topics = new ArrayList<>(adminClient.listTopics(options).names().get(Integer.parseInt(TIMEOUT_MS), TimeUnit.MILLISECONDS));
+                        List<String> topics = new ArrayList<>(adminClient.listTopics(options).names().get(ADMIN_FUTURE_WAIT_MS, TimeUnit.MILLISECONDS));
                         Collections.sort(topics);
                         Map<String, org.apache.kafka.clients.admin.TopicDescription> descriptions =
-                                adminClient.describeTopics(topics).allTopicNames().get(Integer.parseInt(TIMEOUT_MS), TimeUnit.MILLISECONDS);
+                                adminClient.describeTopics(topics).allTopicNames().get(ADMIN_FUTURE_WAIT_MS, TimeUnit.MILLISECONDS);
                         List<KafkaTopicItem> topicItems = new ArrayList<>(topics.size());
                         for (String topic : topics) {
                             int partitionCount = descriptions.get(topic).partitions().size();
@@ -538,8 +540,8 @@ public class KafkaPanel extends JPanel {
                     log.warn("Load kafka topics interrupted", ex);
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
-                    setConnectionStatus(ModernColors.getError(), t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, rootMessage(cause)));
-                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, rootMessage(cause)));
+                    setConnectionStatus(ModernColors.getError(), t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, describeFailure(cause)));
+                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, describeFailure(cause)));
                     log.warn("Load kafka topics failed", cause);
                 }
             }
@@ -607,6 +609,8 @@ public class KafkaPanel extends JPanel {
         }
         final Properties producerProps = buildProducerProperties(baseProps, producerCustomProps);
         final String producerConfigSignature = buildPropertiesSignature(producerProps);
+        final long sendWaitMs = KafkaPanelSupport.futureWaitMs(parseLongOrDefault(
+                producerProps.get(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG), PRODUCER_DELIVERY_TIMEOUT_MS));
 
         producerPanel.sendBtn.setEnabled(false);
         producerPanel.statusLabel.setForeground(ModernColors.getTextSecondary());
@@ -627,7 +631,7 @@ public class KafkaPanel extends JPanel {
                     for (Header header : headers) {
                         producerRecord.headers().add(header);
                     }
-                    return producer.send(producerRecord).get(15, TimeUnit.SECONDS);
+                    return producer.send(producerRecord).get(sendWaitMs, TimeUnit.MILLISECONDS);
                 });
             }
 
@@ -648,8 +652,8 @@ public class KafkaPanel extends JPanel {
                     // 发送失败时关闭缓存的 Producer，下次重建
                     closeAndClearCachedProducer();
                     producerPanel.statusLabel.setForeground(ModernColors.getError());
-                    producerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, rootMessage(cause)));
-                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, rootMessage(cause)));
+                    producerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, describeFailure(cause)));
+                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, describeFailure(cause)));
                     log.warn("Send kafka message failed", cause);
                 }
             }
@@ -838,8 +842,8 @@ public class KafkaPanel extends JPanel {
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
                     consumerPanel.statusLabel.setForeground(ModernColors.getError());
-                    consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUME_FAILED, rootMessage(cause)));
-                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUME_FAILED, rootMessage(cause)));
+                    consumerPanel.statusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUME_FAILED, describeFailure(cause)));
+                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUME_FAILED, describeFailure(cause)));
                     log.warn("Consume kafka message failed", cause);
                 }
             }
@@ -1106,7 +1110,7 @@ public class KafkaPanel extends JPanel {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.putIfAbsent(ProducerConfig.ACKS_CONFIG, "all");
         props.putIfAbsent(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
-        props.putIfAbsent(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, "15000");
+        props.putIfAbsent(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, String.valueOf(PRODUCER_DELIVERY_TIMEOUT_MS));
         return props;
     }
 
@@ -1217,6 +1221,24 @@ public class KafkaPanel extends JPanel {
             return ee.getCause();
         }
         return ex;
+    }
+
+    private static long parseLongOrDefault(Object value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value.toString().trim());
+        } catch (NumberFormatException ex) {
+            return defaultValue;
+        }
+    }
+
+    private static String describeFailure(Throwable throwable) {
+        String message = rootMessage(throwable);
+        return KafkaPanelSupport.isTimeout(throwable)
+                ? message + " " + t(MessageKeys.TOOLBOX_KAFKA_ERR_TIMEOUT_HINT)
+                : message;
     }
 
     private static String rootMessage(Throwable throwable) {

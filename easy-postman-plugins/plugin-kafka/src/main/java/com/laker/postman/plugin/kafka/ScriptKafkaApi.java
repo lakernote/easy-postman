@@ -1,6 +1,7 @@
 package com.laker.postman.plugin.kafka;
 
 import com.laker.postman.model.script.ScriptOptionUtil;
+import com.laker.postman.plugin.kafka.shared.KafkaPanelSupport;
 
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -41,7 +42,7 @@ public class ScriptKafkaApi {
                 ListTopicsOptions listOptions = new ListTopicsOptions()
                         .listInternal(false)
                         .timeoutMs(timeoutMs);
-                List<String> topics = new ArrayList<>(adminClient.listTopics(listOptions).names().get(timeoutMs, TimeUnit.MILLISECONDS));
+                List<String> topics = new ArrayList<>(adminClient.listTopics(listOptions).names().get(KafkaPanelSupport.futureWaitMs(timeoutMs), TimeUnit.MILLISECONDS));
                 Collections.sort(topics);
                 return topics;
             } catch (Exception e) {
@@ -81,7 +82,7 @@ public class ScriptKafkaApi {
                 for (Header header : parseHeaders(ScriptOptionUtil.get(map, "headers", "header"))) {
                     record.headers().add(header);
                 }
-                RecordMetadata metadata = producer.send(record).get(timeoutMs, TimeUnit.MILLISECONDS);
+                RecordMetadata metadata = producer.send(record).get(KafkaPanelSupport.futureWaitMs(timeoutMs), TimeUnit.MILLISECONDS);
                 return new KafkaSendResult(metadata.topic(), metadata.partition(), metadata.offset(), metadata.timestamp());
             } catch (Exception e) {
                 throw new RuntimeException("Kafka send failed: " + rootMessage(e), e);
@@ -113,17 +114,24 @@ public class ScriptKafkaApi {
 
         return KafkaClassLoaderSupport.withPluginContextClassLoader(() -> {
             try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-                consumer.subscribe(Collections.singletonList(topic));
-                // trigger partition assignment
-                consumer.poll(Duration.ofMillis(0));
-                Set<TopicPartition> assignment = consumer.assignment();
-                if (assignment.isEmpty()) {
-                    consumer.poll(Duration.ofMillis(Math.min(300, Math.max(50, pollTimeoutMs))));
-                    assignment = consumer.assignment();
-                }
-                applyStartPosition(consumer, assignment, startOffset, startTimestamp);
+                // 在分区分配回调中定位起始位置，避免预热 poll 拉到的消息被丢弃，或分配较慢时起始位置被跳过
+                consumer.subscribe(Collections.singletonList(topic), new ConsumerRebalanceListener() {
+                    @Override
+                    public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+                    }
 
-                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(Math.max(1, pollTimeoutMs)));
+                    @Override
+                    public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                        applyStartPosition(consumer, partitions, startOffset, startTimestamp);
+                    }
+                });
+
+                long deadline = System.currentTimeMillis() + Math.max(1, pollTimeoutMs);
+                ConsumerRecords<String, String> records = ConsumerRecords.empty();
+                long remaining;
+                while (records.isEmpty() && (remaining = deadline - System.currentTimeMillis()) > 0) {
+                    records = consumer.poll(Duration.ofMillis(remaining));
+                }
                 List<KafkaMessage> messages = new ArrayList<>();
                 for (ConsumerRecord<String, String> record : records) {
                     if (messages.size() >= maxMessages) {

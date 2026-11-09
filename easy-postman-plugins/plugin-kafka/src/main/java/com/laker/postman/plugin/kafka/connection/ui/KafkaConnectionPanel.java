@@ -17,13 +17,16 @@ public class KafkaConnectionPanel extends JPanel {
 
     private static final String CARD_CONNECT = "connect";
     private static final String CARD_DISCONNECT = "disconnect";
-    private static final int KAFKA_LABEL_WIDTH = 64;
-    private static final int GROUP_GAP = 8;
-    /** 四组“标签 + 输入框”列宽：第 1 行 配置 / Host / Client ID / 操作区，第 2 行 协议 / SASL / 用户 / 密码。 */
-    private static final int PROFILE_GROUP_FIELD_WIDTH = 264;
-    private static final int HOST_GROUP_FIELD_WIDTH = 220;
-    private static final int CLIENT_ID_GROUP_FIELD_WIDTH = 180;
-    private static final int ACTION_GROUP_FIELD_WIDTH = 180;
+    private static final int GROUP_GAP = 12;
+    /** 四组“标签 + 输入框”列：第 1 行 配置 / Host / Client ID / 操作区，第 2 行 协议 / SASL / 用户 / 密码。 */
+    private static final int PROFILE_GROUP_MIN_WIDTH = 150;
+    private static final int PROFILE_GROUP_PREF_WIDTH = 240;
+    private static final int HOST_GROUP_MIN_WIDTH = 110;
+    private static final int HOST_GROUP_PREF_WIDTH = 200;
+    private static final int CLIENT_ID_GROUP_MIN_WIDTH = 90;
+    private static final int CLIENT_ID_GROUP_PREF_WIDTH = 170;
+    private static final int ACTION_GROUP_MIN_WIDTH = 90;
+    private static final int ACTION_GROUP_PREF_WIDTH = 170;
 
     public final JComboBox<String> profileCombo;
     public final JButton newProfileBtn;
@@ -135,14 +138,14 @@ public class KafkaConnectionPanel extends JPanel {
 
         formGrid = new JPanel(new MigLayout(
                 "insets 0, novisualpadding, gapy 4",
-                ConnectionToolbarUi.connectionFieldColumns(KAFKA_LABEL_WIDTH, PROFILE_GROUP_FIELD_WIDTH) + GROUP_GAP
-                        + ConnectionToolbarUi.connectionFieldColumns(KAFKA_LABEL_WIDTH, HOST_GROUP_FIELD_WIDTH) + GROUP_GAP
-                        + ConnectionToolbarUi.connectionFieldColumns(KAFKA_LABEL_WIDTH, CLIENT_ID_GROUP_FIELD_WIDTH) + GROUP_GAP
-                        + ConnectionToolbarUi.connectionFieldColumns(KAFKA_LABEL_WIDTH, ACTION_GROUP_FIELD_WIDTH),
+                growFieldColumns(PROFILE_GROUP_MIN_WIDTH, PROFILE_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + growFieldColumns(HOST_GROUP_MIN_WIDTH, HOST_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + growFieldColumns(CLIENT_ID_GROUP_MIN_WIDTH, CLIENT_ID_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + growFieldColumns(ACTION_GROUP_MIN_WIDTH, ACTION_GROUP_PREF_WIDTH),
                 "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]4[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
         ));
         formGrid.setOpaque(false);
-        String controlHeight = "h " + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!";
+        String controlHeight = "wmin 0, h " + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!";
 
         // 第 1 行：基础连接
         formGrid.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_KAFKA_PROFILE)));
@@ -171,11 +174,19 @@ public class KafkaConnectionPanel extends JPanel {
         formGrid.add(passwordField, controlHeight);
         saslComponents = new JComponent[]{saslLabel, saslMechanismCombo, userLabel, usernameField, passLabel, passwordField};
 
-        JPanel wrapper = new JPanel(new MigLayout("insets 0, novisualpadding", "[pref!]push", "[]"));
+        JPanel wrapper = new JPanel(new MigLayout("insets 0, novisualpadding, fillx", "[grow,fill]", "[]"));
         wrapper.setOpaque(false);
-        wrapper.add(formGrid);
+        wrapper.add(formGrid, "growx, wmin 0");
         add(wrapper, BorderLayout.CENTER);
         ConnectionToolbarUi.lockConnectionPanelHeight(this, true);
+    }
+
+    /**
+     * 标签列按本列最长标签自适应；字段列窄窗口可压缩到 min，宽窗口均分多余空间避免右侧留白，最多拉伸到 2 倍。
+     */
+    private static String growFieldColumns(int minWidth, int prefWidth) {
+        int maxWidth = prefWidth * 2;
+        return "[pref!,right]4[" + minWidth + ":" + prefWidth + ":" + maxWidth + ",fill,grow,shrink]";
     }
 
     private static JLabel compactLabel(String shortKey, String fullKey) {

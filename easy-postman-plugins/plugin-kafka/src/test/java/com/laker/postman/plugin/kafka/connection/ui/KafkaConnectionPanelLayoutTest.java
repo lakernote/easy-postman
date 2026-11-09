@@ -85,17 +85,48 @@ public class KafkaConnectionPanelLayoutTest {
     }
 
     @Test
-    public void formGridShouldStayNearContentWidthInWideContainer() {
+    public void formGridShouldFillModerateWidthWithoutTrailingGap() {
         KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
         }, () -> {
         });
-        panel.setSize(new Dimension(1800, 90));
+        int preferredWidth = panel.formGrid.getPreferredSize().width;
+        int containerWidth = preferredWidth + 200;
+        panel.setSize(new Dimension(containerWidth, 90));
         layoutRecursively(panel);
 
-        assertTrue(panel.formGrid.getWidth() > 0, "form grid should be laid out");
-        assertTrue(panel.formGrid.getWidth() <= panel.formGrid.getPreferredSize().width + 16,
-                "form grid width " + panel.formGrid.getWidth()
-                        + " should stay near preferred width " + panel.formGrid.getPreferredSize().width);
+        int rightEdge = panel.passwordField.getX() + panel.passwordField.getWidth();
+        assertTrue(rightEdge >= panel.formGrid.getWidth() - 2,
+                "password field should reach the grid right edge, edge=" + rightEdge
+                        + ", grid=" + panel.formGrid.getWidth());
+        assertTrue(panel.formGrid.getWidth() >= containerWidth - 24,
+                "form grid width " + panel.formGrid.getWidth() + " should fill container " + containerWidth);
+    }
+
+    @Test
+    public void narrowContainerShouldKeepAllFieldsAndActionsVisible() {
+        KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
+        }, () -> {
+        });
+        panel.setSize(new Dimension(900, 90));
+        layoutRecursively(panel);
+
+        assertTrue(panel.passwordField.getX() + panel.passwordField.getWidth() <= panel.formGrid.getWidth(),
+                "password field should not be clipped in a narrow container");
+        Point cardOrigin = SwingUtilities.convertPoint(panel.btnCard.getParent(), panel.btnCard.getLocation(), panel.formGrid);
+        assertTrue(cardOrigin.x + panel.btnCard.getWidth() <= panel.formGrid.getWidth(),
+                "connect button should stay visible in a narrow container");
+    }
+
+    @Test
+    public void formGridShouldCapStretchInVeryWideContainer() {
+        KafkaConnectionPanel panel = new KafkaConnectionPanel(() -> {
+        }, () -> {
+        });
+        panel.setSize(new Dimension(3000, 90));
+        layoutRecursively(panel);
+
+        int rightEdge = panel.passwordField.getX() + panel.passwordField.getWidth();
+        assertTrue(rightEdge < 2400, "fields should stop stretching on ultra-wide windows, edge=" + rightEdge);
     }
 
     @Test

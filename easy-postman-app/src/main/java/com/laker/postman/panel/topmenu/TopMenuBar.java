@@ -44,6 +44,9 @@ public class TopMenuBar extends UiSingletonMenuBar implements IRefreshable {
             e.cancelQuit();
             BeanFactory.getBean(AppExitCoordinator.class).exitApplication();
         });
+        if (SystemInfo.isMacFullWindowContentSupported) {
+            addMouseListener(new MacTitleBarDoubleClickHandler());
+        }
     }
 
 

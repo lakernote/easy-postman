@@ -2972,6 +2972,19 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_TAB_AGG = "toolbox.es.tab.agg";
     public static final String TOOLBOX_ES_INDEX_COPY_NAME = "toolbox.es.index.copy_name";
     public static final String TOOLBOX_ES_INDEX_VIEW_ALIASES = "toolbox.es.index.view_aliases";
+    public static final String TOOLBOX_ES_CONNECT_TOOLTIP = "toolbox.es.connect.tooltip";
+    public static final String TOOLBOX_ES_STATUS_CONNECTING = "toolbox.es.status.connecting";
+    public static final String TOOLBOX_ES_TEST_CONNECTION = "toolbox.es.test_connection";
+    public static final String TOOLBOX_ES_TEST_CONNECTION_TOOLTIP = "toolbox.es.test_connection.tooltip";
+    public static final String TOOLBOX_ES_TEST_CONNECTION_RUNNING = "toolbox.es.test_connection.running";
+    public static final String TOOLBOX_ES_TEST_CONNECTION_SUCCESS = "toolbox.es.test_connection.success";
+    public static final String TOOLBOX_ES_TEST_CONNECTION_FAILED = "toolbox.es.test_connection.failed";
+    public static final String TOOLBOX_ES_INDEX_EMPTY_NOT_CONNECTED = "toolbox.es.index.empty.not_connected";
+    public static final String TOOLBOX_ES_INDEX_EMPTY_LOADING = "toolbox.es.index.empty.loading";
+    public static final String TOOLBOX_ES_INDEX_EMPTY_NO_MATCH = "toolbox.es.index.empty.no_match";
+    public static final String TOOLBOX_ES_INDEX_NAME_COPIED = "toolbox.es.index.name_copied";
+    public static final String TOOLBOX_ES_INDEX_TOOLTIP = "toolbox.es.index.tooltip";
+    public static final String TOOLBOX_ES_INDEX_LIST_HINT = "toolbox.es.index.list.hint";
 
     // ============ InfluxDB 工具相关 ============
     public static final String TOOLBOX_INFLUXDB = "toolbox.influxdb";
@@ -3070,6 +3083,20 @@ public final class MessageKeys {
     public static final String TOOLBOX_INFLUX_ERR_QUERY_REQUIRED = "toolbox.influx.err.query_required";
     public static final String TOOLBOX_INFLUX_ERR_NOT_CONNECTED = "toolbox.influx.err.not_connected";
     public static final String TOOLBOX_INFLUX_ERR_CONNECT_FAILED = "toolbox.influx.err.connect_failed";
+    public static final String TOOLBOX_INFLUX_CONNECT_TOOLTIP = "toolbox.influx.connect.tooltip";
+    public static final String TOOLBOX_INFLUX_STATUS_CONNECTING = "toolbox.influx.status.connecting";
+    public static final String TOOLBOX_INFLUX_TEST_CONNECTION = "toolbox.influx.test_connection";
+    public static final String TOOLBOX_INFLUX_TEST_CONNECTION_TOOLTIP = "toolbox.influx.test_connection.tooltip";
+    public static final String TOOLBOX_INFLUX_TEST_CONNECTION_RUNNING = "toolbox.influx.test_connection.running";
+    public static final String TOOLBOX_INFLUX_TEST_CONNECTION_SUCCESS = "toolbox.influx.test_connection.success";
+    public static final String TOOLBOX_INFLUX_TEST_CONNECTION_FAILED = "toolbox.influx.test_connection.failed";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NOT_CONNECTED = "toolbox.influx.measurement.empty.not_connected";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_EMPTY_V2 = "toolbox.influx.measurement.empty.v2";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NO_DB = "toolbox.influx.measurement.empty.no_db";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_EMPTY_LOADING = "toolbox.influx.measurement.empty.loading";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NONE = "toolbox.influx.measurement.empty.none";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NO_MATCH = "toolbox.influx.measurement.empty.no_match";
+    public static final String TOOLBOX_INFLUX_MEASUREMENT_LIST_HINT = "toolbox.influx.measurement.list.hint";
 
     public static final String TOOLBOX_CRON = "toolbox.cron";
     public static final String TOOLBOX_CRON_EXPRESSION = "toolbox.cron.expression";

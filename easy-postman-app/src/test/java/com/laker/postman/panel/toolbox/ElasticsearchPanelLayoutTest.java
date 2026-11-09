@@ -8,6 +8,8 @@ import com.laker.postman.util.MessageKeys;
 import org.testng.annotations.Test;
 
 import javax.swing.JButton;
+import javax.swing.JTextField;
+import javax.swing.JComboBox;
 import javax.swing.JTabbedPane;
 import javax.swing.JPanel;
 import java.awt.Component;
@@ -18,36 +20,45 @@ import java.lang.reflect.Method;
 import java.util.Locale;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 public class ElasticsearchPanelLayoutTest extends AbstractSwingUiTest {
 
     @Test
-    public void authRowShouldStayNearContentWidthInWideContainer() throws Exception {
-        ElasticsearchPanel panel = new ElasticsearchPanel();
-        invoke(panel, "setAuthOptionsVisible", true);
-        panel.setSize(new Dimension(1800, 900));
-        layoutRecursively(panel);
+    public void authFieldsShouldStayVisibleAndFollowAuthMode() throws Exception {
+        ElasticsearchPanel panel = layoutPanel(1320);
+        JTextField userField = fieldValue(panel, "usernameField", JTextField.class);
+        JComboBox<?> authModeCombo = fieldValue(panel, "authModeCombo", JComboBox.class);
 
-        JPanel authRow = fieldValue(panel, "authRow", JPanel.class);
+        authModeCombo.setSelectedIndex(0);
+        assertTrue(userField.isVisible(), "auth fields should stay in the grid");
+        assertFalse(userField.isEnabled(), "auth fields should be disabled without auth");
 
-        assertNotNull(authRow);
-        assertTrue(authRow.getWidth() > 0, "auth row should be laid out");
-        assertTrue(authRow.getWidth() <= authRow.getPreferredSize().width + 16,
-                "auth row width " + authRow.getWidth()
-                        + " should stay near preferred width " + authRow.getPreferredSize().width);
+        authModeCombo.setSelectedIndex(1);
+        assertTrue(userField.isEnabled(), "auth fields should be enabled with basic auth");
     }
 
     @Test
-    public void connectionActionsShouldUseIconOnlyToolbarButtonsWithTooltips() {
+    public void connectionActionsShouldUseLabeledCompactButtons() {
         Locale originalLocale = I18nUtil.currentLocale();
         try {
-            assertConnectionActionsUseIconOnlyButtons(Locale.CHINESE);
-            assertConnectionActionsUseIconOnlyButtons(Locale.ENGLISH);
+            assertConnectionActionsUseLabeledButtons(Locale.CHINESE);
+            assertConnectionActionsUseLabeledButtons(Locale.ENGLISH);
         } finally {
             I18nUtil.setLocale(originalLocale);
         }
+    }
+
+    @Test
+    public void disconnectedStateShouldDisableDataActionsAndShowEmptyHint() throws Exception {
+        ElasticsearchPanel panel = layoutPanel(1320);
+        JButton executeBtn = fieldValue(panel, "executeBtn", JButton.class);
+        assertFalse(executeBtn.isEnabled(), "execute should be disabled before connecting");
+        java.lang.reflect.Method method = ElasticsearchPanel.class.getDeclaredMethod("indexListEmptyText");
+        method.setAccessible(true);
+        assertEquals(method.invoke(panel), I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_EMPTY_NOT_CONNECTED));
     }
 
     @Test
@@ -83,12 +94,17 @@ public class ElasticsearchPanelLayoutTest extends AbstractSwingUiTest {
         }
     }
 
-    private static void assertConnectionActionsUseIconOnlyButtons(Locale locale) {
+    private static void assertConnectionActionsUseLabeledButtons(Locale locale) {
         I18nUtil.setLocale(locale);
         ElasticsearchPanel panel = layoutPanel(1320);
 
-        assertIconOnlyToolbarButton(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECT));
-        assertIconOnlyToolbarButton(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_DISCONNECT));
+        JButton connect = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECT_TOOLTIP));
+        JButton test = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TEST_CONNECTION_TOOLTIP));
+        assertNotNull(connect, locale + " connect button should exist");
+        assertNotNull(test, locale + " test connection button should exist");
+        assertEquals(connect.getText(), I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECT));
+        assertEquals(test.getText(), I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TEST_CONNECTION));
+        assertNotNull(connect.getIcon(), locale + " connect button should keep its icon");
     }
 
     private static void assertQueryToolbarActionsUseIconButtons(Locale locale) {

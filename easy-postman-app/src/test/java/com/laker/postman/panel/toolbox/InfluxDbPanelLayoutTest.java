@@ -24,28 +24,22 @@ import java.util.Locale;
 
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
 
     @Test
-    public void v1ConnectionFieldsShouldStayNearContentWidthInWideContainer() {
-        InfluxDbPanel panel = new InfluxDbPanel();
-        panel.setSize(new Dimension(1800, 900));
-        layoutRecursively(panel);
-
-        JButton reloadMetadataButton = findButtonByTooltip(
-                panel,
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_RELOAD_META)
-        );
-
-        assertNotNull(reloadMetadataButton);
-        Container v1FieldsRow = reloadMetadataButton.getParent();
-        assertNotNull(v1FieldsRow);
-        assertTrue(v1FieldsRow.getWidth() > 0, "v1 connection row should be laid out");
-        assertTrue(v1FieldsRow.getWidth() <= v1FieldsRow.getPreferredSize().width + 16,
-                "v1 connection row width " + v1FieldsRow.getWidth()
-                        + " should stay near preferred width " + v1FieldsRow.getPreferredSize().width);
+    public void disconnectedStateShouldDisableDataActionsAndShowEmptyHint() throws Exception {
+        InfluxDbPanel panel = layoutPanel(1320);
+        JButton executeBtn = fieldValue(panel, "executeBtn", JButton.class);
+        JButton reloadMetaBtn = fieldValue(panel, "reloadMetaBtn", JButton.class);
+        assertFalse(executeBtn.isEnabled(), "execute should be disabled before connecting");
+        assertFalse(reloadMetaBtn.isEnabled(), "metadata reload should be disabled before connecting");
+        java.lang.reflect.Method method = InfluxDbPanel.class.getDeclaredMethod("measurementListEmptyText");
+        method.setAccessible(true);
+        assertEquals(method.invoke(panel),
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NOT_CONNECTED));
     }
 
     @Test
@@ -60,14 +54,18 @@ public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
     }
 
     @Test
-    public void connectionActionsShouldUseIconOnlyToolbarButtonsWithTooltips() {
+    public void connectionActionsShouldUseLabeledButtonsAndIconMetadataReload() {
         Locale originalLocale = I18nUtil.currentLocale();
         try {
             I18nUtil.setLocale(Locale.CHINESE);
             InfluxDbPanel panel = layoutPanel(1320);
 
-            assertIconOnlyToolbarButton(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT));
-            assertIconOnlyToolbarButton(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DISCONNECT));
+            JButton connect = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT_TOOLTIP));
+            assertNotNull(connect);
+            assertEquals(connect.getText(), I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT));
+            JButton test = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION_TOOLTIP));
+            assertNotNull(test);
+            assertEquals(test.getText(), I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION));
             assertIconOnlyToolbarButton(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_RELOAD_META));
         } finally {
             I18nUtil.setLocale(originalLocale);
@@ -106,27 +104,6 @@ public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
         try {
             assertLeftSidebarTabsUseCompactTitle(Locale.CHINESE);
             assertLeftSidebarTabsUseCompactTitle(Locale.ENGLISH);
-        } finally {
-            I18nUtil.setLocale(originalLocale);
-        }
-    }
-
-    @Test
-    public void v1ModeFieldsShouldRemainAlignedWithHostFields() {
-        Locale originalLocale = I18nUtil.currentLocale();
-        try {
-            I18nUtil.setLocale(Locale.CHINESE);
-            InfluxDbPanel panel = layoutPanel(1320);
-
-            JButton connectButton = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT));
-            JButton reloadMetadataButton = findButtonByTooltip(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_RELOAD_META));
-
-            assertNotNull(connectButton);
-            assertNotNull(reloadMetadataButton);
-            Rectangle connectBounds = boundsInPanel(panel, connectButton);
-            Rectangle reloadBounds = boundsInPanel(panel, reloadMetadataButton);
-            assertTrue(reloadBounds.x >= connectBounds.x - 8,
-                    "mode-specific fields should stay aligned with the host/mode column group instead of shifting under profile controls");
         } finally {
             I18nUtil.setLocale(originalLocale);
         }
@@ -202,7 +179,8 @@ public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
         I18nUtil.setLocale(locale);
         InfluxDbPanel panel = layoutPanel(1320);
 
-        assertButtonInside(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT));
+        assertButtonInside(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT_TOOLTIP));
+        assertButtonInside(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION_TOOLTIP));
         assertButtonInside(panel, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_RELOAD_META));
     }
 
@@ -210,15 +188,19 @@ public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
         I18nUtil.setLocale(locale);
         InfluxDbPanel panel = layoutPanel(1320);
 
+        JComboBox<?> profileCombo = fieldValue(panel, "profileCombo", JComboBox.class);
         JTextField hostField = fieldValue(panel, "hostField", JTextField.class);
         JComboBox<?> modeCombo = fieldValue(panel, "modeCombo", JComboBox.class);
         JComboBox<?> dbCombo = fieldValue(panel, "dbCombo", JComboBox.class);
-        JComboBox<?> measurementCombo = fieldValue(panel, "measurementCombo", JComboBox.class);
+        JTextField userField = fieldValue(panel, "userField", JTextField.class);
+        JTextField passwordField = fieldValue(panel, "passwordField", JTextField.class);
 
-        assertEquals(boundsInPanel(panel, dbCombo).x, boundsInPanel(panel, hostField).x,
-                locale + " database field should align with host field");
-        assertEquals(boundsInPanel(panel, measurementCombo).x, boundsInPanel(panel, modeCombo).x,
-                locale + " measurement field should align with mode field");
+        assertEquals(boundsInPanel(panel, userField).x, boundsInPanel(panel, profileCombo).x,
+                locale + " user field should align with profile field");
+        assertEquals(boundsInPanel(panel, passwordField).x, boundsInPanel(panel, hostField).x,
+                locale + " password field should align with host field");
+        assertEquals(boundsInPanel(panel, dbCombo).x, boundsInPanel(panel, modeCombo).x,
+                locale + " database field should align with mode field");
     }
 
     private static void assertV2FieldPairsAlign(Locale locale) throws Exception {
@@ -228,12 +210,12 @@ public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
         modeCombo.setSelectedItem(InfluxDbPanel.QueryMode.FLUX_V2);
         layoutRecursively(panel);
 
-        JTextField hostField = fieldValue(panel, "hostField", JTextField.class);
+        JComboBox<?> profileCombo = fieldValue(panel, "profileCombo", JComboBox.class);
         JTextField tokenField = fieldValue(panel, "tokenField", JTextField.class);
         JTextField orgField = fieldValue(panel, "orgField", JTextField.class);
 
-        assertEquals(boundsInPanel(panel, tokenField).x, boundsInPanel(panel, hostField).x,
-                locale + " token field should align with host field");
+        assertEquals(boundsInPanel(panel, tokenField).x, boundsInPanel(panel, profileCombo).x,
+                locale + " token field should align with profile field");
         assertEquals(boundsInPanel(panel, orgField).x, boundsInPanel(panel, modeCombo).x,
                 locale + " org field should align with mode field");
     }
@@ -294,7 +276,6 @@ public class InfluxDbPanelLayoutTest extends AbstractSwingUiTest {
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_HOST),
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MODE),
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DB),
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT),
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_USER),
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_PASS)
         );

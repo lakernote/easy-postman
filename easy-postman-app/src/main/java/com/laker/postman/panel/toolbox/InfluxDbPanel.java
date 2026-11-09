@@ -8,6 +8,7 @@ import cn.hutool.core.text.csv.CsvRow;
 import cn.hutool.core.text.csv.CsvUtil;
 import com.formdev.flatlaf.FlatClientProperties;
 import com.laker.postman.common.component.EasyComboBox;
+import com.laker.postman.common.component.ListEmptyTextPainter;
 import com.laker.postman.common.component.SearchTextField;
 import com.laker.postman.common.component.SearchableTextArea;
 import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
@@ -80,8 +81,15 @@ public class InfluxDbPanel extends JPanel {
     private JTextField userField;
     private JPasswordField passwordField;
 
+    private JPanel connectionForm;
+    private JComponent[] v1Components;
+    private JComponent[] v2Components;
+    private JButton reloadMetaBtn;
+    private RefreshButton refreshMeasurementsBtn;
+    private boolean loadingMeasurements;
     private JButton connectBtn;
     private JButton disconnectBtn;
+    private JButton testConnectionBtn;
     private CardLayout btnCardLayout;
     private JPanel btnCard;
     private final InfluxDbConnectionProfileStore connectionProfileStore = new InfluxDbConnectionProfileStore();
@@ -128,13 +136,13 @@ public class InfluxDbPanel extends JPanel {
     private static final int WRITE_TIMEOUT_MS = 30_000;
     private static final String CONNECT_CARD = "connect";
     private static final String DISCONNECT_CARD = "disconnect";
-    private static final int HOST_FIELD_WIDTH = 240;
-    private static final int MODE_FIELD_WIDTH = 90;
-    private static final int TOKEN_FIELD_WIDTH = HOST_FIELD_WIDTH;
-    private static final int ORG_FIELD_WIDTH = 130;
-    private static final int DB_FIELD_WIDTH = HOST_FIELD_WIDTH;
-    private static final int MEASUREMENT_FIELD_WIDTH = 130;
-    private static final int AUTH_FIELD_WIDTH = 120;
+    private static final int GROUP_GAP = 12;
+    private static final int PROFILE_GROUP_MIN_WIDTH = 150;
+    private static final int PROFILE_GROUP_PREF_WIDTH = 240;
+    private static final int FIELD_GROUP_MIN_WIDTH = 110;
+    private static final int FIELD_GROUP_PREF_WIDTH = 200;
+    private static final int MODE_GROUP_MIN_WIDTH = 120;
+    private static final int MODE_GROUP_PREF_WIDTH = 160;
     private static final int QUERY_TOOLBAR_CONTROL_HEIGHT = 32;
 
     @RequiredArgsConstructor
@@ -266,6 +274,8 @@ public class InfluxDbPanel extends JPanel {
         mainSplit.setResizeWeight(0.25);
         add(mainSplit, BorderLayout.CENTER);
         switchMode(getSelectedMode());
+        respStatusLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_STATUS_NOT_CONNECTED));
+        respStatusLabel.setForeground(ModernColors.getTextSecondary());
         ToolWindowSurfaceStyle.applyPanelTreeCard(this);
     }
 
@@ -289,8 +299,8 @@ public class InfluxDbPanel extends JPanel {
         panel.setPreferredSize(new Dimension(230, 0));
         panel.setBorder(BorderFactory.createEmptyBorder());
 
-        RefreshButton refreshBtn = new RefreshButton();
-        refreshBtn.addActionListener(e -> {
+        refreshMeasurementsBtn = new RefreshButton();
+        refreshMeasurementsBtn.addActionListener(e -> {
             if (!connected || getSelectedMode() != QueryMode.INFLUXQL_V1) return;
             String db = getSelectedDatabase();
             if (!db.isBlank()) {
@@ -298,15 +308,35 @@ public class InfluxDbPanel extends JPanel {
             }
         });
         ToolWindowSidebarHeader titleBar = new ToolWindowSidebarHeader(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_MANAGEMENT), refreshBtn);
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_MANAGEMENT), refreshMeasurementsBtn);
 
+        // 搜索框：仅做名称包含过滤，不需要大小写/整词等选项
         measurementSearchField = new SearchTextField();
+        measurementSearchField.putClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
         measurementSearchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_SEARCH_PLACEHOLDER));
         measurementSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         measurementListModel = new DefaultListModel<>();
         measurementFilteredModel = new DefaultListModel<>();
-        measurementList = new JList<>(measurementFilteredModel);
+        measurementList = new JList<>(measurementFilteredModel) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                if (getModel().getSize() == 0) {
+                    ListEmptyTextPainter.paint(this, g, measurementListEmptyText());
+                }
+            }
+
+            @Override
+            public String getToolTipText(java.awt.event.MouseEvent event) {
+                int index = locationToIndex(event.getPoint());
+                if (index < 0 || !getCellBounds(index, index).contains(event.getPoint())) {
+                    return null;
+                }
+                return getModel().getElementAt(index);
+            }
+        };
+        ToolTipManager.sharedInstance().registerComponent(measurementList);
         measurementList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         measurementList.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting() || suppressMeasurementSync) return;
@@ -319,9 +349,11 @@ public class InfluxDbPanel extends JPanel {
             }
         });
         measurementList.addMouseListener(buildMeasurementListMouseListener());
+        registerMeasurementListShortcuts();
 
         JScrollPane listScroll = new JScrollPane(measurementList);
         ToolWindowSurfaceStyle.applyListScrollPaneCard(listScroll, measurementList);
+        listScroll.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_LIST_HINT));
 
         measurementSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
@@ -362,7 +394,15 @@ public class InfluxDbPanel extends JPanel {
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_HISTORY), clearHistBtn);
 
         historyListModel = new DefaultListModel<>();
-        historyList = new JList<>(historyListModel);
+        historyList = new JList<>(historyListModel) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                if (getModel().getSize() == 0) {
+                    ListEmptyTextPainter.paint(this, g, I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_HISTORY_EMPTY));
+                }
+            }
+        };
         historyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         historyList.setCellRenderer(new HistoryCellRenderer());
         historyList.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -380,16 +420,59 @@ public class InfluxDbPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(historyList);
         ToolWindowSurfaceStyle.applyListScrollPaneCard(scroll, historyList);
 
-        JLabel tipLbl = new JLabel("<html><center><small>" +
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_HISTORY_EMPTY) + "</small></center></html>");
-        tipLbl.setHorizontalAlignment(SwingConstants.CENTER);
-        tipLbl.setForeground(ModernColors.getTextSecondary());
-        tipLbl.setBorder(BorderFactory.createEmptyBorder(8, 4, 8, 4));
+        historyList.getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0), "influxApplyHistory");
+        historyList.getActionMap().put("influxApplyHistory", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                applyHistory(historyList.getSelectedValue());
+            }
+        });
 
         panel.add(titleBar, BorderLayout.NORTH);
         panel.add(scroll, BorderLayout.CENTER);
-        panel.add(tipLbl, BorderLayout.SOUTH);
         return panel;
+    }
+
+    private void registerMeasurementListShortcuts() {
+        InputMap inputMap = measurementList.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap actionMap = measurementList.getActionMap();
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0), "influxQuickQuery");
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DELETE, 0), "influxDeleteMeasurements");
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_BACK_SPACE,
+                java.awt.event.InputEvent.META_DOWN_MASK), "influxDeleteMeasurements");
+        actionMap.put("influxQuickQuery", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                executeMeasurementQuickQuery(measurementList.getSelectedValue());
+            }
+        });
+        actionMap.put("influxDeleteMeasurements", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (getSelectedMode() != QueryMode.INFLUXQL_V1) return;
+                deleteMeasurements(getSelectedDatabase(), new ArrayList<>(measurementList.getSelectedValuesList()));
+            }
+        });
+    }
+
+    String measurementListEmptyText() {
+        if (!connected) {
+            return I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NOT_CONNECTED);
+        }
+        if (getSelectedMode() != QueryMode.INFLUXQL_V1) {
+            return I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_V2);
+        }
+        if (loadingMeasurements) {
+            return I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_LOADING);
+        }
+        if (getSelectedDatabase().isBlank()) {
+            return I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NO_DB);
+        }
+        if (measurementListModel.isEmpty()) {
+            return I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NONE);
+        }
+        return I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT_EMPTY_NO_MATCH);
     }
 
     private static class HistoryCellRenderer extends DefaultListCellRenderer {
@@ -693,12 +776,6 @@ public class InfluxDbPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout());
         ToolWindowSurfaceStyle.applySectionHeader(panel, 3, 6, 3, 6);
 
-        JPanel form = new JPanel(new MigLayout(
-                "insets 0, fillx, gapy 2, novisualpadding, hidemode 3",
-                ConnectionToolbarUi.compactFormColumns(),
-                "[][]"
-        ));
-
         profileCombo = new JComboBox<>();
         profileCombo.setEditable(false);
         ConnectionToolbarUi.compactControl(profileCombo);
@@ -745,12 +822,17 @@ public class InfluxDbPanel extends JPanel {
         });
         modeCombo.addActionListener(e -> switchMode(getSelectedMode()));
 
-        connectBtn = ConnectionToolbarUi.iconButton(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT), "icons/connect.svg");
+        connectBtn = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT), true, "icons/connect.svg");
+        connectBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT_TOOLTIP));
         connectBtn.addActionListener(e -> doConnect());
-        disconnectBtn = ConnectionToolbarUi.iconButton(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DISCONNECT), "icons/ws-close.svg");
+        disconnectBtn = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DISCONNECT), false, "icons/ws-close.svg");
         disconnectBtn.addActionListener(e -> doDisconnect());
+        testConnectionBtn = ModernButtonFactory.createCompactButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION), false, "icons/check.svg");
+        testConnectionBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION_TOOLTIP));
+        testConnectionBtn.addActionListener(e -> testConnection());
 
         btnCardLayout = new CardLayout();
         btnCard = new JPanel(btnCardLayout);
@@ -759,82 +841,108 @@ public class InfluxDbPanel extends JPanel {
         btnCard.add(disconnectBtn, DISCONNECT_CARD);
         btnCardLayout.show(btnCard, CONNECT_CARD);
 
-        JPanel mainRow = new JPanel(new MigLayout(
-                "insets 0, fillx, novisualpadding, gapx 0",
-                ConnectionToolbarUi.profileActionColumns()
-                        + ConnectionToolbarUi.connectionFieldColumns(HOST_FIELD_WIDTH) + "4"
-                        + ConnectionToolbarUi.wideConnectionFieldColumns(MODE_FIELD_WIDTH)
-                        + "6[]push",
-                "[]"
+        String controlHeight = "wmin 0, h " + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!";
+        JPanel profileGroup = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gapx 0",
+                "[grow,fill]2[" + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]0["
+                        + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]0["
+                        + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]0["
+                        + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]",
+                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
         ));
-        mainRow.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_PROFILE)));
-        mainRow.add(profileCombo);
-        mainRow.add(newProfileBtn);
-        mainRow.add(saveProfileBtn);
-        mainRow.add(saveAsProfileBtn);
-        mainRow.add(deleteProfileBtn);
-        mainRow.add(ConnectionToolbarUi.verticalSeparator(),
-                "w 1!, h " + ConnectionToolbarUi.VERTICAL_SEPARATOR_HEIGHT + "!");
-        mainRow.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_HOST)));
-        mainRow.add(hostField);
-        mainRow.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MODE)));
-        mainRow.add(modeCombo);
-        mainRow.add(btnCard, "h " + ConnectionToolbarUi.CONNECTION_BUTTON_HEIGHT + "!");
+        profileGroup.setOpaque(false);
+        profileGroup.add(profileCombo, controlHeight);
+        profileGroup.add(newProfileBtn);
+        profileGroup.add(saveProfileBtn);
+        profileGroup.add(saveAsProfileBtn);
+        profileGroup.add(deleteProfileBtn);
 
-        JPanel modeFields = new JPanel(new CardLayout());
-        modeFields.add(buildV2FieldsPanel(), QueryMode.FLUX_V2.name());
-        modeFields.add(buildV1FieldsPanel(), QueryMode.INFLUXQL_V1.name());
+        JPanel actions = new JPanel(new MigLayout("insets 0, novisualpadding, gapx 6", "[][]", "[]"));
+        actions.setOpaque(false);
+        String buttonHeight = "h " + ConnectionToolbarUi.CONNECTION_BUTTON_HEIGHT + "!";
+        actions.add(testConnectionBtn, buttonHeight);
+        actions.add(btnCard, buttonHeight);
 
-        form.add(mainRow, "wrap");
-        form.add(modeFields);
+        buildModeFields();
 
-        panel.add(form, BorderLayout.CENTER);
+        // 与 Kafka/Redis 一致：两行共用同一网格（配置 | 地址 | 模式 | 操作），第 2 行按模式切换 V1/V2 字段。
+        connectionForm = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gapy 4, hidemode 3",
+                growFieldColumns(PROFILE_GROUP_MIN_WIDTH, PROFILE_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + growFieldColumns(FIELD_GROUP_MIN_WIDTH, FIELD_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + growFieldColumns(MODE_GROUP_MIN_WIDTH, MODE_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + "[pref!,fill]",
+                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]4["
+                        + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
+        ));
+        connectionForm.setOpaque(false);
+
+        connectionForm.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_PROFILE)), "cell 0 0");
+        connectionForm.add(profileGroup, "cell 1 0, " + controlHeight);
+        connectionForm.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_HOST)), "cell 2 0");
+        connectionForm.add(hostField, "cell 3 0, " + controlHeight);
+        connectionForm.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MODE)), "cell 4 0");
+        connectionForm.add(modeCombo, "cell 5 0, " + controlHeight);
+        connectionForm.add(actions, "cell 6 0, right");
+
+        // 第 2 行 V1：用户 | 密码 | 数据库（含刷新元数据，跨列与操作区右对齐）
+        JLabel userLabel = ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_USER));
+        JLabel passLabel = ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_PASS));
+        JLabel dbLabel = ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DB));
+        JPanel dbGroup = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gapx 0",
+                "[grow,fill]2[" + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]",
+                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
+        ));
+        dbGroup.setOpaque(false);
+        dbGroup.add(dbCombo, controlHeight);
+        dbGroup.add(reloadMetaBtn);
+        connectionForm.add(userLabel, "cell 0 1");
+        connectionForm.add(userField, "cell 1 1, " + controlHeight);
+        connectionForm.add(passLabel, "cell 2 1");
+        connectionForm.add(passwordField, "cell 3 1, " + controlHeight);
+        connectionForm.add(dbLabel, "cell 4 1");
+        connectionForm.add(dbGroup, "cell 5 1 2 1, growx, " + controlHeight);
+        v1Components = new JComponent[]{userLabel, userField, passLabel, passwordField, dbLabel, dbGroup};
+
+        // 第 2 行 V2：Token（跨配置/地址列） | 组织（与模式列对齐，跨列到右边缘）
+        JLabel tokenLabel = ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TOKEN));
+        JLabel orgLabel = ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ORG));
+        connectionForm.add(tokenLabel, "cell 0 1");
+        connectionForm.add(tokenField, "cell 1 1 3 1, growx, " + controlHeight);
+        connectionForm.add(orgLabel, "cell 4 1");
+        connectionForm.add(orgField, "cell 5 1 2 1, growx, " + controlHeight);
+        v2Components = new JComponent[]{tokenLabel, tokenField, orgLabel, orgField};
+
+        JPanel wrapper = new JPanel(new MigLayout("insets 0, novisualpadding, fillx", "[grow,fill]", "[]"));
+        wrapper.setOpaque(false);
+        wrapper.add(connectionForm, "growx, wmin 0");
+        panel.add(wrapper, BorderLayout.CENTER);
         ConnectionToolbarUi.lockConnectionPanelHeight(panel, true);
-        panel.putClientProperty("modeFields", modeFields);
-        ConnectionToolbarUi.registerSaveShortcut(form, () -> saveCurrentConnectionProfile(true));
+        ConnectionToolbarUi.registerSaveShortcut(connectionForm, () -> saveCurrentConnectionProfile(true));
         loadSavedConnectionProfiles(null);
         return panel;
     }
 
-    private JPanel buildV2FieldsPanel() {
-        JPanel row = new JPanel(new MigLayout(
-                "insets 2 0 2 0, fillx, novisualpadding, gapx 0",
-                ConnectionToolbarUi.profileActionColumns()
-                        + ConnectionToolbarUi.connectionFieldColumns(TOKEN_FIELD_WIDTH) + "4"
-                        + ConnectionToolbarUi.wideConnectionFieldColumns(ORG_FIELD_WIDTH) + "push",
-                "[]"
-        ));
+    /**
+     * 标签列按本列最长标签自适应；字段列窄窗口可压缩到 min，宽窗口均分多余空间，最多拉伸到 2 倍。
+     */
+    private static String growFieldColumns(int minWidth, int prefWidth) {
+        return "[pref!,right]4[" + minWidth + ":" + prefWidth + ":" + (prefWidth * 2) + ",fill,grow,shrink]";
+    }
 
-        tokenField = new JTextField("", 26);
+    private void buildModeFields() {
+        tokenField = new JTextField("");
         ConnectionToolbarUi.compactControl(tokenField);
         tokenField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TOKEN_PLACEHOLDER));
         tokenField.addActionListener(e -> doConnect());
 
-        orgField = new JTextField("", 16);
+        orgField = new JTextField("");
         ConnectionToolbarUi.compactControl(orgField);
         orgField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ORG_PLACEHOLDER));
         orgField.addActionListener(e -> doConnect());
-
-        row.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TOKEN)), "skip 7");
-        row.add(tokenField);
-        row.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ORG)));
-        row.add(orgField);
-        return row;
-    }
-
-    private JPanel buildV1FieldsPanel() {
-        JPanel row = new JPanel(new MigLayout(
-                "insets 2 0 2 0, fillx, novisualpadding, gapx 0",
-                ConnectionToolbarUi.profileActionColumns()
-                        + ConnectionToolbarUi.connectionFieldColumns(DB_FIELD_WIDTH) + "4"
-                        + ConnectionToolbarUi.wideConnectionFieldColumns(MEASUREMENT_FIELD_WIDTH) + "4"
-                        + ConnectionToolbarUi.connectionFieldColumns(AUTH_FIELD_WIDTH) + "4"
-                        + ConnectionToolbarUi.wideConnectionFieldColumns(AUTH_FIELD_WIDTH)
-                        + "4[]push",
-                "[]"
-        ));
 
         dbCombo = new EasyComboBox<>(EasyComboBox.WidthMode.DYNAMIC);
         ConnectionToolbarUi.compactControl(dbCombo);
@@ -850,7 +958,6 @@ public class InfluxDbPanel extends JPanel {
         });
 
         measurementCombo = new EasyComboBox<>(EasyComboBox.WidthMode.DYNAMIC);
-        ConnectionToolbarUi.compactControl(measurementCombo);
         measurementCombo.addActionListener(e -> {
             if (suppressComboEvents) return;
             if (getSelectedMode() != QueryMode.INFLUXQL_V1) return;
@@ -866,37 +973,30 @@ public class InfluxDbPanel extends JPanel {
             }
         });
 
-        JButton reloadMetaBtn = ConnectionToolbarUi.iconButton(
+        reloadMetaBtn = ConnectionToolbarUi.iconButton(
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_RELOAD_META), "icons/refresh.svg");
-        reloadMetaBtn.addActionListener(e -> {
-            String db = getSelectedDatabase();
-            loadDatabases(() -> {
-                String selectedDb = db.isBlank() ? getSelectedDatabase() : db;
-                if (!selectedDb.isBlank()) loadMeasurements(selectedDb);
-            });
-        });
+        reloadMetaBtn.addActionListener(e -> reloadMetadata());
 
-        userField = new JTextField("", 12);
+        userField = new JTextField("");
         ConnectionToolbarUi.compactControl(userField);
         userField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_USER_PLACEHOLDER));
+        userField.addActionListener(e -> doConnect());
 
-        passwordField = new JPasswordField("", 12);
+        passwordField = new JPasswordField("");
         ConnectionToolbarUi.compactControl(passwordField);
         passwordField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_PASS_PLACEHOLDER));
         passwordField.addActionListener(e -> doConnect());
+    }
 
-        row.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DB)), "skip 7");
-        row.add(dbCombo);
-        row.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT)));
-        row.add(measurementCombo);
-        row.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_USER)));
-        row.add(userField);
-        row.add(ConnectionToolbarUi.label(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_PASS)));
-        row.add(passwordField);
-        row.add(reloadMetaBtn);
-        return row;
+    private void reloadMetadata() {
+        if (!connected || getSelectedMode() != QueryMode.INFLUXQL_V1) return;
+        String db = getSelectedDatabase();
+        loadDatabases(() -> {
+            String selectedDb = db.isBlank() ? getSelectedDatabase() : db;
+            if (!selectedDb.isBlank()) loadMeasurements(selectedDb);
+        });
     }
 
     private void loadSavedConnectionProfiles(String preferredProfileId) {
@@ -942,8 +1042,7 @@ public class InfluxDbPanel extends JPanel {
         if (profile == null) {
             return;
         }
-        baseUrl = InfluxDbConnectionProfileStore.normalizeBaseUrl(profile.getBaseUrl());
-        hostField.setText(baseUrl);
+        hostField.setText(InfluxDbConnectionProfileStore.normalizeBaseUrl(profile.getBaseUrl()));
         setSelectedModeWithoutSwitch(parseMode(profile.getMode()));
         tokenField.setText(defaultString(profile.getToken()));
         orgField.setText(defaultString(profile.getOrg()));
@@ -1153,19 +1252,17 @@ public class InfluxDbPanel extends JPanel {
     }
 
     private void showModeFields(QueryMode mode) {
-        JPanel modeFields = findModeFieldsPanel();
-        if (modeFields != null) {
-            CardLayout card = (CardLayout) modeFields.getLayout();
-            card.show(modeFields, mode.name());
+        boolean v1 = mode == QueryMode.INFLUXQL_V1;
+        if (v1Components != null) {
+            for (JComponent component : v1Components) component.setVisible(v1);
         }
-    }
-
-    private JPanel findModeFieldsPanel() {
-        if (getComponentCount() == 0 || !(getComponent(0) instanceof JPanel connectionPanel)) {
-            return null;
+        if (v2Components != null) {
+            for (JComponent component : v2Components) component.setVisible(!v1);
         }
-        Object modeFields = connectionPanel.getClientProperty("modeFields");
-        return modeFields instanceof JPanel panel ? panel : null;
+        if (connectionForm != null) {
+            connectionForm.revalidate();
+            connectionForm.repaint();
+        }
     }
 
     private JPanel buildMainPanel() {
@@ -1275,8 +1372,12 @@ public class InfluxDbPanel extends JPanel {
     }
 
     private JPanel buildV1QueryBuilderPanel() {
-        JPanel wrapper = new JPanel(new MigLayout("insets 4 6 4 6, fillx", "[][fill]8[][][fill]push", "[]"));
+        JPanel wrapper = new JPanel(new MigLayout("insets 4 6 4 6, fillx", "[][fill]8[][fill]8[][][fill]push", "[]"));
         ToolWindowSurfaceStyle.applySectionHeader(wrapper);
+
+        wrapper.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_MEASUREMENT)));
+        wrapper.add(measurementCombo);
+        wrapper.add(new JSeparator(SwingConstants.VERTICAL), "growy, gap 2 2");
 
         // Fields 只读浏览
         fieldCombo = new EasyComboBox<>(EasyComboBox.WidthMode.DYNAMIC);
@@ -1374,10 +1475,14 @@ public class InfluxDbPanel extends JPanel {
 
     private void switchMode(QueryMode mode) {
         if (suppressModeSwitch) return;
-        connected = false;
+        boolean wasConnected = connected;
         clearMeasurementList();
-        btnCardLayout.show(btnCard, CONNECT_CARD);
         showModeFields(mode);
+        updateConnectedState(false);
+        if (wasConnected) {
+            respStatusLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_STATUS_NOT_CONNECTED));
+            respStatusLabel.setForeground(ModernColors.getTextSecondary());
+        }
 
         if (mode == QueryMode.INFLUXQL_V1) {
             queryLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_QUERY_TITLE_V1));
@@ -1429,57 +1534,142 @@ public class InfluxDbPanel extends JPanel {
     }
 
     private void registerCtrlEnterShortcut(JButton executeButton) {
-        SwingUtilities.invokeLater(() -> {
-            if (queryEditor != null) {
-                queryEditor.getInputMap().put(
-                        KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER,
-                                java.awt.event.InputEvent.CTRL_DOWN_MASK),
-                        "executeQuery");
-                queryEditor.getActionMap().put("executeQuery", new AbstractAction() {
-                    @Override
-                    public void actionPerformed(java.awt.event.ActionEvent e) {
-                        executeButton.doClick();
-                    }
-                });
+        AbstractAction executeAction = new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (executeButton.isEnabled()) {
+                    executeButton.doClick();
+                }
             }
-        });
+        };
+        queryEditor.getActionMap().put("executeQuery", executeAction);
+        queryEditor.getInputMap().put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK), "executeQuery");
+        queryEditor.getInputMap().put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER,
+                java.awt.event.InputEvent.META_DOWN_MASK), "executeQuery");
     }
 
-    private void doConnect() {
+    /**
+     * InfluxQL(V1) 探测 /ping，Flux(V2) 探测 /health；非 2xx 视为失败。仅使用传入地址，不修改当前连接状态。
+     */
+    private HttpResult probeServer(String targetBaseUrl, QueryMode mode) throws IOException {
+        HttpResult result = mode == QueryMode.INFLUXQL_V1
+                ? callHttpAt(targetBaseUrl, "GET", "/ping", null, null, null, mode)
+                : callHttpAt(targetBaseUrl, "GET", "/health", null, null, "application/json", mode);
+        if (result.code() < 200 || result.code() >= 300) {
+            String body = result.body() == null ? "" : result.body().strip();
+            if (body.length() > 300) body = body.substring(0, 300) + "…";
+            throw new IOException("HTTP " + result.code() + (body.isEmpty() ? "" : " " + body));
+        }
+        return result;
+    }
+
+    private static String errorMessage(Exception ex) {
+        Throwable cause = ex instanceof java.util.concurrent.ExecutionException && ex.getCause() != null
+                ? ex.getCause() : ex;
+        String message = cause.getMessage();
+        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+    }
+
+    private String readTargetBaseUrl() {
         String inputHost = getCurrentHost();
         if (inputHost.isEmpty()) {
             NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ERR_HOST_REQUIRED));
-            return;
+            return null;
         }
-        inputHost = InfluxDbConnectionProfileStore.normalizeBaseUrl(inputHost);
-        baseUrl = inputHost;
+        return InfluxDbConnectionProfileStore.normalizeBaseUrl(inputHost);
+    }
 
+    /**
+     * 仅验证当前表单配置能否连通，不加载元数据、不改变已连接状态。
+     */
+    private void testConnection() {
+        String targetBaseUrl = readTargetBaseUrl();
+        if (targetBaseUrl == null) return;
         QueryMode mode = getSelectedMode();
-        connectBtn.setEnabled(false);
-        String finalBaseUrl = baseUrl;
-
-        SwingWorker<HttpResult, Void> worker = new SwingWorker<>() {
+        setConnectionBusy(true);
+        testConnectionBtn.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION_RUNNING));
+        new SwingWorker<HttpResult, Void>() {
             @Override
             protected HttpResult doInBackground() throws Exception {
-                if (mode == QueryMode.INFLUXQL_V1) {
-                    return callHttp("GET", "/ping", null, null, null, mode);
-                }
-                return callHttp("GET", "/health", null, null, "application/json", mode);
+                return probeServer(targetBaseUrl, mode);
             }
 
             @Override
             protected void done() {
-                connectBtn.setEnabled(true);
+                setConnectionBusy(false);
+                testConnectionBtn.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION));
                 try {
                     HttpResult result = get();
-                    if (result.code() < 200 || result.code() >= 300) {
-                        throw new IOException("HTTP " + result.code() + "\n" + result.body());
-                    }
-                    connected = true;
-                    btnCardLayout.show(btnCard, DISCONNECT_CARD);
-                    addHostHistory(finalBaseUrl);
                     NotificationCenter.showSuccess(MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT_SUCCESS), finalBaseUrl));
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION_SUCCESS),
+                            targetBaseUrl, String.valueOf(result.costMs())));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception ex) {
+                    NotificationCenter.showError(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_TEST_CONNECTION_FAILED), errorMessage(ex)));
+                    log.warn("Test influxdb connection failed", ex);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * 连接/测试连接进行中时互斥，避免重复点击触发并发连接。
+     */
+    private void setConnectionBusy(boolean busy) {
+        connectBtn.setEnabled(!busy);
+        testConnectionBtn.setEnabled(!busy);
+    }
+
+    private void setLoadingMeasurements(boolean loading) {
+        loadingMeasurements = loading;
+        updateMetadataActionState();
+        measurementList.repaint();
+    }
+
+    private void updateConnectedState(boolean isConnected) {
+        connected = isConnected;
+        btnCardLayout.show(btnCard, isConnected ? DISCONNECT_CARD : CONNECT_CARD);
+        executeBtn.setEnabled(isConnected);
+        updateMetadataActionState();
+        measurementList.repaint();
+    }
+
+    private void updateMetadataActionState() {
+        boolean v1Connected = connected && getSelectedMode() == QueryMode.INFLUXQL_V1;
+        if (refreshMeasurementsBtn != null) refreshMeasurementsBtn.setEnabled(v1Connected && !loadingMeasurements);
+        if (reloadMetaBtn != null) reloadMetaBtn.setEnabled(v1Connected && !loadingMeasurements);
+    }
+
+    private void doConnect() {
+        String targetBaseUrl = readTargetBaseUrl();
+        if (targetBaseUrl == null) return;
+        QueryMode mode = getSelectedMode();
+        setConnectionBusy(true);
+        respStatusLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_STATUS_CONNECTING));
+        respStatusLabel.setForeground(ModernColors.getTextSecondary());
+
+        new SwingWorker<HttpResult, Void>() {
+            @Override
+            protected HttpResult doInBackground() throws Exception {
+                return probeServer(targetBaseUrl, mode);
+            }
+
+            @Override
+            protected void done() {
+                setConnectionBusy(false);
+                try {
+                    get();
+                    baseUrl = targetBaseUrl;
+                    updateConnectedState(true);
+                    addHostHistory(baseUrl);
+                    respStatusLabel.setText(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_STATUS_CONNECTED), baseUrl));
+                    respStatusLabel.setForeground(ModernColors.getSuccess());
+                    NotificationCenter.showSuccess(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_CONNECT_SUCCESS), baseUrl));
                     if (mode == QueryMode.INFLUXQL_V1) {
                         loadDatabases(() -> {
                             String db = getSelectedDatabase();
@@ -1490,23 +1680,23 @@ public class InfluxDbPanel extends JPanel {
                     Thread.currentThread().interrupt();
                     log.warn("influx connect interrupted", ex);
                 } catch (Exception ex) {
-                    connected = false;
                     clearMeasurementList();
-                    btnCardLayout.show(btnCard, CONNECT_CARD);
+                    updateConnectedState(false);
+                    respStatusLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_STATUS_NOT_CONNECTED));
+                    respStatusLabel.setForeground(ModernColors.getTextSecondary());
                     NotificationCenter.showError(MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ERR_CONNECT_FAILED),
-                            ex.getMessage()));
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ERR_CONNECT_FAILED), errorMessage(ex)));
+                    log.warn("InfluxDB connect failed", ex);
                 }
             }
-        };
-        worker.execute();
+        }.execute();
     }
 
     private void doDisconnect() {
-        connected = false;
         clearMeasurementList();
-        btnCardLayout.show(btnCard, CONNECT_CARD);
-        respStatusLabel.setText("");
+        updateConnectedState(false);
+        respStatusLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_STATUS_NOT_CONNECTED));
+        respStatusLabel.setForeground(ModernColors.getTextSecondary());
         NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_DISCONNECT_SUCCESS));
     }
 
@@ -1565,7 +1755,7 @@ public class InfluxDbPanel extends JPanel {
 
             @Override
             protected void done() {
-                executeBtn.setEnabled(true);
+                executeBtn.setEnabled(connected);
                 try {
                     HttpResult result = get();
                     lastResponseBody = result.body();
@@ -1636,6 +1826,7 @@ public class InfluxDbPanel extends JPanel {
     }
 
     private void loadMeasurements(String db, boolean fromHistory) {
+        setLoadingMeasurements(true);
         SwingWorker<HttpResult, Void> worker = new SwingWorker<>() {
             @Override
             protected HttpResult doInBackground() throws Exception {
@@ -1650,6 +1841,7 @@ public class InfluxDbPanel extends JPanel {
 
             @Override
             protected void done() {
+                setLoadingMeasurements(false);
                 try {
                     HttpResult result = get();
                     if (result.code() >= 200 && result.code() < 300) {
@@ -1676,6 +1868,8 @@ public class InfluxDbPanel extends JPanel {
                     log.warn("loadMeasurements interrupted", ex);
                 } catch (Exception ex) {
                     log.warn("loadMeasurements error: {}", ex.getMessage());
+                    NotificationCenter.showError(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_INFLUX_ERR_CONNECT_FAILED), errorMessage(ex)));
                 }
             }
         };
@@ -2123,8 +2317,13 @@ public class InfluxDbPanel extends JPanel {
 
     private HttpResult callHttp(String method, String path, String body, String contentType,
                                 String accept, QueryMode mode) throws IOException {
+        return callHttpAt(baseUrl, method, path, body, contentType, accept, mode);
+    }
+
+    private HttpResult callHttpAt(String targetBaseUrl, String method, String path, String body, String contentType,
+                                  String accept, QueryMode mode) throws IOException {
         String normalizedPath = path.startsWith("/") ? path : ("/" + path);
-        String url = baseUrl + normalizedPath;
+        String url = targetBaseUrl + normalizedPath;
 
         Request.Builder builder = new Request.Builder().url(url);
 
@@ -2156,21 +2355,13 @@ public class InfluxDbPanel extends JPanel {
         }
 
         long start = System.currentTimeMillis();
-        try (Response response = getHttpClient().newCall(builder.build()).execute()) {
+        OkHttpClient client = OkHttpClientManager.getClientForUrl(
+                targetBaseUrl, true, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS, WRITE_TIMEOUT_MS);
+        try (Response response = client.newCall(builder.build()).execute()) {
             long cost = System.currentTimeMillis() - start;
             String respBody = response.body() == null ? "" : response.body().string();
             return new HttpResult(response.code(), respBody, cost);
         }
-    }
-
-    private OkHttpClient getHttpClient() {
-        return OkHttpClientManager.getClientForUrl(
-                baseUrl,
-                true,
-                CONNECT_TIMEOUT_MS,
-                READ_TIMEOUT_MS,
-                WRITE_TIMEOUT_MS
-        );
     }
 
     private String enc(String value) {

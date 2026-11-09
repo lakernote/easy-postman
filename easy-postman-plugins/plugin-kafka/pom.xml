@@ -15,7 +15,7 @@
         插件版本单独维护。
         初始独立版本从 5.3.16 起步，后续只在该插件有变更时单独递增。
      -->
-    <version>6.0.10</version>
+    <version>6.0.11</version>
     <artifactId>easy-postman-plugin-kafka</artifactId>
     <packaging>jar</packaging>
 

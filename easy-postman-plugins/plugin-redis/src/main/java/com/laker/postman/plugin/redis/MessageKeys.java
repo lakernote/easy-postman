@@ -39,6 +39,12 @@ final class MessageKeys {
     static final String TOOLBOX_REDIS_PROFILE_NAME_EXISTS = "toolbox.redis.profile.name.exists";
     static final String TOOLBOX_REDIS_CONNECT = "toolbox.redis.connect";
     static final String TOOLBOX_REDIS_DISCONNECT = "toolbox.redis.disconnect";
+    static final String TOOLBOX_REDIS_CONNECT_TOOLTIP = "toolbox.redis.connect.tooltip";
+    static final String TOOLBOX_REDIS_TEST_CONNECTION = "toolbox.redis.test_connection";
+    static final String TOOLBOX_REDIS_TEST_CONNECTION_TOOLTIP = "toolbox.redis.test_connection.tooltip";
+    static final String TOOLBOX_REDIS_TEST_CONNECTION_RUNNING = "toolbox.redis.test_connection.running";
+    static final String TOOLBOX_REDIS_TEST_CONNECTION_SUCCESS = "toolbox.redis.test_connection.success";
+    static final String TOOLBOX_REDIS_TEST_CONNECTION_FAILED = "toolbox.redis.test_connection.failed";
     static final String TOOLBOX_REDIS_CONNECT_SUCCESS = "toolbox.redis.connect.success";
     static final String TOOLBOX_REDIS_DISCONNECT_SUCCESS = "toolbox.redis.disconnect.success";
     static final String TOOLBOX_REDIS_STATUS_NOT_CONNECTED = "toolbox.redis.status.not_connected";
@@ -56,6 +62,11 @@ final class MessageKeys {
     static final String TOOLBOX_REDIS_KEYS_SEARCH_PLACEHOLDER = "toolbox.redis.keys.search.placeholder";
     static final String TOOLBOX_REDIS_KEYS_REFRESH = "toolbox.redis.keys.refresh";
     static final String TOOLBOX_REDIS_KEY_COPY = "toolbox.redis.key.copy";
+    static final String TOOLBOX_REDIS_KEY_COPIED = "toolbox.redis.key.copied";
+    static final String TOOLBOX_REDIS_KEYS_EMPTY_NOT_CONNECTED = "toolbox.redis.keys.empty.not_connected";
+    static final String TOOLBOX_REDIS_KEYS_EMPTY_NONE = "toolbox.redis.keys.empty.none";
+    static final String TOOLBOX_REDIS_KEYS_EMPTY_NO_MATCH = "toolbox.redis.keys.empty.no_match";
+    static final String TOOLBOX_REDIS_STATUS_KEYS_TRUNCATED = "toolbox.redis.status.keys_truncated";
     static final String TOOLBOX_REDIS_KEY_QUICK_READ = "toolbox.redis.key.quick_read";
     static final String TOOLBOX_REDIS_KEY_DELETE = "toolbox.redis.key.delete";
     static final String TOOLBOX_REDIS_KEY_DELETE_CONFIRM = "toolbox.redis.key.delete.confirm";

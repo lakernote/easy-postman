@@ -14,6 +14,8 @@ import com.laker.postman.common.component.ToolWindowSidebarToolbar;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.ClearButton;
 import com.laker.postman.common.component.button.CompactPrimaryButton;
+import com.laker.postman.common.component.button.FormatButton;
+import com.laker.postman.common.component.button.ModernButtonFactory;
 import com.laker.postman.common.component.button.RefreshButton;
 import com.laker.postman.common.component.connection.ConnectionToolbarUi;
 import com.laker.postman.common.component.dialog.TextInputDialog;
@@ -46,13 +48,18 @@ import static com.laker.postman.plugin.redis.RedisI18n.t;
 public class RedisPanel extends JPanel {
     private static final int MAX_KEY_SCAN = 2000;
     private static final int MAX_HISTORY = 30;
+    private static final int MAX_DB_INDEX = 9999;
     private static final String CONNECT_CARD = "connect";
     private static final String DISCONNECT_CARD = "disconnect";
-    private static final int HOST_FIELD_WIDTH = 220;
-    private static final int PORT_FIELD_WIDTH = 78;
+    private static final int GROUP_GAP = 12;
+    private static final int PROFILE_GROUP_MIN_WIDTH = 150;
+    private static final int PROFILE_GROUP_PREF_WIDTH = 240;
+    private static final int HOST_GROUP_MIN_WIDTH = 110;
+    private static final int HOST_GROUP_PREF_WIDTH = 220;
+    private static final int PORT_DB_GROUP_MIN_WIDTH = 180;
+    private static final int PORT_DB_GROUP_PREF_WIDTH = 190;
+    private static final int PORT_FIELD_MIN_WIDTH = 84;
     private static final int DB_FIELD_WIDTH = 58;
-    private static final int AUTH_MODE_WIDTH = 100;
-    private static final int AUTH_FIELD_WIDTH = HOST_FIELD_WIDTH;
 
     private static final String CMD_GET = "GET";
     private static final String CMD_SET = "SET";
@@ -111,9 +118,10 @@ public class RedisPanel extends JPanel {
     private JComboBox<AuthMode> authModeCombo;
     private JPanel connectionPanel;
     private JPanel connectionForm;
-    private JPanel authRow;
+    private JComponent[] authComponents;
     private JButton connectBtn;
     private JButton disconnectBtn;
+    private JButton testConnectionBtn;
     private CardLayout btnCardLayout;
     private JPanel btnCard;
 
@@ -135,6 +143,7 @@ public class RedisPanel extends JPanel {
     private JLabel keyMetaLabel;
     private JLabel respStatusLabel;
     private CompactPrimaryButton executeBtn;
+    private RefreshButton refreshKeysBtn;
 
     private final Deque<HistoryEntry> requestHistory = new ArrayDeque<>();
     private DefaultListModel<HistoryEntry> historyListModel;
@@ -143,6 +152,7 @@ public class RedisPanel extends JPanel {
     private JSplitPane mainSplit;
     private transient JedisPooled jedis;
     private boolean connected = false;
+    private boolean loadingKeys;
     private final RedisConnectionProfileStore connectionProfileStore;
     private final Map<String, RedisConnectionProfile> connectionProfilesByName = new LinkedHashMap<>();
     private boolean loadingConnectionProfiles;
@@ -187,19 +197,14 @@ public class RedisPanel extends JPanel {
         });
         add(mainSplit, BorderLayout.CENTER);
         ToolWindowSurfaceStyle.applyPanelTreeCard(this);
+        updateConnectedState(false);
+        respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_NOT_CONNECTED));
     }
 
     private JPanel buildConnectionPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         connectionPanel = panel;
         ToolWindowSurfaceStyle.applySectionHeader(panel, 3, 6, 3, 6);
-
-        connectionForm = new JPanel(new MigLayout(
-                "insets 0, fillx, gapy 2, novisualpadding, hidemode 3",
-                ConnectionToolbarUi.compactFormColumns(),
-                "[][]"
-        ));
-        connectionForm.setOpaque(false);
 
         profileCombo = new JComboBox<>();
         profileCombo.setEditable(false);
@@ -225,12 +230,13 @@ public class RedisPanel extends JPanel {
         portSpinner = EasyJSpinner.intSpinner(6379, 1, 65535, 1);
         compactRedisControl(portSpinner);
 
-        dbSpinner = EasyJSpinner.intSpinner(0, 0, 15, 1);
+        dbSpinner = EasyJSpinner.intSpinner(0, 0, MAX_DB_INDEX, 1);
         compactRedisControl(dbSpinner);
 
         usernameField = new JTextField("");
         usernameField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_REDIS_USER_PLACEHOLDER));
         compactRedisControl(usernameField);
+        usernameField.addActionListener(e -> doConnect());
 
         passwordField = new JPasswordField("");
         passwordField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_REDIS_PASS_PLACEHOLDER));
@@ -239,15 +245,18 @@ public class RedisPanel extends JPanel {
 
         authModeCombo = ConnectionToolbarUi.comboBox(AuthMode.values(), AuthMode::displayName);
         compactRedisControl(authModeCombo);
-        authModeCombo.addActionListener(e -> setAuthOptionsVisible(getSelectedAuthMode() == AuthMode.BASIC));
+        authModeCombo.addActionListener(e -> setAuthFieldsEnabled(getSelectedAuthMode() == AuthMode.BASIC));
 
-        connectBtn = ConnectionToolbarUi.iconButton(
-                t(MessageKeys.TOOLBOX_REDIS_CONNECT),
-                "icons/connect.svg", e -> doConnect());
+        connectBtn = ModernButtonFactory.createCompactButton(t(MessageKeys.TOOLBOX_REDIS_CONNECT), true, "icons/connect.svg");
+        connectBtn.setToolTipText(t(MessageKeys.TOOLBOX_REDIS_CONNECT_TOOLTIP));
+        connectBtn.addActionListener(e -> doConnect());
 
-        disconnectBtn = ConnectionToolbarUi.iconButton(
-                t(MessageKeys.TOOLBOX_REDIS_DISCONNECT),
-                "icons/ws-close.svg", e -> doDisconnect());
+        disconnectBtn = ModernButtonFactory.createCompactButton(t(MessageKeys.TOOLBOX_REDIS_DISCONNECT), false, "icons/ws-close.svg");
+        disconnectBtn.addActionListener(e -> doDisconnect());
+
+        testConnectionBtn = ModernButtonFactory.createCompactButton(t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION), false, "icons/check.svg");
+        testConnectionBtn.setToolTipText(t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION_TOOLTIP));
+        testConnectionBtn.addActionListener(e -> testConnection());
 
         btnCardLayout = new CardLayout();
         btnCard = new JPanel(btnCardLayout);
@@ -256,77 +265,103 @@ public class RedisPanel extends JPanel {
         btnCard.add(disconnectBtn, DISCONNECT_CARD);
         btnCardLayout.show(btnCard, CONNECT_CARD);
 
-        JPanel toolbar = new JPanel(new MigLayout(
-                "insets 0, fillx, novisualpadding, gapx 0",
-                ConnectionToolbarUi.profileActionColumns()
-                        + ConnectionToolbarUi.connectionFieldColumns(HOST_FIELD_WIDTH) + "4"
-                        + "[36!,right]4[" + PORT_FIELD_WIDTH + "!,fill]4"
-                        + "[28!,right]4[" + DB_FIELD_WIDTH + "!,fill]4"
-                        + ConnectionToolbarUi.connectionFieldColumns(AUTH_MODE_WIDTH)
-                        + "6[]push",
-                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!]"
+        JPanel profileGroup = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gapx 0",
+                "[grow,fill]2[" + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]0["
+                        + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]0["
+                        + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]0["
+                        + ConnectionToolbarUi.TOOLBAR_BUTTON_SIZE + "!]",
+                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
         ));
-        toolbar.setOpaque(false);
-        toolbar.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_PROFILE)));
-        toolbar.add(profileCombo);
-        toolbar.add(newProfileBtn);
-        toolbar.add(saveProfileBtn);
-        toolbar.add(saveAsProfileBtn);
-        toolbar.add(deleteProfileBtn);
-        toolbar.add(ConnectionToolbarUi.verticalSeparator(),
-                "w 1!, h " + ConnectionToolbarUi.VERTICAL_SEPARATOR_HEIGHT + "!");
-        toolbar.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_HOST)));
-        toolbar.add(hostField);
-        toolbar.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_PORT)));
-        toolbar.add(portSpinner);
-        toolbar.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_DB)));
-        toolbar.add(dbSpinner);
-        toolbar.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_AUTH)));
-        toolbar.add(authModeCombo);
-        toolbar.add(btnCard, "h " + ConnectionToolbarUi.CONNECTION_BUTTON_HEIGHT + "!");
+        profileGroup.setOpaque(false);
+        String controlHeight = "wmin 0, h " + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!";
+        profileGroup.add(profileCombo, controlHeight);
+        profileGroup.add(newProfileBtn);
+        profileGroup.add(saveProfileBtn);
+        profileGroup.add(saveAsProfileBtn);
+        profileGroup.add(deleteProfileBtn);
 
-        authRow = new JPanel(new MigLayout(
-                "insets 2 0 2 0, fillx, novisualpadding, gapx 0",
-                ConnectionToolbarUi.profileActionColumns()
-                        + ConnectionToolbarUi.connectionFieldColumns(AUTH_FIELD_WIDTH) + "4"
-                        + "[36!,right]4[" + PORT_FIELD_WIDTH + "!,fill]4"
-                        + "[28!,right]4[" + DB_FIELD_WIDTH + "!,fill]4"
-                        + ConnectionToolbarUi.connectionFieldColumns(AUTH_MODE_WIDTH)
-                        + "6[]push",
-                "[]"
+        JPanel portDbGroup = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gapx 0",
+                "[" + PORT_FIELD_MIN_WIDTH + ":pref,grow,fill]8[pref!,right]4[" + DB_FIELD_WIDTH + "!,fill]",
+                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
         ));
-        authRow.setOpaque(false);
-        authRow.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_USER)), "skip 7");
-        authRow.add(usernameField);
-        authRow.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_PASS)));
-        authRow.add(passwordField, "span 5, growx");
+        portDbGroup.setOpaque(false);
+        portDbGroup.add(portSpinner, controlHeight);
+        portDbGroup.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_DB)));
+        portDbGroup.add(dbSpinner, controlHeight);
 
-        connectionForm.add(toolbar, "wrap");
-        connectionForm.add(authRow);
-        panel.add(connectionForm, BorderLayout.CENTER);
-        setAuthOptionsVisible(false);
+        JPanel actions = new JPanel(new MigLayout("insets 0, novisualpadding, gapx 6", "[][]", "[]"));
+        actions.setOpaque(false);
+        String buttonHeight = "h " + ConnectionToolbarUi.CONNECTION_BUTTON_HEIGHT + "!";
+        actions.add(testConnectionBtn, buttonHeight);
+        actions.add(btnCard, buttonHeight);
+
+        // 与 Kafka 一致：两行共用同一网格，各列左右边缘严格对齐；最后一列是操作区，密码框跨列与连接按钮右对齐。
+        connectionForm = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gapy 4",
+                growFieldColumns(PROFILE_GROUP_MIN_WIDTH, PROFILE_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + growFieldColumns(HOST_GROUP_MIN_WIDTH, HOST_GROUP_PREF_WIDTH) + GROUP_GAP
+                        + "[pref!,right]4[" + PORT_DB_GROUP_MIN_WIDTH + ":" + PORT_DB_GROUP_PREF_WIDTH + ",fill]"
+                        + GROUP_GAP + "[pref!,fill]",
+                "[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]4[" + ConnectionToolbarUi.FORM_CONTROL_HEIGHT + "!,center]"
+        ));
+        connectionForm.setOpaque(false);
+
+        // 第 1 行：基础连接
+        connectionForm.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_PROFILE)));
+        connectionForm.add(profileGroup, controlHeight);
+        connectionForm.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_HOST)));
+        connectionForm.add(hostField, controlHeight);
+        connectionForm.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_PORT)));
+        connectionForm.add(portDbGroup, controlHeight);
+        connectionForm.add(actions, "right, wrap");
+
+        // 第 2 行：认证
+        JLabel userLabel = ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_USER));
+        JLabel passLabel = ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_PASS));
+        connectionForm.add(ConnectionToolbarUi.label(t(MessageKeys.TOOLBOX_REDIS_AUTH)));
+        connectionForm.add(authModeCombo, controlHeight);
+        connectionForm.add(userLabel);
+        connectionForm.add(usernameField, controlHeight);
+        connectionForm.add(passLabel);
+        connectionForm.add(passwordField, "span 2, growx, " + controlHeight);
+        authComponents = new JComponent[]{userLabel, usernameField, passLabel, passwordField};
+
+        JPanel wrapper = new JPanel(new MigLayout("insets 0, novisualpadding, fillx", "[grow,fill]", "[]"));
+        wrapper.setOpaque(false);
+        wrapper.add(connectionForm, "growx, wmin 0");
+        panel.add(wrapper, BorderLayout.CENTER);
+        ConnectionToolbarUi.lockConnectionPanelHeight(panel, true);
+        setAuthFieldsEnabled(false);
 
         ConnectionToolbarUi.registerSaveShortcut(connectionForm, () -> saveCurrentConnectionProfile(true));
         loadSavedConnectionProfiles(null);
         return panel;
     }
 
-    private void setAuthOptionsVisible(boolean visible) {
-        if (authRow == null || connectionForm == null) {
-            return;
-        }
+    /**
+     * 标签列按本列最长标签自适应；字段列窄窗口可压缩到 min，宽窗口均分多余空间，最多拉伸到 2 倍。
+     */
+    private static String growFieldColumns(int minWidth, int prefWidth) {
+        return "[pref!,right]4[" + minWidth + ":" + prefWidth + ":" + (prefWidth * 2) + ",fill,grow,shrink]";
+    }
+
+    /**
+     * 无认证时禁用（而非隐藏）用户名与密码：布局保持稳定，用户也能看到切换认证方式后可填写哪些项。
+     */
+    private void setAuthFieldsEnabled(boolean enabled) {
         if (authModeCombo != null) {
-            AuthMode targetMode = visible ? AuthMode.BASIC : AuthMode.NONE;
+            AuthMode targetMode = enabled ? AuthMode.BASIC : AuthMode.NONE;
             if (authModeCombo.getSelectedItem() != targetMode) {
                 authModeCombo.setSelectedItem(targetMode);
             }
         }
-        authRow.setVisible(visible);
-        ConnectionToolbarUi.lockConnectionPanelHeight(connectionPanel, visible);
-        connectionForm.revalidate();
-        connectionForm.repaint();
-        revalidate();
-        repaint();
+        if (authComponents != null) {
+            for (JComponent component : authComponents) {
+                component.setEnabled(enabled);
+            }
+        }
     }
 
     private <T extends JComponent> T compactRedisControl(T component) {
@@ -361,13 +396,15 @@ public class RedisPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
         panel.setOpaque(false);
 
-        RefreshButton refreshBtn = new RefreshButton();
-        refreshBtn.setToolTipText(t(MessageKeys.TOOLBOX_REDIS_KEYS_REFRESH));
-        refreshBtn.addActionListener(e -> loadKeysAsync());
+        refreshKeysBtn = new RefreshButton();
+        refreshKeysBtn.setToolTipText(t(MessageKeys.TOOLBOX_REDIS_KEYS_REFRESH));
+        refreshKeysBtn.addActionListener(e -> loadKeysAsync());
         ToolWindowSidebarHeader titleBar = new ToolWindowSidebarHeader(
-                t(MessageKeys.TOOLBOX_REDIS_KEYS_MANAGEMENT), refreshBtn);
+                t(MessageKeys.TOOLBOX_REDIS_KEYS_MANAGEMENT), refreshKeysBtn);
 
         keySearchField = new SearchTextField();
+        // 过滤仅做不区分大小写的包含匹配，隐藏不生效的大小写/整词选项
+        keySearchField.putClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
         keySearchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_REDIS_KEYS_SEARCH_PLACEHOLDER));
         keySearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         keySearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -386,7 +423,25 @@ public class RedisPanel extends JPanel {
 
         keyListModel = new DefaultListModel<>();
         keyFilteredModel = new DefaultListModel<>();
-        keyList = new JList<>(keyFilteredModel);
+        keyList = new JList<>(keyFilteredModel) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                if (getModel().getSize() == 0) {
+                    paintEmptyText(this, g, keyListEmptyText());
+                }
+            }
+
+            @Override
+            public String getToolTipText(java.awt.event.MouseEvent event) {
+                int index = locationToIndex(event.getPoint());
+                if (index < 0 || !getCellBounds(index, index).contains(event.getPoint())) {
+                    return null;
+                }
+                return getModel().getElementAt(index);
+            }
+        };
+        ToolTipManager.sharedInstance().registerComponent(keyList);
         keyList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         keyList.setCellRenderer(new KeyCellRenderer());
         keyList.addListSelectionListener(e -> {
@@ -401,6 +456,7 @@ public class RedisPanel extends JPanel {
             }
         });
         keyList.addMouseListener(buildKeyListMouseListener());
+        registerKeyListShortcuts();
 
         JScrollPane listScroll = new JScrollPane(keyList);
         ToolWindowSurfaceStyle.applyListScrollPaneCard(listScroll, keyList);
@@ -429,7 +485,15 @@ public class RedisPanel extends JPanel {
                 t(MessageKeys.TOOLBOX_REDIS_HISTORY), clearHistBtn);
 
         historyListModel = new DefaultListModel<>();
-        historyList = new JList<>(historyListModel);
+        historyList = new JList<>(historyListModel) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                if (getModel().getSize() == 0) {
+                    paintEmptyText(this, g, t(MessageKeys.TOOLBOX_REDIS_HISTORY_EMPTY));
+                }
+            }
+        };
         historyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         historyList.setCellRenderer(new HistoryCellRenderer());
         historyList.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -444,14 +508,8 @@ public class RedisPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(historyList);
         ToolWindowSurfaceStyle.applyListScrollPaneCard(scroll, historyList);
 
-        JLabel tipLbl = new JLabel("<html><center><small>" + t(MessageKeys.TOOLBOX_REDIS_HISTORY_EMPTY) + "</small></center></html>");
-        tipLbl.setHorizontalAlignment(SwingConstants.CENTER);
-        tipLbl.setForeground(ModernColors.getTextSecondary());
-        tipLbl.setBorder(BorderFactory.createEmptyBorder(8, 4, 8, 4));
-
         panel.add(titleBar, BorderLayout.NORTH);
         panel.add(scroll, BorderLayout.CENTER);
-        panel.add(tipLbl, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -472,10 +530,11 @@ public class RedisPanel extends JPanel {
     }
 
     private JPanel buildActionBar() {
+        // 与 Kafka 生产表单一致的单网格：模板/命令标签同列右对齐，加载模板与执行按钮同列右对齐。
         JPanel panel = new JPanel(new MigLayout(
-                "insets 6 6 6 6, fillx, gapy 6",
-                "[]8[grow,fill]8[]push[]6[]6[]",
-                "[][]"
+                "insets 4 6 4 6, fillx, novisualpadding, gapy 4",
+                "[right]8[pref!,fill]8[]8[grow,fill]8[]8[grow,fill]8[right]",
+                "[]"
         ));
         ToolWindowSurfaceStyle.applySectionHeader(panel);
 
@@ -515,32 +574,17 @@ public class RedisPanel extends JPanel {
         executeBtn.setToolTipText(t(MessageKeys.TOOLBOX_REDIS_EXECUTE));
         executeBtn.addActionListener(e -> executeCommand());
 
-        JPanel row1 = new JPanel(new MigLayout(
-                "insets 0, fillx",
-                "[]8[grow,fill]8[]push",
-                "[]"
-        ));
-        row1.setOpaque(false);
-        row1.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_TEMPLATE)));
-        row1.add(templateCombo, "growx");
-        row1.add(loadTplBtn);
+        panel.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_TEMPLATE)));
+        panel.add(templateCombo, "span 5, growx, wmin 0");
+        panel.add(loadTplBtn, "alignx left, wrap");
 
-        JPanel row2 = new JPanel(new MigLayout(
-                "insets 2, fillx",
-                "[]8[pref!,fill]8[]8[grow,fill]8[]8[grow,fill]8[]",
-                "[]"
-        ));
-        row2.setOpaque(false);
-        row2.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_COMMAND)));
-        row2.add(commandCombo);
-        row2.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_KEY)));
-        row2.add(keyField, "growx");
-        row2.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_ARGS)));
-        row2.add(argsField, "growx");
-        row2.add(executeBtn);
-
-        panel.add(row1, "span, growx, wrap");
-        panel.add(row2, "span, growx");
+        panel.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_COMMAND)));
+        panel.add(commandCombo);
+        panel.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_KEY)));
+        panel.add(keyField, "growx, wmin 0");
+        panel.add(new JLabel(t(MessageKeys.TOOLBOX_REDIS_ARGS)));
+        panel.add(argsField, "growx, wmin 0");
+        panel.add(executeBtn);
 
         updateArgsPlaceholder();
         return panel;
@@ -549,16 +593,13 @@ public class RedisPanel extends JPanel {
     private JPanel buildValuePanel() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setOpaque(false);
-        JPanel header = new JPanel(new MigLayout("insets 2 4 2 4, fillx", "[]push[]", "[]"));
+        JPanel header = new JPanel(new MigLayout("insets 4 8 4 8, fillx", "[]push[]", "[]"));
         ToolWindowSurfaceStyle.applySectionHeader(header);
         JLabel title = new JLabel(t(MessageKeys.TOOLBOX_REDIS_VALUE_TITLE));
         title.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, -2));
         header.add(title);
 
-        JButton formatBtn = new JButton(IconUtil.createThemed("icons/format.svg", 16, 16));
-        formatBtn.setFocusable(false);
-        formatBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        formatBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        FormatButton formatBtn = new FormatButton();
         formatBtn.setToolTipText(t(MessageKeys.TOOLBOX_REDIS_FORMAT_JSON));
         formatBtn.addActionListener(e -> formatValueJson());
         header.add(formatBtn);
@@ -577,7 +618,7 @@ public class RedisPanel extends JPanel {
         panel.setOpaque(false);
         panel.setMinimumSize(new Dimension(0, 0));
         // title 固定, keyMetaLabel 可伸缩但有最大宽, respStatusLabel 固定右侧
-        JPanel header = new JPanel(new MigLayout("insets 2 4 2 4, fillx", "[]8[grow,fill]push[]", "[]"));
+        JPanel header = new JPanel(new MigLayout("insets 4 8 4 8, fillx", "[]8[grow,fill]push[]", "[]"));
         ToolWindowSurfaceStyle.applySectionHeader(header);
         JLabel title = new JLabel(t(MessageKeys.TOOLBOX_REDIS_RESPONSE_TITLE));
         title.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, -2));
@@ -613,13 +654,17 @@ public class RedisPanel extends JPanel {
     }
 
     private void registerCtrlEnterShortcut() {
-        valueEditor.getInputMap().put(
-                KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, java.awt.event.InputEvent.CTRL_DOWN_MASK),
+        InputMap inputMap = valueEditor.getInputMap();
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, java.awt.event.InputEvent.CTRL_DOWN_MASK),
+                "execRedisCmd");
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, java.awt.event.InputEvent.META_DOWN_MASK),
                 "execRedisCmd");
         valueEditor.getActionMap().put("execRedisCmd", new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
-                executeBtn.doClick();
+                if (executeBtn.isEnabled()) {
+                    executeBtn.doClick();
+                }
             }
         });
     }
@@ -674,13 +719,13 @@ public class RedisPanel extends JPanel {
         copyNameItem.addActionListener(e -> {
             if (selected != null) {
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(selected), null);
-                NotificationCenter.showSuccess(selected);
+                NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_REDIS_KEY_COPIED, selected));
             }
         });
         menu.add(copyNameItem);
 
         JMenuItem quickReadItem = new JMenuItem(t(MessageKeys.TOOLBOX_REDIS_KEY_QUICK_READ));
-        quickReadItem.setEnabled(selected != null);
+        quickReadItem.setEnabled(selected != null && connected);
         quickReadItem.addActionListener(e -> {
             if (selected != null) {
                 keyField.setText(selected);
@@ -690,24 +735,108 @@ public class RedisPanel extends JPanel {
         menu.add(quickReadItem);
 
         JMenuItem deleteItem = new JMenuItem(t(MessageKeys.TOOLBOX_REDIS_KEY_DELETE));
-        deleteItem.setEnabled(!selectedKeys.isEmpty());
+        deleteItem.setEnabled(!selectedKeys.isEmpty() && connected);
         deleteItem.addActionListener(e -> deleteKeys(selectedKeys));
         menu.add(deleteItem);
 
         menu.show(keyList, evt.getX(), evt.getY());
     }
 
-    private void doConnect() {
+    private void registerKeyListShortcuts() {
+        InputMap inputMap = keyList.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap actionMap = keyList.getActionMap();
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0), "redisQuickRead");
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DELETE, 0), "redisDeleteKeys");
+        inputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_BACK_SPACE, java.awt.event.InputEvent.META_DOWN_MASK),
+                "redisDeleteKeys");
+        actionMap.put("redisQuickRead", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                String selected = keyList.getSelectedValue();
+                if (selected != null && connected) {
+                    keyField.setText(selected);
+                    executeKeyQuickRead(selected);
+                }
+            }
+        });
+        actionMap.put("redisDeleteKeys", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                deleteKeys(new ArrayList<>(keyList.getSelectedValuesList()));
+            }
+        });
+    }
+
+    /**
+     * 连接/测试连接进行中时互斥，避免重复点击触发并发连接。
+     */
+    private void setConnectionBusy(boolean busy) {
+        connectBtn.setEnabled(!busy);
+        testConnectionBtn.setEnabled(!busy);
+    }
+
+    private void setLoadingKeys(boolean loading) {
+        loadingKeys = loading;
+        refreshKeysBtn.setEnabled(connected && !loading);
+        keyList.repaint();
+    }
+
+    private void updateConnectedState(boolean isConnected) {
+        connected = isConnected;
+        btnCardLayout.show(btnCard, isConnected ? DISCONNECT_CARD : CONNECT_CARD);
+        refreshKeysBtn.setEnabled(isConnected && !loadingKeys);
+        executeBtn.setEnabled(isConnected);
+        keyList.repaint();
+    }
+
+    String keyListEmptyText() {
+        if (loadingKeys) {
+            return t(MessageKeys.TOOLBOX_REDIS_STATUS_LOADING_KEYS);
+        }
+        if (!connected) {
+            return t(MessageKeys.TOOLBOX_REDIS_KEYS_EMPTY_NOT_CONNECTED);
+        }
+        if (keyListModel.isEmpty()) {
+            return t(MessageKeys.TOOLBOX_REDIS_KEYS_EMPTY_NONE);
+        }
+        return t(MessageKeys.TOOLBOX_REDIS_KEYS_EMPTY_NO_MATCH);
+    }
+
+    private static void paintEmptyText(JComponent component, Graphics g, String text) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+            g2.setColor(ModernColors.getTextHint());
+            FontMetrics fm = g2.getFontMetrics();
+            int y = 16 + fm.getAscent();
+            for (String line : text.split("\n")) {
+                String trimmed = line.strip();
+                g2.drawString(trimmed, Math.max(8, (component.getWidth() - fm.stringWidth(trimmed)) / 2), y);
+                y += fm.getHeight();
+            }
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    private record ConnectionParams(String host, int port, int db, String user, String pass) {
+    }
+
+    /**
+     * 读取并校验当前表单的连接参数；地址非法时提示并返回 null。
+     */
+    private ConnectionParams readConnectionParams() {
         String hostInput = getHostText();
         if (hostInput.isBlank()) {
             NotificationCenter.showError(t(MessageKeys.TOOLBOX_REDIS_ERR_HOST_REQUIRED));
-            return;
+            return null;
         }
         ParsedHostPort parsed = parseHostAndPort(hostInput, portSpinner.getCommittedIntValue());
         String host = parsed.host();
         if (host.isBlank()) {
             NotificationCenter.showError(t(MessageKeys.TOOLBOX_REDIS_ERR_HOST_REQUIRED));
-            return;
+            return null;
         }
         int port = parsed.port();
         portSpinner.setValue(port);
@@ -715,52 +844,105 @@ public class RedisPanel extends JPanel {
         boolean useAuth = getSelectedAuthMode() == AuthMode.BASIC;
         String user = useAuth ? usernameField.getText().trim() : "";
         String pass = useAuth ? new String(passwordField.getPassword()) : "";
+        return new ConnectionParams(host, port, db, user, pass);
+    }
 
-        connectBtn.setEnabled(false);
+    /**
+     * 创建客户端并 PING 验证；失败时关闭客户端后抛出原异常。
+     */
+    private static JedisPooled openVerifiedClient(ConnectionParams params) {
+        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder()
+                .database(params.db())
+                .connectionTimeoutMillis(10_000)
+                .socketTimeoutMillis(10_000);
+        if (!params.user().isBlank()) {
+            builder.user(params.user());
+        }
+        if (!params.pass().isBlank()) {
+            builder.password(params.pass());
+        }
+        JedisPooled client = new JedisPooled(new HostAndPort(params.host(), params.port()), builder.build());
+        try {
+            client.ping();
+            return client;
+        } catch (Exception e) {
+            try {
+                client.close();
+            } catch (Exception ignore) {
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 仅验证当前表单配置能否连通，不加载 Key、不改变已连接状态。
+     */
+    private void testConnection() {
+        ConnectionParams params = readConnectionParams();
+        if (params == null) {
+            return;
+        }
+        setConnectionBusy(true);
+        testConnectionBtn.setText(t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION_RUNNING));
+        final long startNanos = System.nanoTime();
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                openVerifiedClient(params).close();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                setConnectionBusy(false);
+                testConnectionBtn.setText(t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION));
+                long costMs = (System.nanoTime() - startNanos) / 1_000_000L;
+                try {
+                    get();
+                    NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION_SUCCESS,
+                            params.host(), String.valueOf(params.port()), String.valueOf(params.db()), String.valueOf(costMs)));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception ex) {
+                    NotificationCenter.showError(t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION_FAILED, extractErr(ex)));
+                    log.warn("Test redis connection failed", ex);
+                }
+            }
+        }.execute();
+    }
+
+    private void doConnect() {
+        ConnectionParams params = readConnectionParams();
+        if (params == null) {
+            return;
+        }
+        String host = params.host();
+        int port = params.port();
+        int db = params.db();
+
+        setConnectionBusy(true);
         respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_CONNECTING));
 
         SwingWorker<JedisPooled, Void> worker = new SwingWorker<>() {
             @Override
             protected JedisPooled doInBackground() {
-                DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder()
-                        .database(db)
-                        .connectionTimeoutMillis(10_000)
-                        .socketTimeoutMillis(10_000);
-                if (!user.isBlank()) {
-                    builder.user(user);
-                }
-                if (!pass.isBlank()) {
-                    builder.password(pass);
-                }
-                JedisPooled client = new JedisPooled(new HostAndPort(host, port), builder.build());
-                try {
-                    client.ping();
-                    return client;
-                } catch (Exception e) {
-                    try {
-                        client.close();
-                    } catch (Exception ignore) {
-                    }
-                    throw e;
-                }
+                return openVerifiedClient(params);
             }
 
             @Override
             protected void done() {
-                connectBtn.setEnabled(true);
+                setConnectionBusy(false);
                 try {
                     JedisPooled newClient = get();
                     closeJedisQuietly();
                     jedis = newClient;
-                    connected = true;
                     rememberHostHistory(host);
-                    btnCardLayout.show(btnCard, DISCONNECT_CARD);
+                    updateConnectedState(true);
                     respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_CONNECTED_SIMPLE));
                     NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_REDIS_CONNECT_SUCCESS, host, port, db));
                     loadKeysAsync();
                 } catch (Exception ex) {
-                    connected = false;
-                    btnCardLayout.show(btnCard, CONNECT_CARD);
+                    updateConnectedState(false);
                     respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_CONNECT_FAILED));
                     NotificationCenter.showError(t(MessageKeys.TOOLBOX_REDIS_ERR_CONNECT_FAILED, extractErr(ex)));
                     log.warn("Redis connect failed", ex);
@@ -772,14 +954,13 @@ public class RedisPanel extends JPanel {
 
     private void doDisconnect() {
         closeJedisQuietly();
-        connected = false;
-        btnCardLayout.show(btnCard, CONNECT_CARD);
+        updateConnectedState(false);
         keyListModel.clear();
         keyFilteredModel.clear();
         keyTypeMap.clear();
         keyTtlMap.clear();
         keyMetaLabel.setText("");
-        respStatusLabel.setText("");
+        respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_NOT_CONNECTED));
         NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_REDIS_DISCONNECT_SUCCESS));
     }
 
@@ -794,8 +975,9 @@ public class RedisPanel extends JPanel {
     }
 
     private void loadKeysAsync() {
-        if (!connected || jedis == null) return;
+        if (!connected || jedis == null || loadingKeys) return;
         respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_LOADING_KEYS));
+        setLoadingKeys(true);
 
         SwingWorker<KeyLoadResult, Void> worker = new SwingWorker<>() {
             @Override
@@ -814,6 +996,7 @@ public class RedisPanel extends JPanel {
                     if (dedup.size() >= MAX_KEY_SCAN) break;
                 } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
 
+                result.truncated = dedup.size() >= MAX_KEY_SCAN;
                 result.keys.addAll(dedup);
                 Collections.sort(result.keys);
 
@@ -832,6 +1015,7 @@ public class RedisPanel extends JPanel {
 
             @Override
             protected void done() {
+                setLoadingKeys(false);
                 try {
                     KeyLoadResult result = get();
                     keyListModel.clear();
@@ -843,7 +1027,9 @@ public class RedisPanel extends JPanel {
                     keyTtlMap.clear();
                     keyTtlMap.putAll(result.ttls);
                     applyKeyFilter();
-                    respStatusLabel.setText(t(MessageKeys.TOOLBOX_REDIS_STATUS_KEYS_LOADED, result.keys.size()));
+                    respStatusLabel.setText(result.truncated
+                            ? t(MessageKeys.TOOLBOX_REDIS_STATUS_KEYS_TRUNCATED, result.keys.size())
+                            : t(MessageKeys.TOOLBOX_REDIS_STATUS_KEYS_LOADED, result.keys.size()));
                     Object saved = mainSplit.getClientProperty("savedDividerLocation");
                     if (saved instanceof Integer loc) {
                         SwingUtilities.invokeLater(() -> mainSplit.setDividerLocation(loc));
@@ -930,7 +1116,7 @@ public class RedisPanel extends JPanel {
 
             @Override
             protected void done() {
-                executeBtn.setEnabled(true);
+                executeBtn.setEnabled(connected);
                 long cost = System.currentTimeMillis() - start;
                 try {
                     String text = get();
@@ -1294,7 +1480,7 @@ public class RedisPanel extends JPanel {
         dbSpinner.setValue(profile.getDatabase());
         usernameField.setText(defaultString(profile.getUsername()));
         passwordField.setText(defaultString(profile.getPassword()));
-        setAuthOptionsVisible(hasAuthOptions(profile));
+        setAuthFieldsEnabled(hasAuthOptions(profile));
     }
 
     private boolean hasAuthOptions(RedisConnectionProfile profile) {
@@ -1531,6 +1717,7 @@ public class RedisPanel extends JPanel {
         final List<String> keys = new ArrayList<>();
         final Map<String, String> types = new HashMap<>();
         final Map<String, Long> ttls = new HashMap<>();
+        boolean truncated;
     }
 
     private class KeyCellRenderer extends DefaultListCellRenderer {

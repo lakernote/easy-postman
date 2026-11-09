@@ -1,6 +1,8 @@
 package com.laker.postman.plugin.redis;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 import static com.laker.postman.plugin.redis.RedisI18n.t;
@@ -12,17 +14,20 @@ import com.laker.postman.util.I18nUtil;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Locale;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JTabbedPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.ListCellRenderer;
+import javax.swing.SwingUtilities;
 import org.testng.annotations.Test;
 import sun.misc.Unsafe;
 
@@ -49,27 +54,82 @@ public class RedisPanelLayoutTest {
     }
 
     @Test
-    public void authRowShouldStayNearContentWidthInWideContainer() throws Exception {
-        RedisPanel panel = new RedisPanel();
-        invoke(panel, "setAuthOptionsVisible", true);
-        panel.setSize(new Dimension(1800, 900));
-        layoutRecursively(panel);
+    public void authFieldsShouldBeDisabledButStayVisibleWithoutAuth() throws Exception {
+        RedisPanel panel = layoutPanel(1320);
+        JTextField usernameField = fieldValue(panel, "usernameField", JTextField.class);
+        JTextField passwordField = fieldValue(panel, "passwordField", JTextField.class);
 
-        JPanel authRow = fieldValue(panel, "authRow", JPanel.class);
+        assertTrue(usernameField.isShowing() || usernameField.getWidth() > 0, "username should stay laid out");
+        assertTrue(!usernameField.isEnabled() && !passwordField.isEnabled(),
+                "auth inputs should be disabled when auth mode is none");
 
-        assertNotNull(authRow);
-        assertTrue(authRow.getWidth() > 0, "auth row should be laid out");
-        assertTrue(authRow.getWidth() <= authRow.getPreferredSize().width + 16,
-                "auth row width " + authRow.getWidth()
-                        + " should stay near preferred width " + authRow.getPreferredSize().width);
+        invoke(panel, "setAuthFieldsEnabled", true);
+        assertTrue(usernameField.isEnabled() && passwordField.isEnabled(),
+                "auth inputs should be enabled for basic auth");
     }
 
     @Test
-    public void connectionActionsShouldUseIconOnlyToolbarButtonsWithTooltips() {
+    public void connectionActionsShouldAlignWithPasswordRightEdge() throws Exception {
+        for (int width : new int[]{900, 1320, 1800}) {
+            RedisPanel panel = layoutPanel(width);
+            JPanel form = fieldValue(panel, "connectionForm", JPanel.class);
+            JPanel btnCard = fieldValue(panel, "btnCard", JPanel.class);
+            JButton testBtn = fieldValue(panel, "testConnectionBtn", JButton.class);
+            JTextField passwordField = fieldValue(panel, "passwordField", JTextField.class);
+            JTextField hostField = fieldValue(panel, "hostField", JTextField.class);
+            JTextField usernameField = fieldValue(panel, "usernameField", JTextField.class);
+
+            Point cardOrigin = SwingUtilities.convertPoint(btnCard.getParent(), btnCard.getLocation(), form);
+            Point testOrigin = SwingUtilities.convertPoint(testBtn.getParent(), testBtn.getLocation(), form);
+            int passwordRight = passwordField.getX() + passwordField.getWidth();
+            assertEquals(cardOrigin.x + btnCard.getWidth(), passwordRight,
+                    width + " connect button right edge should align with password right edge");
+            assertTrue(testOrigin.x + testBtn.getWidth() < cardOrigin.x,
+                    width + " test connection button should sit left of connect button");
+            assertTrue(passwordRight <= form.getWidth(), width + " password should not be clipped");
+            assertEquals(hostField.getX(), usernameField.getX(), width + " host/user should share the left edge");
+            assertEquals(hostField.getWidth(), usernameField.getWidth(), width + " host/user should share the width");
+            for (String spinnerField : new String[]{"portSpinner", "dbSpinner"}) {
+                JComponent spinner = fieldValue(panel, spinnerField, JComponent.class);
+                Point spinnerOrigin = SwingUtilities.convertPoint(spinner.getParent(), spinner.getLocation(), form);
+                assertEquals(spinnerOrigin.y, hostField.getY(), width + " " + spinnerField + " should share the host row top");
+                assertEquals(spinner.getHeight(), hostField.getHeight(), width + " " + spinnerField + " should match host height");
+            }
+            if (width <= 1320) {
+                assertTrue(passwordRight >= form.getWidth() - 2,
+                        width + " form should fill the available width without trailing gap");
+            }
+        }
+    }
+
+    @Test
+    public void connectionActionsShouldUseLabeledButtons() {
         Locale originalLocale = I18nUtil.currentLocale();
         try {
-            assertConnectionActionsUseIconOnlyButtons(Locale.CHINESE);
-            assertConnectionActionsUseIconOnlyButtons(Locale.ENGLISH);
+            assertConnectionActionsUseLabeledButtons(Locale.CHINESE);
+            assertConnectionActionsUseLabeledButtons(Locale.ENGLISH);
+        } finally {
+            I18nUtil.setLocale(originalLocale);
+        }
+    }
+
+    @Test
+    public void disconnectedStateShouldDisableServerActionsAndExplainEmptyKeys() throws Exception {
+        Locale originalLocale = I18nUtil.currentLocale();
+        try {
+            I18nUtil.setLocale(Locale.CHINESE);
+            RedisPanel panel = layoutPanel(1320);
+
+            assertFalse(fieldValue(panel, "executeBtn", JButton.class).isEnabled(),
+                    "execute should be disabled before connecting");
+            assertFalse(fieldValue(panel, "refreshKeysBtn", JButton.class).isEnabled(),
+                    "refresh keys should be disabled before connecting");
+            assertEquals(panel.keyListEmptyText(), t(MessageKeys.TOOLBOX_REDIS_KEYS_EMPTY_NOT_CONNECTED));
+            assertEquals(fieldValue(panel, "respStatusLabel", JLabel.class).getText(),
+                    t(MessageKeys.TOOLBOX_REDIS_STATUS_NOT_CONNECTED));
+            assertNull(fieldValue(panel, "keySearchField", JTextField.class)
+                            .getClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT),
+                    "key filter should not show unsupported match-case/whole-word options");
         } finally {
             I18nUtil.setLocale(originalLocale);
         }
@@ -108,12 +168,25 @@ public class RedisPanelLayoutTest {
         }
     }
 
-    private static void assertConnectionActionsUseIconOnlyButtons(Locale locale) {
+    private static void assertConnectionActionsUseLabeledButtons(Locale locale) {
         I18nUtil.setLocale(locale);
         RedisPanel panel = layoutPanel(1320);
 
-        assertIconOnlyToolbarButton(panel, t(MessageKeys.TOOLBOX_REDIS_CONNECT));
-        assertIconOnlyToolbarButton(panel, t(MessageKeys.TOOLBOX_REDIS_DISCONNECT));
+        assertLabeledButton(panel, "connectBtn", t(MessageKeys.TOOLBOX_REDIS_CONNECT));
+        assertLabeledButton(panel, "disconnectBtn", t(MessageKeys.TOOLBOX_REDIS_DISCONNECT));
+        assertLabeledButton(panel, "testConnectionBtn", t(MessageKeys.TOOLBOX_REDIS_TEST_CONNECTION));
+    }
+
+    private static void assertLabeledButton(RedisPanel panel, String fieldName, String text) {
+        try {
+            JButton button = fieldValue(panel, fieldName, JButton.class);
+            assertEquals(button.getText(), text, "connection action should show readable text");
+            assertNotNull(button.getIcon(), text + " should keep its icon");
+            assertTrue(button.getPreferredSize().width >= button.getFontMetrics(button.getFont()).stringWidth(text),
+                    text + " should not be clipped");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static void assertHostFieldUsesCompactWidth(Locale locale) throws Exception {
@@ -123,8 +196,8 @@ public class RedisPanelLayoutTest {
         JTextField hostField = fieldValue(panel, "hostField", JTextField.class);
 
         assertTrue(hostField.getWidth() > 0, locale + " host field should be laid out");
-        assertTrue(hostField.getWidth() <= 220,
-                locale + " Redis host field should stay compact because port and DB have separate controls: "
+        assertTrue(hostField.getWidth() <= 440,
+                locale + " Redis host field should stop stretching at twice its preferred width: "
                         + hostField.getWidth());
     }
 

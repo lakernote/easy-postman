@@ -670,7 +670,7 @@ public class PostmanCollectionParser {
         SavedResponse savedResponse = new SavedResponse();
 
         // 基本信息
-        savedResponse.setId(respJson.getStr("_postman_previewlanguage", UUID.randomUUID().toString()));
+        savedResponse.setId(UUID.randomUUID().toString());
         savedResponse.setName(respJson.getStr("name", "Response"));
         savedResponse.setTimestamp(System.currentTimeMillis());
 

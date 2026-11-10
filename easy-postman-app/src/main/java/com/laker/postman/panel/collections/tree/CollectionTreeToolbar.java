@@ -8,6 +8,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.IdUtil;
 import com.formdev.flatlaf.util.SystemFileChooser;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
+import com.laker.postman.collection.CollectionIdNormalizer;
 import com.laker.postman.collection.model.CollectionDocument;
 import com.laker.postman.common.UiSingletonPanel;
 import com.laker.postman.common.UiSingletonFactory;
@@ -283,6 +284,13 @@ public class CollectionTreeToolbar extends UiSingletonPanel {
                     leftPanel.getRootTreeNode().add(easyPostmanGroup);
                 }
                 CollectionDocument document = CollectionDocumentJsonCodec.read(fileToOpen);
+                int repairedIds = CollectionIdNormalizer.ensureUniqueIds(document,
+                        CollectionIdNormalizer.collectIds(
+                                SwingCollectionTreeDocumentMapper.fromRoot(leftPanel.getRootTreeNode())));
+                if (repairedIds > 0) {
+                    log.info("Reassigned {} duplicate or blank collection IDs while importing {}",
+                            repairedIds, fileToOpen.getName());
+                }
                 for (DefaultMutableTreeNode groupNode : SwingCollectionTreeDocumentMapper.toTreeNodes(document)) {
                     easyPostmanGroup.add(groupNode);
                 }

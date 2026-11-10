@@ -529,6 +529,8 @@ public final class MessageKeys {
     public static final String SHORTCUT_PRESS_KEY = "shortcut.press_key";
     public static final String SHORTCUT_CONFLICT = "shortcut.conflict";
     public static final String SHORTCUT_NOT_SET = "shortcut.not_set";
+    public static final String SHORTCUT_UNASSIGNED = "shortcut.unassigned";
+    public static final String SHORTCUT_CLEAR_TOOLTIP = "shortcut.clear_tooltip";
     public static final String SHORTCUT_RESET_CONFIRM = "shortcut.reset_confirm";
     public static final String SHORTCUT_RESET_SUCCESS = "shortcut.reset_success";
     public static final String EXIT_APP = "exit.app";

@@ -641,4 +641,29 @@ public class PostmanCollectionParserTest {
         assertEquals(graphql.getBodyType(), BODY_TYPE_RAW);
         assertTrue(graphql.getBody().contains("query Ping"));
     }
+
+    @Test
+    public void testParsePostmanCollection_ExamplesGetUniqueIds() {
+        String json = """
+                {
+                    "info": {"name": "Examples", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+                    "item": [{
+                        "name": "Get User",
+                        "request": {"method": "GET", "url": "https://api.example.com/user"},
+                        "response": [
+                            {"name": "OK", "code": 200, "_postman_previewlanguage": "json", "body": "{}"},
+                            {"name": "Not Found", "code": 404, "_postman_previewlanguage": "json", "body": "{}"}
+                        ]
+                    }]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+
+        var responses = result.getChildren().get(0).asRequest().getResponse();
+        assertEquals(responses.size(), 2);
+        assertNotEquals(responses.get(0).getId(), "json");
+        assertNotEquals(responses.get(0).getId(), responses.get(1).getId());
+        assertEquals(responses.get(0).getPreviewLanguage(), "json");
+    }
 }

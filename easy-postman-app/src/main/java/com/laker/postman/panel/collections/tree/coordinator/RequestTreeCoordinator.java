@@ -1,5 +1,6 @@
 package com.laker.postman.panel.collections.tree.coordinator;
 
+import com.laker.postman.collection.CollectionIdNormalizer;
 import com.laker.postman.common.component.notification.NotificationCenter;
 
 import com.formdev.flatlaf.util.SystemFileChooser;
@@ -512,12 +513,8 @@ public class RequestTreeCoordinator {
      * 创建复制的请求
      */
     private void createDuplicateRequest(RequestCopyInfo info) {
-        HttpRequestItem copy = JsonUtil.deepCopy(info.item, HttpRequestItem.class);
-        copy.setId(java.util.UUID.randomUUID().toString());
-        copy.setName(info.item.getName() + " " +
-                I18nUtil.getMessage(MessageKeys.COLLECTIONS_MENU_COPY_SUFFIX));
-
-        DefaultMutableTreeNode copyNode = CollectionTreeNodes.requestNode(copy);
+        HttpRequestItem copy = copyWithSuffix(info.item);
+        DefaultMutableTreeNode copyNode = CollectionTreeNodes.requestNodeWithExamples(copy);
         info.parent.insert(copyNode, info.index + 1);
         leftPanel.getTreeModel().reload(info.parent);
         requestTree.expandPath(new TreePath(info.parent.getPath()));
@@ -596,13 +593,13 @@ public class RequestTreeCoordinator {
      * 创建粘贴的请求
      */
     private void createPastedRequest(DefaultMutableTreeNode parent, HttpRequestItem copiedItem) {
-        HttpRequestItem pasteItem = JsonUtil.deepCopy(copiedItem, HttpRequestItem.class);
-        pasteItem.setId(java.util.UUID.randomUUID().toString());
-        pasteItem.setName(copiedItem.getName() + " " +
-                I18nUtil.getMessage(MessageKeys.COLLECTIONS_MENU_COPY_SUFFIX));
+        parent.add(CollectionTreeNodes.requestNodeWithExamples(copyWithSuffix(copiedItem)));
+    }
 
-        DefaultMutableTreeNode newNode = CollectionTreeNodes.requestNode(pasteItem);
-        parent.add(newNode);
+    private static HttpRequestItem copyWithSuffix(HttpRequestItem source) {
+        HttpRequestItem copy = CollectionIdNormalizer.copyRequestWithNewIds(source);
+        copy.setName(source.getName() + " " + I18nUtil.getMessage(MessageKeys.COLLECTIONS_MENU_COPY_SUFFIX));
+        return copy;
     }
 
     /**

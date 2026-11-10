@@ -1,5 +1,6 @@
 package com.laker.postman.panel.collections.tree.adapter;
 
+import com.laker.postman.collection.CollectionIdNormalizer;
 import com.laker.postman.collection.model.CollectionDocument;
 import com.laker.postman.service.collections.CollectionFilePersistence;
 import com.laker.postman.service.collections.DefaultCollectionDocumentFactory;
@@ -61,7 +62,12 @@ public class SwingCollectionTreePersistence {
     }
 
     private void applyDocument(CollectionDocument document) {
+        int repaired = CollectionIdNormalizer.ensureUniqueIds(document);
         SwingCollectionTreeDocumentMapper.replaceRootChildren(rootTreeNode, document);
         treeModel.reload(rootTreeNode);
+        if (repaired > 0) {
+            log.info("Reassigned {} duplicate or blank collection IDs (group/request/example)", repaired);
+            saveCurrentTree();
+        }
     }
 }

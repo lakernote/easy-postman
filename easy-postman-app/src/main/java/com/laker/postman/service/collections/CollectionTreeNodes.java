@@ -21,6 +21,21 @@ public class CollectionTreeNodes {
         return new DefaultMutableTreeNode(userObject(CollectionTreeNodeTypes.REQUEST, request));
     }
 
+    /**
+     * 创建请求节点，并为其 Example 创建子节点。
+     */
+    public static DefaultMutableTreeNode requestNodeWithExamples(HttpRequestItem request) {
+        DefaultMutableTreeNode requestNode = requestNode(request);
+        if (request.getResponse() != null) {
+            for (SavedResponse savedResponse : request.getResponse()) {
+                if (savedResponse != null) {
+                    requestNode.add(savedResponseNode(savedResponse));
+                }
+            }
+        }
+        return requestNode;
+    }
+
     public static DefaultMutableTreeNode savedResponseNode(SavedResponse savedResponse) {
         return new DefaultMutableTreeNode(userObject(CollectionTreeNodeTypes.SAVED_RESPONSE, savedResponse));
     }

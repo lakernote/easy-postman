@@ -2,8 +2,6 @@ package com.laker.postman.service.common;
 
 import com.laker.postman.collection.model.CollectionNode;
 import com.laker.postman.collection.model.CollectionParseResult;
-import com.laker.postman.request.model.HttpRequestItem;
-import com.laker.postman.request.model.SavedResponse;
 import com.laker.postman.service.collections.CollectionTreeNodes;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -55,18 +53,7 @@ public class TreeNodeBuilder {
 
             return groupNode;
         } else {
-            // 请求节点
-            HttpRequestItem request = node.asRequest();
-            DefaultMutableTreeNode requestNode = CollectionTreeNodes.requestNode(request);
-
-            // 为响应创建子节点
-            if (request.getResponse() != null && !request.getResponse().isEmpty()) {
-                for (SavedResponse savedResp : request.getResponse()) {
-                    requestNode.add(CollectionTreeNodes.savedResponseNode(savedResp));
-                }
-            }
-
-            return requestNode;
+            return CollectionTreeNodes.requestNodeWithExamples(node.asRequest());
         }
     }
 }

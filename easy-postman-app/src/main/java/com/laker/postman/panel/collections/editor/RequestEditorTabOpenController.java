@@ -8,19 +8,23 @@ import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.request.model.RequestItemProtocolEnum;
 import com.laker.postman.request.model.SavedResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.IntPredicate;
+import java.util.function.Predicate;
 
 /**
  * 请求编辑器 Tab 打开控制器。
  * <p>
  * 临时打开、固定打开、同 ID 查重、临时 Tab 固定和插入到 +Tab 前都是 Tab 行为规则，不放在面板布局类里。
  */
+@Slf4j
 @RequiredArgsConstructor
 final class RequestEditorTabOpenController {
     private final JTabbedPane tabbedPane;
@@ -112,16 +116,13 @@ final class RequestEditorTabOpenController {
             return;
         }
 
-        String savedResponseId = savedResponse.getId();
-        if (switchToExistingRequestTab(savedResponseId)) {
+        if (switchToExistingSavedResponseTab(savedResponse)) {
             return;
         }
 
         transientTabManager.validate();
-        RequestEditSubPanel newPanel = new RequestEditSubPanel(
-                savedResponse, collectionGateway.findRequestContainingResponse(savedResponseId));
-        newPanel.loadSavedResponse(savedResponse);
-        transientTabManager.showOrReplace(newPanel, savedResponse.getName(), RequestItemProtocolEnum.SAVED_RESPONSE);
+        transientTabManager.showOrReplace(createSavedResponsePanel(savedResponse), savedResponse.getName(),
+                RequestItemProtocolEnum.SAVED_RESPONSE);
     }
 
     void showOrCreateSavedResponseTab(SavedResponse savedResponse) {
@@ -130,20 +131,23 @@ final class RequestEditorTabOpenController {
             return;
         }
 
-        String savedResponseId = savedResponse.getId();
-        if (transientTabManager.isTransientRequest(savedResponseId)) {
+        if (transientTabManager.isTransientRequest(savedResponse.getId())) {
             transientTabManager.pin();
             return;
         }
-        if (switchToExistingRequestTab(savedResponseId)) {
+        if (switchToExistingSavedResponseTab(savedResponse)) {
             return;
         }
 
-        RequestEditSubPanel newPanel = new RequestEditSubPanel(
-                savedResponse, collectionGateway.findRequestContainingResponse(savedResponseId));
-        newPanel.loadSavedResponse(savedResponse);
-        insertFixedTab(savedResponse.getName(), newPanel,
+        insertFixedTab(savedResponse.getName(), createSavedResponsePanel(savedResponse),
                 new ClosableTabComponent(savedResponse.getName(), RequestItemProtocolEnum.SAVED_RESPONSE, false));
+    }
+
+    private RequestEditSubPanel createSavedResponsePanel(SavedResponse savedResponse) {
+        RequestEditSubPanel panel = new RequestEditSubPanel(
+                savedResponse, collectionGateway.findRequestContainingResponse(savedResponse.getId()));
+        panel.loadSavedResponse(savedResponse);
+        return panel;
     }
 
     private GroupEditPanel createGroupEditPanel(DefaultMutableTreeNode groupNode, RequestGroup group) {
@@ -162,35 +166,67 @@ final class RequestEditorTabOpenController {
     }
 
     private boolean switchToExistingRequestTab(String id) {
-        for (int i = 0; i < tabbedPane.getTabCount() - 1; i++) {
-            if (i == transientTabManager.transientTabIndex()) {
-                continue;
-            }
-            Component component = tabbedPane.getComponentAt(i);
-            if (component instanceof RequestEditSubPanel subPanel && id.equals(subPanel.getId())) {
-                tabbedPane.setSelectedIndex(i);
-                return true;
-            }
+        return selectTab(findFixedTab(component -> component instanceof RequestEditSubPanel subPanel
+                && id.equals(subPanel.getId())));
+    }
+
+    private boolean switchToExistingSavedResponseTab(SavedResponse savedResponse) {
+        String id = savedResponse.getId();
+        int index = findFixedTab(component -> component instanceof RequestEditSubPanel subPanel
+                && id.equals(subPanel.getId()));
+        if (index >= 0) {
+            logIfDifferentExampleShared(index, savedResponse);
         }
-        return false;
+        return selectTab(index);
     }
 
     private boolean switchToExistingGroupTab(String groupId) {
         if (isBlank(groupId)) {
             return false;
         }
+        return selectTab(findFixedTab(component -> component instanceof GroupEditPanel groupPanel
+                && groupId.equals(groupPanel.getGroup().getId())));
+    }
+
+    /**
+     * 查找已固定（非临时）的 Tab，跳过临时 Tab 和最后的 "+" Tab。
+     */
+    private int findFixedTab(Predicate<Component> matcher) {
         for (int i = 0; i < tabbedPane.getTabCount() - 1; i++) {
-            if (i == transientTabManager.transientTabIndex()) {
-                continue;
-            }
-            Component component = tabbedPane.getComponentAt(i);
-            if (component instanceof GroupEditPanel existingPanel
-                    && groupId.equals(existingPanel.getGroup().getId())) {
-                tabbedPane.setSelectedIndex(i);
-                return true;
+            if (i != transientTabManager.transientTabIndex() && matcher.test(tabbedPane.getComponentAt(i))) {
+                return i;
             }
         }
-        return false;
+        return -1;
+    }
+
+    private boolean selectTab(int index) {
+        if (index < 0) {
+            return false;
+        }
+        tabbedPane.setSelectedIndex(index);
+        return true;
+    }
+
+    /**
+     * 已打开 Tab 与被点击的 Example 只是 ID 相同、并非同一个 Example 时记录日志，便于排查 ID 重复导致无法切换的问题。
+     */
+    private void logIfDifferentExampleShared(int index, SavedResponse clicked) {
+        if (!(tabbedPane.getComponentAt(index) instanceof RequestEditSubPanel subPanel)) {
+            return;
+        }
+        SavedResponse opened = subPanel.getSavedResponse();
+        // 集合重新加载后 Tab 仍持有旧对象，内容相同则视为同一个 Example
+        if (Objects.equals(opened, clicked)) {
+            return;
+        }
+        HttpRequestItem clickedOwner = collectionGateway.findRequestContainingResponse(clicked.getId());
+        log.info("Example tab reused by duplicate id: id={}, clickedName={}, openedTabIndex={}, openedTabTitle={}, "
+                        + "openedName={}, openedIsExample={}, ownerRequestId={}, ownerRequestName={}",
+                clicked.getId(), clicked.getName(), index, tabbedPane.getTitleAt(index),
+                opened != null ? opened.getName() : null, subPanel.isSavedResponseTab(),
+                clickedOwner != null ? clickedOwner.getId() : null,
+                clickedOwner != null ? clickedOwner.getName() : null);
     }
 
     private String requestTitle(HttpRequestItem item) {

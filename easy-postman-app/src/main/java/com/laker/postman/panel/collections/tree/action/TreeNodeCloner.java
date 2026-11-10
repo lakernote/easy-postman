@@ -1,5 +1,6 @@
 package com.laker.postman.panel.collections.tree.action;
 
+import com.laker.postman.collection.CollectionIdNormalizer;
 import com.laker.postman.collection.model.RequestGroup;
 import com.laker.postman.request.model.SavedResponse;
 import com.laker.postman.request.model.HttpRequestItem;
@@ -62,9 +63,7 @@ public class TreeNodeCloner {
      */
     private static DefaultMutableTreeNode copyRequestNode(DefaultMutableTreeNode child) {
         HttpRequestItem item = CollectionTreeNodes.request(child).orElseThrow();
-        HttpRequestItem copyItem = JsonUtil.deepCopy(item, HttpRequestItem.class);
-        copyItem.setId(java.util.UUID.randomUUID().toString());
-        return CollectionTreeNodes.requestNode(copyItem);
+        return CollectionTreeNodes.requestNodeWithExamples(CollectionIdNormalizer.copyRequestWithNewIds(item));
     }
 
     /**

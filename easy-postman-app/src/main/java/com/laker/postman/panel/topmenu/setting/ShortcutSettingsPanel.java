@@ -6,6 +6,8 @@ import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.panel.collections.editor.RequestEditorPanel;
 import com.laker.postman.panel.topmenu.TopMenuBar;
 import com.laker.postman.service.setting.ShortcutManager;
+import com.laker.postman.util.CommonI18n;
+import com.laker.postman.util.CommonMessageKeys;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
@@ -229,10 +231,16 @@ public class ShortcutSettingsPanel extends JPanel {
             ShortcutItem item = shortcuts.get(rowIndex);
             return switch (columnIndex) {
                 case 0 -> item.getActionName();
-                case 1 -> ShortcutManager.getShortcutText(item.getId());
+                case 1 -> shortcutDisplayText(item.getId());
                 default -> "";
             };
         }
+    }
+
+    private static String shortcutDisplayText(String id) {
+        return ShortcutManager.isAssigned(id)
+                ? ShortcutManager.getShortcutText(id)
+                : I18nUtil.getMessage(MessageKeys.SHORTCUT_UNASSIGNED);
     }
 
     /**
@@ -285,7 +293,7 @@ public class ShortcutSettingsPanel extends JPanel {
             centerPanel.add(new JLabel(item.getActionName()));
 
             centerPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.SHORTCUT_CURRENT) + ":"));
-            currentKeyLabel = new JLabel(ShortcutManager.getShortcutText(item.getId()));
+            currentKeyLabel = new JLabel(shortcutDisplayText(item.getId()));
             centerPanel.add(currentKeyLabel);
 
             centerPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.SHORTCUT_NEW) + ":"));
@@ -323,6 +331,12 @@ public class ShortcutSettingsPanel extends JPanel {
             JButton cancelButton = new JButton(I18nUtil.getMessage(MessageKeys.SETTINGS_DIALOG_CANCEL));
             cancelButton.addActionListener(e -> dispose());
 
+            JButton clearButton = new JButton(CommonI18n.get(CommonMessageKeys.BUTTON_CLEAR));
+            clearButton.setToolTipText(I18nUtil.getMessage(MessageKeys.SHORTCUT_CLEAR_TOOLTIP));
+            clearButton.setEnabled(ShortcutManager.isAssigned(item.getId()));
+            clearButton.addActionListener(e -> clearShortcut());
+
+            buttonPanel.add(clearButton);
             buttonPanel.add(okButton);
             buttonPanel.add(cancelButton);
 
@@ -368,6 +382,12 @@ public class ShortcutSettingsPanel extends JPanel {
             }
 
             ShortcutManager.setShortcut(item.getId(), newKeyCode, newModifiers);
+            confirmed = true;
+            dispose();
+        }
+
+        private void clearShortcut() {
+            ShortcutManager.clearShortcut(item.getId());
             confirmed = true;
             dispose();
         }

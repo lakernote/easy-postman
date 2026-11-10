@@ -142,7 +142,7 @@ public class ShortcutManager {
      */
     public static KeyStroke getKeyStroke(String id) {
         ShortcutConfig config = shortcuts.get(id);
-        if (config != null) {
+        if (config != null && config.isAssigned()) {
             return KeyStroke.getKeyStroke(config.getKeyCode(), config.getModifiers());
         }
         return null;
@@ -160,7 +160,19 @@ public class ShortcutManager {
     }
 
     /**
-     * 获取快捷键的显示文本（根据操作系统）
+     * 清除快捷键（置空），避免与其他软件的全局快捷键冲突
+     */
+    public static void clearShortcut(String id) {
+        setShortcut(id, KeyEvent.VK_UNDEFINED, 0);
+    }
+
+    public static boolean isAssigned(String id) {
+        ShortcutConfig config = shortcuts.get(id);
+        return config != null && config.isAssigned();
+    }
+
+    /**
+     * 获取快捷键的显示文本（根据操作系统），未设置时返回空字符串
      */
     public static String getShortcutText(String id) {
         ShortcutConfig config = shortcuts.get(id);
@@ -183,6 +195,9 @@ public class ShortcutManager {
      * 检查快捷键是否冲突
      */
     public static String checkConflict(String excludeId, int keyCode, int modifiers) {
+        if (keyCode == KeyEvent.VK_UNDEFINED) {
+            return null;
+        }
         for (Map.Entry<String, ShortcutConfig> entry : shortcuts.entrySet()) {
             if (!entry.getKey().equals(excludeId)) {
                 ShortcutConfig config = entry.getValue();
@@ -218,10 +233,17 @@ public class ShortcutManager {
             this.macText = macText;
         }
 
+        public boolean isAssigned() {
+            return keyCode != KeyEvent.VK_UNDEFINED;
+        }
+
         /**
-         * 获取显示文本（根据操作系统）
+         * 获取显示文本（根据操作系统），未设置时返回空字符串
          */
         public String getDisplayText() {
+            if (!isAssigned()) {
+                return "";
+            }
             boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
             StringBuilder displayText = new StringBuilder();
 

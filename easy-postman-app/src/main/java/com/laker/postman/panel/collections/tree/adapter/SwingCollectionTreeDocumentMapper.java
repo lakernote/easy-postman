@@ -4,7 +4,6 @@ import com.laker.postman.collection.model.CollectionDocument;
 import com.laker.postman.collection.model.CollectionNode;
 import com.laker.postman.collection.model.RequestGroup;
 import com.laker.postman.request.model.HttpRequestItem;
-import com.laker.postman.request.model.SavedResponse;
 import com.laker.postman.service.collections.CollectionTreeNodes;
 import lombok.experimental.UtilityClass;
 
@@ -84,13 +83,7 @@ public class SwingCollectionTreeDocumentMapper {
             return Optional.of(groupNode);
         }
         if (node.isRequest()) {
-            HttpRequestItem request = node.asRequest();
-            DefaultMutableTreeNode requestNode = CollectionTreeNodes.requestNode(request);
-            List<SavedResponse> responses = request.getResponse();
-            if (responses != null) {
-                responses.forEach(response -> requestNode.add(CollectionTreeNodes.savedResponseNode(response)));
-            }
-            return Optional.of(requestNode);
+            return Optional.of(CollectionTreeNodes.requestNodeWithExamples(node.asRequest()));
         }
         return Optional.empty();
     }

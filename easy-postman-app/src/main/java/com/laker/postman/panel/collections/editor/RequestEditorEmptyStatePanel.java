@@ -225,6 +225,9 @@ public class RequestEditorEmptyStatePanel extends JPanel {
         shortcutPanel.setOpaque(false);
         shortcutPanel.setLayout(new BoxLayout(shortcutPanel, BoxLayout.Y_AXIS));
         for (ShortcutHint shortcutHint : SHORTCUT_HINTS) {
+            if (!ShortcutManager.isAssigned(shortcutHint.shortcutId)) {
+                continue;
+            }
             shortcutPanel.add(createShortcutLabel(shortcutHint));
             shortcutPanel.add(Box.createVerticalStrut(8));
         }

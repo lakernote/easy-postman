@@ -74,6 +74,8 @@ public class DiffPanel extends JPanel {
                 modifiedPanel,
                 360
         );
+        // Use the available width for the initial split instead of a fixed pixel width.
+        SwingUtilities.invokeLater(() -> topSplitPane.setDividerLocation(0.5));
 
         // 整体分割面板
 

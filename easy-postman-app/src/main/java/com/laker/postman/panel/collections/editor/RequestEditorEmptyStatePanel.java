@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -39,6 +41,7 @@ public class RequestEditorEmptyStatePanel extends JPanel {
     );
 
     private final Runnable newRequestAction;
+    private JPanel shortcutPanel;
 
     public RequestEditorEmptyStatePanel() {
         this(RequestEditorEmptyStatePanel::openNewRequestTab);
@@ -69,6 +72,19 @@ public class RequestEditorEmptyStatePanel extends JPanel {
         cardPanel.setBorder(BorderFactory.createEmptyBorder(CARD_PADDING, CARD_PADDING, CARD_PADDING, CARD_PADDING));
         addCenteredContent(cardPanel);
         return cardPanel;
+    }
+
+    /**
+     * Rebuilds the shortcut hints after the user changes key bindings.
+     */
+    public void refreshShortcutHints() {
+        if (shortcutPanel == null) {
+            return;
+        }
+        shortcutPanel.removeAll();
+        populateShortcutPanel(shortcutPanel);
+        shortcutPanel.revalidate();
+        shortcutPanel.repaint();
     }
 
     private void addCenteredContent(JPanel cardPanel) {
@@ -142,8 +158,7 @@ public class RequestEditorEmptyStatePanel extends JPanel {
         logoPanel.setMaximumSize(ICON_CONTAINER_SIZE);
         logoPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel logoLabel = new JLabel(new ImageIcon(Icons.LOGO.getImage()
-                .getScaledInstance(ICON_SIZE, ICON_SIZE, Image.SCALE_SMOOTH)));
+        JLabel logoLabel = new JLabel(new ScaledLogoIcon(Icons.LOGO.getImage(), ICON_SIZE));
         logoLabel.setHorizontalAlignment(SwingConstants.CENTER);
         logoPanel.add(logoLabel, BorderLayout.CENTER);
         return logoPanel;
@@ -191,8 +206,23 @@ public class RequestEditorEmptyStatePanel extends JPanel {
         hintButton.setBorder(BorderFactory.createEmptyBorder(12, 32, 12, 32));
         hintButton.setOpaque(false);
         hintButton.setFocusable(true);
+        hintButton.getAccessibleContext().setAccessibleName(hintButton.getText());
+        installKeyboardActivation(hintButton);
         hintButton.addMouseListener(createHintButtonMouseListener(hintButton));
         return hintButton;
+    }
+
+    private void installKeyboardActivation(JComponent hintButton) {
+        String actionKey = "requestEditor.emptyState.newRequest";
+        InputMap inputMap = hintButton.getInputMap(JComponent.WHEN_FOCUSED);
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), actionKey);
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), actionKey);
+        hintButton.getActionMap().put(actionKey, new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                newRequestAction.run();
+            }
+        });
     }
 
     private MouseAdapter createHintButtonMouseListener(RequestEditorHintButton hintButton) {
@@ -221,9 +251,14 @@ public class RequestEditorEmptyStatePanel extends JPanel {
     }
 
     private JPanel createShortcutPanel() {
-        JPanel shortcutPanel = new JPanel();
+        shortcutPanel = new JPanel();
         shortcutPanel.setOpaque(false);
         shortcutPanel.setLayout(new BoxLayout(shortcutPanel, BoxLayout.Y_AXIS));
+        populateShortcutPanel(shortcutPanel);
+        return shortcutPanel;
+    }
+
+    private void populateShortcutPanel(JPanel shortcutPanel) {
         for (ShortcutHint shortcutHint : SHORTCUT_HINTS) {
             if (!ShortcutManager.isAssigned(shortcutHint.shortcutId)) {
                 continue;
@@ -231,7 +266,6 @@ public class RequestEditorEmptyStatePanel extends JPanel {
             shortcutPanel.add(createShortcutLabel(shortcutHint));
             shortcutPanel.add(Box.createVerticalStrut(8));
         }
-        return shortcutPanel;
     }
 
     private JLabel createShortcutLabel(ShortcutHint shortcutHint) {
@@ -298,6 +332,34 @@ public class RequestEditorEmptyStatePanel extends JPanel {
             g2.setColor(RequestEditorEmptyStateTheme.hintBorder());
             g2.setStroke(new BasicStroke(1f));
             g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, HINT_BUTTON_RADIUS, HINT_BUTTON_RADIUS);
+        }
+    }
+
+    /**
+     * Draws the logo from the full-resolution source at paint time so it stays sharp on HiDPI screens.
+     */
+    @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+    private static final class ScaledLogoIcon implements Icon {
+        private final Image image;
+        private final int size;
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g2.drawImage(image, x, y, size, size, c);
+            g2.dispose();
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
         }
     }
 }

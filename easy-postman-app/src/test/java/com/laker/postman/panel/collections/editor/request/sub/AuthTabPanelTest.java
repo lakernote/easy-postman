@@ -94,4 +94,31 @@ public class AuthTabPanelTest extends AbstractSwingUiTest {
             throw new AssertionError(e);
         }
     }
+
+    @Test
+    public void apiKeyFieldsShouldKeepUsableWidthWhenPanelIsVerticallyCramped() throws Exception {
+        int[] widths = new int[2];
+
+        SwingUtilities.invokeAndWait(() -> {
+            AuthTabPanel panel = new AuthTabPanel();
+            panel.setAuthType(AuthType.API_KEY.getConstant());
+            panel.setSize(700, 230);
+            layoutRecursively(panel);
+
+            widths[0] = textField(panel, "apiKeyNameField").getWidth();
+            widths[1] = textField(panel, "apiKeyValueField").getWidth();
+        });
+
+        assertEquals(widths[0], 250);
+        assertEquals(widths[1], 250);
+    }
+
+    private static void layoutRecursively(java.awt.Container container) {
+        container.doLayout();
+        for (java.awt.Component child : container.getComponents()) {
+            if (child instanceof java.awt.Container nested) {
+                layoutRecursively(nested);
+            }
+        }
+    }
 }

@@ -155,6 +155,22 @@ public class RequestBodyPanelTest extends AbstractSwingUiTest {
     }
 
     @Test
+    public void binaryFilePathFieldShouldKeepUsableWidthInNarrowEditor() throws Exception {
+        RequestBodyPanel[] holder = new RequestBodyPanel[1];
+        int[] fieldWidth = new int[1];
+
+        SwingUtilities.invokeAndWait(() -> {
+            holder[0] = new RequestBodyPanel(RequestItemProtocolEnum.HTTP);
+            holder[0].getBodyTypeComboBox().setSelectedItem(RequestBodyPanel.BODY_TYPE_BINARY);
+            holder[0].setSize(480, 200);
+            layoutTree(holder[0]);
+            fieldWidth[0] = holder[0].getBinaryFilePathField().getWidth();
+        });
+
+        assertTrue(fieldWidth[0] >= 160, "Binary file path field collapsed to " + fieldWidth[0]);
+    }
+
+    @Test
     public void binaryFilePathFieldShouldStartNearPickerLeftEdge() throws Exception {
         RequestBodyPanel[] holder = new RequestBodyPanel[1];
         int[] fieldX = new int[1];

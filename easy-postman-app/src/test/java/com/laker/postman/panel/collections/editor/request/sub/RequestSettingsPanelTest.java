@@ -220,6 +220,54 @@ public class RequestSettingsPanelTest extends AbstractSwingUiTest {
     }
 
     @Test
+    public void settingControlsShouldShareTheSameRightAlignedSlot() throws Exception {
+        RequestSettingsPanel panel = new RequestSettingsPanel(RequestItemProtocolEnum.HTTP);
+        panel.setSize(720, 600);
+        layoutRecursively(panel);
+
+        java.awt.Rectangle redirect = boundsInPanel(panel, comboBox(panel, "followRedirectsComboBox"));
+        java.awt.Rectangle proxy = boundsInPanel(panel, comboBox(panel, "proxyPolicyComboBox"));
+        java.awt.Rectangle httpVersion = boundsInPanel(panel, comboBox(panel, "httpVersionComboBox"));
+        java.lang.reflect.Field timeoutField = RequestSettingsPanel.class.getDeclaredField("requestTimeoutField");
+        timeoutField.setAccessible(true);
+        java.awt.Rectangle timeout = boundsInPanel(panel, (java.awt.Component) timeoutField.get(panel));
+
+        assertEquals(proxy.x, redirect.x);
+        assertEquals(httpVersion.x, redirect.x);
+        assertEquals(timeout.x, redirect.x);
+        assertEquals(proxy.width, redirect.width);
+        assertEquals(httpVersion.width, redirect.width);
+        assertEquals(timeout.width, redirect.width);
+    }
+
+    @Test
+    public void settingControlsShouldNotStretchBeyondWidestOption() throws Exception {
+        RequestSettingsPanel panel = new RequestSettingsPanel(RequestItemProtocolEnum.HTTP);
+        panel.setSize(1400, 600);
+        layoutRecursively(panel);
+
+        int widestOption = Math.max(Math.max(
+                        comboBox(panel, "followRedirectsComboBox").getPreferredSize().width,
+                        comboBox(panel, "proxyPolicyComboBox").getPreferredSize().width),
+                comboBox(panel, "httpVersionComboBox").getPreferredSize().width);
+
+        assertEquals(comboBox(panel, "httpVersionComboBox").getWidth(), Math.max(120, Math.min(widestOption, 176)));
+    }
+
+    private static java.awt.Rectangle boundsInPanel(RequestSettingsPanel panel, java.awt.Component component) {
+        return SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), panel);
+    }
+
+    private static void layoutRecursively(java.awt.Container container) {
+        container.doLayout();
+        for (java.awt.Component child : container.getComponents()) {
+            if (child instanceof java.awt.Container nested) {
+                layoutRecursively(nested);
+            }
+        }
+    }
+
+    @Test
     public void shouldTrackViewportWidthAfterResize() {
         RequestSettingsPanel panel = new RequestSettingsPanel(RequestItemProtocolEnum.WEBSOCKET);
 

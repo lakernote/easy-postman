@@ -44,6 +44,7 @@ import java.util.Optional;
 public class RequestBodyPanel extends JPanel {
     private static final int BINARY_FILE_FIELD_COLUMNS = 56;
     private static final int BINARY_FILE_FIELD_MAX_WIDTH = 640;
+    private static final int BINARY_FILE_FIELD_MIN_WIDTH = 160;
 
     public static final String BODY_TYPE_NONE = RequestBodyTypes.BODY_TYPE_NONE;
     public static final String BODY_TYPE_FORM_DATA = RequestBodyTypes.BODY_TYPE_FORM_DATA;
@@ -400,7 +401,7 @@ public class RequestBodyPanel extends JPanel {
         ToolWindowSurfaceStyle.applyCard(panel);
         panel.setBorder(BorderFactory.createEmptyBorder(10, 12, 12, 12));
 
-        JPanel filePickerPanel = new JPanel(new GridBagLayout());
+        JPanel filePickerPanel = new JPanel(new BorderLayout());
         filePickerPanel.setOpaque(false);
 
         binaryFilePathField = new JTextField();
@@ -434,34 +435,20 @@ public class RequestBodyPanel extends JPanel {
         binaryFileIcon = IconUtil.createPrimary("icons/file.svg", 14, 14);
         binaryWarningIcon = IconUtil.createColored("icons/warning.svg", 14, 14, ModernColors.getError());
 
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        filePickerPanel.add(binaryFilePathField, gbc);
+        // BoxLayout shrinks the path field between its minimum and preferred widths on narrow editors,
+        // instead of GridBagLayout collapsing it to a few pixels.
+        JPanel pickerRow = new JPanel();
+        pickerRow.setOpaque(false);
+        pickerRow.setLayout(new BoxLayout(pickerRow, BoxLayout.X_AXIS));
+        actionPanel.setMaximumSize(actionPanel.getPreferredSize());
+        pickerRow.add(binaryFilePathField);
+        pickerRow.add(Box.createHorizontalStrut(8));
+        pickerRow.add(actionPanel);
+        pickerRow.add(Box.createHorizontalGlue());
 
-        gbc = new GridBagConstraints();
-        gbc.gridx = 1;
-        gbc.gridy = 0;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.insets = new Insets(0, 8, 0, 0);
-        filePickerPanel.add(actionPanel, gbc);
-
-        gbc = new GridBagConstraints();
-        gbc.gridx = 2;
-        gbc.gridy = 0;
-        gbc.weightx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        filePickerPanel.add(Box.createHorizontalGlue(), gbc);
-
-        gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.insets = new Insets(6, 0, 0, 0);
-        filePickerPanel.add(binaryFileSummaryLabel, gbc);
+        binaryFileSummaryLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        filePickerPanel.add(pickerRow, BorderLayout.NORTH);
+        filePickerPanel.add(binaryFileSummaryLabel, BorderLayout.CENTER);
 
         binaryFilePathField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -486,11 +473,11 @@ public class RequestBodyPanel extends JPanel {
     }
 
     private void capBinaryFilePathFieldWidth() {
-        Dimension preferredSize = binaryFilePathField.getPreferredSize();
-        if (preferredSize.width <= BINARY_FILE_FIELD_MAX_WIDTH) {
-            return;
-        }
-        binaryFilePathField.setPreferredSize(new Dimension(BINARY_FILE_FIELD_MAX_WIDTH, preferredSize.height));
+        int height = binaryFilePathField.getPreferredSize().height;
+        int preferredWidth = Math.min(binaryFilePathField.getPreferredSize().width, BINARY_FILE_FIELD_MAX_WIDTH);
+        binaryFilePathField.setPreferredSize(new Dimension(preferredWidth, height));
+        binaryFilePathField.setMinimumSize(new Dimension(BINARY_FILE_FIELD_MIN_WIDTH, height));
+        binaryFilePathField.setMaximumSize(new Dimension(BINARY_FILE_FIELD_MAX_WIDTH, height));
     }
 
     private class VariableAwareSyntaxTextArea extends FallbackAwareRSyntaxTextArea {

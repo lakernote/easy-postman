@@ -70,25 +70,25 @@ public class AuthTabPanel extends JPanel {
         typeCombo.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
 
         usernameField = new EasyTextField(20);
-        usernameField.setPreferredSize(new Dimension(200, 32));
+        setFieldSize(usernameField, 200);
 
         passwordField = new EasyTextField(20);
-        passwordField.setPreferredSize(new Dimension(200, 32));
+        setFieldSize(passwordField, 200);
 
         digestUsernameField = new EasyTextField(20);
-        digestUsernameField.setPreferredSize(new Dimension(200, 32));
+        setFieldSize(digestUsernameField, 200);
 
         digestPasswordField = new EasyTextField(20);
-        digestPasswordField.setPreferredSize(new Dimension(200, 32));
+        setFieldSize(digestPasswordField, 200);
 
         tokenField = new EasyTextField("", 30, I18nUtil.getMessage(MessageKeys.AUTH_TOKEN_PLACEHOLDER));
-        tokenField.setPreferredSize(new Dimension(250, 32));
+        setFieldSize(tokenField, 250);
 
         apiKeyNameField = new EasyTextField("", 20, I18nUtil.getMessage(MessageKeys.AUTH_API_KEY_NAME_PLACEHOLDER));
-        apiKeyNameField.setPreferredSize(new Dimension(220, 32));
+        setFieldSize(apiKeyNameField, 250);
 
         apiKeyValueField = new EasyTextField("", 30, I18nUtil.getMessage(MessageKeys.AUTH_API_KEY_VALUE_PLACEHOLDER));
-        apiKeyValueField.setPreferredSize(new Dimension(250, 32));
+        setFieldSize(apiKeyValueField, 250);
 
         apiKeyPlacementCombo = new JComboBox<>(AuthApiKeyPlacement.values());
         apiKeyPlacementCombo.setRenderer(new DefaultListCellRenderer() {
@@ -105,7 +105,7 @@ public class AuthTabPanel extends JPanel {
                 return this;
             }
         });
-        apiKeyPlacementCombo.setPreferredSize(new Dimension(180, 32));
+        setFieldSize(apiKeyPlacementCombo, 250);
         apiKeyPlacementCombo.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
 
         // 顶部：认证类型选择
@@ -188,6 +188,20 @@ public class AuthTabPanel extends JPanel {
             case BEARER -> I18nUtil.getMessage(MessageKeys.AUTH_TYPE_BEARER);
             case DIGEST -> I18nUtil.getMessage(MessageKeys.AUTH_TYPE_DIGEST);
         };
+    }
+
+    /**
+     * GridBagLayout falls back to minimum sizes when the editor is vertically cramped; text fields would then
+     * shrink to a few pixels, so the minimum width is pinned to the preferred width.
+     */
+    private static void setFieldSize(JComponent field, int width) {
+        if (field instanceof JTextField textField) {
+            // JTextField derives its preferred width from columns and ignores setPreferredSize unless columns is 0.
+            textField.setColumns(0);
+        }
+        Dimension size = new Dimension(width, 32);
+        field.setPreferredSize(size);
+        field.setMinimumSize(size);
     }
 
     private static String apiKeyPlacementDisplayText(AuthApiKeyPlacement placement) {

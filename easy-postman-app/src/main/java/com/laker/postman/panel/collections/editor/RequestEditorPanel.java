@@ -118,6 +118,11 @@ public class RequestEditorPanel extends UiSingletonPanel {
      */
     public void reloadShortcuts() {
         shortcutInstaller.install();
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            if (tabbedPane.getComponentAt(i) instanceof RequestEditorEmptyStatePanel emptyStatePanel) {
+                emptyStatePanel.refreshShortcutHints();
+            }
+        }
     }
 
     /**

@@ -32,6 +32,7 @@ import java.util.List;
 public class RequestSettingsPanel extends JScrollPane {
     private static final int CONTROL_WIDTH = 176;
     private static final int CONTROL_MIN_WIDTH = 120;
+    private int controlSlotWidth = CONTROL_MIN_WIDTH;
     private static final int ROW_COLUMN_GAP = 16;
     private static final int SCROLL_UNIT_INCREMENT = 24;
     private static final int CUSTOM_WEBSOCKET_PING_INTERVAL_OPTION = -1;
@@ -94,6 +95,7 @@ public class RequestSettingsPanel extends JScrollPane {
         webSocketPingIntervalComboBox.setToolTipText(webSocketPingHint);
         webSocketPingIntervalCustomField.setToolTipText(webSocketPingHint);
         webSocketPingIntervalComboBox.addActionListener(e -> updateWebSocketPingCustomFieldState());
+        controlSlotWidth = resolveControlSlotWidth();
 
         content.add(createSelectRow(
                 I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_FOLLOW_REDIRECTS_LABEL),
@@ -241,6 +243,19 @@ public class RequestSettingsPanel extends JScrollPane {
         }
     }
 
+    /**
+     * All rows share one control slot sized to the widest option, so controls line up without
+     * stretching short values such as "Auto" into an oversized box.
+     */
+    private int resolveControlSlotWidth() {
+        int width = CONTROL_MIN_WIDTH;
+        for (JComponent comboBox : List.of(followRedirectsComboBox, proxyPolicyComboBox, httpVersionComboBox,
+                webSocketPingIntervalComboBox)) {
+            width = Math.max(width, comboBox.getPreferredSize().width);
+        }
+        return Math.min(width, CONTROL_WIDTH);
+    }
+
     private <T> EasyComboBox<T> createSettingComboBox(T[] options) {
         EasyComboBox<T> comboBox = new EasyComboBox<>(options, EasyComboBox.WidthMode.FIXED_MAX);
         comboBox.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
@@ -248,7 +263,10 @@ public class RequestSettingsPanel extends JScrollPane {
     }
 
     private JPanel createSwitchRow(String title, String description, SwitchButton switchButton) {
-        return createSettingRow(title, description, switchButton);
+        JPanel panel = new JPanel(new MigLayout("insets 0, fillx, novisualpadding, gap 0", "[grow,right]", "[]"));
+        panel.setOpaque(false);
+        panel.add(switchButton);
+        return createSettingRow(title, description, panel);
     }
 
     private JPanel createSelectRow(String title, String description, JComponent component) {
@@ -256,12 +274,15 @@ public class RequestSettingsPanel extends JScrollPane {
     }
 
     private JPanel createTimeoutRow() {
-        JPanel rightPanel = createHintedControlPanel(requestTimeoutField, requestTimeoutHintLabel);
-        return createSettingRow(
+        JPanel row = createSettingRow(
                 I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_TIMEOUT_LABEL),
                 I18nUtil.getMessage(MessageKeys.REQUEST_SETTINGS_TIMEOUT_DESC),
-                rightPanel
+                wrapControl(requestTimeoutField)
         );
+        // The hint is usually wider than the control slot, so it spans the row instead of widening the slot.
+        requestTimeoutHintLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        row.add(requestTimeoutHintLabel, "newline 2, span 2, growx, wmin 0");
+        return row;
     }
 
     private JPanel createWebSocketPingIntervalRow() {
@@ -277,7 +298,8 @@ public class RequestSettingsPanel extends JScrollPane {
     private JPanel createSettingRow(String title, String description, JComponent rightComponent) {
         JPanel row = new JPanel(new MigLayout(
                 "insets 8 0 8 0, fillx, novisualpadding",
-                "[grow,fill]" + ROW_COLUMN_GAP + "[right]",
+                "[grow,fill]" + ROW_COLUMN_GAP
+                        + "[" + CONTROL_MIN_WIDTH + ":" + controlSlotWidth + ":" + controlSlotWidth + ",fill]",
                 "[]"
         ));
         row.setOpaque(false);
@@ -297,7 +319,7 @@ public class RequestSettingsPanel extends JScrollPane {
         textPanel.add(descriptionLabel, "growx");
 
         row.add(textPanel, "growx, pushx, wmin 0, aligny center");
-        row.add(rightComponent, "alignx right, aligny center, shrink 0");
+        row.add(rightComponent, "growx, aligny center");
         return row;
     }
 
@@ -306,7 +328,7 @@ public class RequestSettingsPanel extends JScrollPane {
         panel.setOpaque(false);
         panel.add(
                 component,
-                "growx, pushx, wmin " + CONTROL_MIN_WIDTH + ", wmax " + CONTROL_WIDTH + ", alignx right"
+                "growx, pushx, wmin 0, wmax " + controlSlotWidth + ", alignx right"
         );
         return panel;
     }
@@ -330,25 +352,10 @@ public class RequestSettingsPanel extends JScrollPane {
 
         panel.add(
                 webSocketPingIntervalComboBox,
-                "growx, pushx, wmin " + CONTROL_MIN_WIDTH + ", wmax " + CONTROL_WIDTH + ", wrap"
+                "growx, pushx, wmin 0, wmax " + controlSlotWidth + ", wrap"
         );
         panel.add(webSocketPingIntervalCustomPanel, "growx");
         return panel;
-    }
-
-    private JPanel createHintedControlPanel(JComponent component, JLabel hintLabel) {
-        JPanel rightPanel = new JPanel(new MigLayout(
-                "insets 0, fillx, novisualpadding, gap 0",
-                "[grow,fill]",
-                "[]2[]"
-        ));
-        rightPanel.setOpaque(false);
-        rightPanel.add(
-                component,
-                "growx, pushx, wmin " + CONTROL_MIN_WIDTH + ", wmax " + CONTROL_WIDTH + ", alignx right, wrap"
-        );
-        rightPanel.add(hintLabel, "alignx right");
-        return rightPanel;
     }
 
     private JLabel createHintLabel() {

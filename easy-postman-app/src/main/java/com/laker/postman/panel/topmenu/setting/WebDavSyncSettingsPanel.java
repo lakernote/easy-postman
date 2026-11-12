@@ -36,10 +36,6 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private static final int FIELD_SPACING = 8;
     private static final int SECTION_SPACING = 12;
     private static final int ACTION_GAP = 8;
-    private static final int ACTION_BUTTON_HEIGHT = 34;
-    private static final int ACTION_BUTTON_MIN_WIDTH = 96;
-    private static final int ACTION_BUTTON_HORIZONTAL_PADDING = 36;
-    private static final int ACTION_BUTTON_MIN_HORIZONTAL_PADDING = 24;
 
     private final WebDavSyncService syncService = new WebDavSyncService();
 
@@ -212,28 +208,6 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         actionRow.add(restoreButton);
         actionRow.add(Box.createHorizontalGlue());
         return actionRow;
-    }
-
-    private JButton createActionButton(String text, String tooltip, boolean primary) {
-        JButton button = createModernButton(text, primary);
-        button.setToolTipText(tooltip);
-        Dimension size = actionButtonSize(button);
-        button.setPreferredSize(size);
-        button.setMinimumSize(actionButtonMinimumSize(button, size));
-        button.setMaximumSize(size);
-        return button;
-    }
-
-    private Dimension actionButtonSize(AbstractButton button) {
-        int textWidth = button.getFontMetrics(button.getFont()).stringWidth(button.getText());
-        int width = Math.max(ACTION_BUTTON_MIN_WIDTH, textWidth + ACTION_BUTTON_HORIZONTAL_PADDING);
-        return new Dimension(width, ACTION_BUTTON_HEIGHT);
-    }
-
-    private Dimension actionButtonMinimumSize(AbstractButton button, Dimension preferredSize) {
-        int textWidth = button.getFontMetrics(button.getFont()).stringWidth(button.getText());
-        int width = Math.min(preferredSize.width, textWidth + ACTION_BUTTON_MIN_HORIZONTAL_PADDING);
-        return new Dimension(width, ACTION_BUTTON_HEIGHT);
     }
 
     private JTextArea createInfoTextArea() {

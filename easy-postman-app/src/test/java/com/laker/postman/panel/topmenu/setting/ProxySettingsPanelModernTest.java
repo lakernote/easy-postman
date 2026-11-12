@@ -114,6 +114,9 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
             JButton checkButton = findButton(panel, I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_BUTTON));
             assertNotNull(checkButton);
             assertTrue(checkButton.isEnabled());
+            int textWidth = checkButton.getFontMetrics(checkButton.getFont()).stringWidth(checkButton.getText());
+            assertTrue(checkButton.getPreferredSize().width > textWidth,
+                    "Check connection button must fit its localized text");
             assertTrue(isEffectivelyVisible(checkButton, panel));
 
             JComboBox<?> modeComboBox = findComboBoxContaining(

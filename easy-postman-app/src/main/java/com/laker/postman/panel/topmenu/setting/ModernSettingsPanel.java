@@ -32,6 +32,10 @@ import java.util.function.Predicate;
 public abstract class ModernSettingsPanel extends JPanel {
     protected static final int COMPACT_FIELD_LABEL_MIN_WIDTH = 120;
     protected static final int FIELD_LABEL_TEXT_PADDING = 12;
+    protected static final int ACTION_BUTTON_HEIGHT = 34;
+    private static final int ACTION_BUTTON_MIN_WIDTH = 96;
+    private static final int ACTION_BUTTON_HORIZONTAL_PADDING = 36;
+    private static final int ACTION_BUTTON_MIN_HORIZONTAL_PADDING = 24;
 
     protected JButton saveBtn;
     @Getter
@@ -301,6 +305,26 @@ public abstract class ModernSettingsPanel extends JPanel {
      */
     protected JButton createModernButton(String text, boolean isPrimary) {
         return ModernButtonFactory.createButton(text, isPrimary);
+    }
+
+    /**
+     * 表单内操作按钮：宽度随当前语言文案计算，避免切换语言后文字被截断。
+     */
+    protected JButton createActionButton(String text, String tooltip, boolean primary) {
+        JButton button = createModernButton(text, primary);
+        button.setToolTipText(tooltip);
+        int textWidth = button.getFontMetrics(button.getFont()).stringWidth(button.getText());
+        Dimension size = new Dimension(
+                Math.max(ACTION_BUTTON_MIN_WIDTH, textWidth + ACTION_BUTTON_HORIZONTAL_PADDING),
+                ACTION_BUTTON_HEIGHT
+        );
+        button.setPreferredSize(size);
+        button.setMinimumSize(new Dimension(
+                Math.min(size.width, textWidth + ACTION_BUTTON_MIN_HORIZONTAL_PADDING),
+                ACTION_BUTTON_HEIGHT
+        ));
+        button.setMaximumSize(size);
+        return button;
     }
 
     /**

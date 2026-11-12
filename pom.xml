@@ -255,6 +255,8 @@
                             <slf4j.internal.verbosity>ERROR</slf4j.internal.verbosity>
                             <!-- 普通 JDK 上运行 GraalJS 测试时不输出解释器模式告警 -->
                             <polyglot.engine.WarnInterpreterOnly>false</polyglot.engine.WarnInterpreterOnly>
+                            <!-- 测试数据隔离到 target，避免改写开发者真实的 ~/EasyPostman 配置 -->
+                            <user.home>${project.build.directory}/test-home</user.home>
                         </systemPropertyVariables>
                     </configuration>
                 </plugin>

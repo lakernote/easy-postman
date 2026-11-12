@@ -277,14 +277,15 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
         row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        checkConnectionButton = createModernButton(I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_BUTTON), false);
-        checkConnectionButton.setToolTipText(I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_TOOLTIP));
-        Dimension buttonSize = checkConnectionButton.getPreferredSize();
-        checkConnectionButton.setMaximumSize(buttonSize);
+        checkConnectionButton = createActionButton(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_BUTTON),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_TOOLTIP),
+                false
+        );
         row.add(Box.createHorizontalStrut(SettingsFieldRow.DEFAULT_LABEL_WIDTH + SettingsFieldRow.DEFAULT_GAP));
         row.add(checkConnectionButton);
         row.add(Box.createHorizontalGlue());
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, buttonSize.height));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, ACTION_BUTTON_HEIGHT));
         return row;
     }
 

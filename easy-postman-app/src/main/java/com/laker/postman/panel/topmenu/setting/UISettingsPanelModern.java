@@ -59,7 +59,8 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
     private JComboBox<String> fontNameComboBox;
     private JTextField fontSizeField;
     private JLabel fontPreviewLabel;
-    private JLabel fontSupportHintLabel;
+    private SettingsHintLabel fontSupportHintLabel;
+    private int fieldLabelWidth;
     private JComboBox<String> editorFontNameComboBox;
     private JComboBox<String> editorFontFallbackNameComboBox;
     private JTextField editorFontSizeField;
@@ -80,6 +81,21 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
 
     @Override
     protected void buildContent(JPanel contentPanel) {
+        // 整页共用同一标签列宽，保证各分区的输入框左边缘对齐
+        fieldLabelWidth = calculateFieldLabelWidth(List.of(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_DOWNLOAD_THRESHOLD),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_MAX_HISTORY),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_MAX_OPENED_REQUESTS),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_GIT_DIFF_LARGE_FILE_THRESHOLD),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_SIDEBAR_TABS),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_NOTIFICATION_POSITION),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_NAME),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_SIZE),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_NAME),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_FALLBACK_NAME),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_SIZE)
+        ));
+
         // 下载设置区域
         JPanel downloadSection = createModernSection(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_DOWNLOAD_TITLE),
@@ -103,13 +119,12 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         int thresholdMB = SettingManager.getDownloadProgressDialogThreshold() / (1024 * 1024);
         downloadProgressDialogThresholdField.setText(String.valueOf(thresholdMB));
         String downloadThresholdLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_DOWNLOAD_THRESHOLD);
-        int downloadFieldLabelWidth = calculateFieldLabelWidth(List.of(downloadThresholdLabel));
 
         downloadProgressDialogThresholdRow = createFieldRow(
                 downloadThresholdLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_DOWNLOAD_THRESHOLD_TOOLTIP),
                 downloadProgressDialogThresholdField,
-                downloadFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         downloadSection.add(downloadProgressDialogThresholdRow);
@@ -133,15 +148,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         String maxHistoryLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_MAX_HISTORY);
         String maxOpenedRequestsLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_MAX_OPENED_REQUESTS);
         String gitDiffThresholdLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_GIT_DIFF_LARGE_FILE_THRESHOLD);
-        String sidebarTabsLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_SIDEBAR_TABS);
         String notificationPositionLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_NOTIFICATION_POSITION);
-        int generalFieldLabelWidth = calculateFieldLabelWidth(List.of(
-                maxHistoryLabel,
-                maxOpenedRequestsLabel,
-                gitDiffThresholdLabel,
-                sidebarTabsLabel,
-                notificationPositionLabel
-        ));
 
         // 请求标签页
         maxOpenedRequestsCountField = new JTextField(10);
@@ -150,7 +157,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 maxOpenedRequestsLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_MAX_OPENED_REQUESTS_TOOLTIP),
                 maxOpenedRequestsCountField,
-                generalFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         generalSection.add(requestsRow);
@@ -174,7 +181,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 maxHistoryLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_MAX_HISTORY_TOOLTIP),
                 maxHistoryCountField,
-                generalFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         generalSection.add(historyRow);
@@ -215,7 +222,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         generalSection.add(sidebarRow);
         generalSection.add(createVerticalSpace(FIELD_SPACING));
 
-        JPanel sidebarTabsRow = createSidebarTabsRow(generalFieldLabelWidth);
+        JPanel sidebarTabsRow = createSidebarTabsRow(fieldLabelWidth);
         generalSection.add(sidebarTabsRow);
         generalSection.add(createVerticalSpace(FIELD_SPACING));
 
@@ -235,7 +242,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 notificationPositionLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_GENERAL_NOTIFICATION_POSITION_TOOLTIP),
                 notificationPositionComboBox,
-                generalFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         generalSection.add(notificationPositionRow);
@@ -247,7 +254,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 gitDiffThresholdLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_GIT_DIFF_LARGE_FILE_THRESHOLD_TOOLTIP),
                 gitDiffLargeFileThresholdField,
-                generalFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         generalSection.add(gitDiffThresholdRow);
@@ -288,7 +295,6 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         );
         String fontNameLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_NAME);
         String fontSizeLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_SIZE);
-        int uiFontFieldLabelWidth = calculateFieldLabelWidth(List.of(fontNameLabel, fontSizeLabel));
 
         fontNameComboBox = createFontComboBox();
         String currentFont = FontManager.resolveAllowedUiFontNameForLocale(SettingManager.getUiFontName(), I18nUtil.currentLocale());
@@ -306,7 +312,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 fontNameLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_NAME_TOOLTIP),
                 fontNameComboBox,
-                uiFontFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         fontSection.add(fontNameRow);
@@ -318,7 +324,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 fontSizeLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_SIZE_TOOLTIP),
                 fontSizeField,
-                uiFontFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         fontSection.add(fontSizeRow);
@@ -331,9 +337,10 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         fontPreviewLabel.setBackground(getInputBackgroundColor());
         fontPreviewLabel.setForeground(getTextPrimaryColor());
 
-        fontSupportHintLabel = new JLabel();
-        fontSupportHintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        fontSupportHintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        fontSupportHintLabel = new SettingsHintLabel(
+                "",
+                fieldLabelWidth + SettingsFieldRow.DEFAULT_GAP + SettingsFieldRow.DEFAULT_FIELD_WIDTH
+        );
 
         updateFontPreview();
 
@@ -366,11 +373,6 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         String editorFontNameLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_NAME);
         String editorFontFallbackLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_FALLBACK_NAME);
         String editorFontSizeLabel = I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_SIZE);
-        int editorFontFieldLabelWidth = calculateFieldLabelWidth(List.of(
-                editorFontNameLabel,
-                editorFontFallbackLabel,
-                editorFontSizeLabel
-        ));
 
         editorFontNameComboBox = createFontComboBox();
         String currentEditorFont = SettingManager.getEditorFontName();
@@ -386,7 +388,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 editorFontNameLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_NAME_TOOLTIP),
                 editorFontNameComboBox,
-                editorFontFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         editorFontSection.add(editorFontNameRow);
@@ -407,7 +409,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 editorFontFallbackLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_FALLBACK_NAME_TOOLTIP),
                 editorFontFallbackNameComboBox,
-                editorFontFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         editorFontSection.add(editorFontFallbackRow);
@@ -419,7 +421,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 editorFontSizeLabel,
                 I18nUtil.getMessage(MessageKeys.SETTINGS_EDITOR_FONT_SIZE_TOOLTIP),
                 editorFontSizeField,
-                editorFontFieldLabelWidth,
+                fieldLabelWidth,
                 SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         editorFontSection.add(editorFontSizeRow);
@@ -475,7 +477,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
         editor.setAlignmentY(Component.TOP_ALIGNMENT);
 
         row.add(label);
-        row.add(Box.createHorizontalStrut(16));
+        row.add(Box.createHorizontalStrut(SettingsFieldRow.DEFAULT_GAP));
         row.add(editor);
         row.add(Box.createHorizontalGlue());
 
@@ -675,7 +677,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                     baseFont = fontPreviewLabel.getFont();
                 }
                 fontPreviewLabel.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-                fontSupportHintLabel.setText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_SYSTEM_DEFAULT));
+                fontSupportHintLabel.setPlainText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_SYSTEM_DEFAULT));
                 fontSupportHintLabel.setForeground(getTextSecondaryColor());
             } else {
                 // 选择了具体字体，创建该字体实例以展示真实效果
@@ -683,13 +685,13 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                 fontPreviewLabel.setFont(new Font(selectedFont, Font.PLAIN, fontSize));
                 UiFontCatalog.FontSupport support = getFontSupport(selectedFont);
                 if (support == UiFontCatalog.FontSupport.FULL) {
-                    fontSupportHintLabel.setText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_FULL));
+                    fontSupportHintLabel.setPlainText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_FULL));
                     fontSupportHintLabel.setForeground(getTextSecondaryColor());
                 } else if (support == UiFontCatalog.FontSupport.NO_EMOJI) {
-                    fontSupportHintLabel.setText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_NO_EMOJI));
+                    fontSupportHintLabel.setPlainText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_NO_EMOJI));
                     fontSupportHintLabel.setForeground(ModernColors.getWarning());
                 } else {
-                    fontSupportHintLabel.setText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_NO_CJK));
+                    fontSupportHintLabel.setPlainText(I18nUtil.getMessage(MessageKeys.SETTINGS_UI_FONT_STATUS_NO_CJK));
                     fontSupportHintLabel.setForeground(ModernColors.getError());
                 }
             }

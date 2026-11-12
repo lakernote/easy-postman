@@ -12,6 +12,8 @@ import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.testng.Assert.assertEquals;
@@ -43,10 +45,7 @@ public class UISettingsPanelModernTest extends AbstractSwingUiTest {
             assertFalse(thresholdRow.isEnabled());
             assertFalse(thresholdRow.label().isEnabled());
             assertFalse(thresholdRow.inputComponent().isEnabled());
-            assertTrue(
-                    thresholdRow.label().getPreferredSize().width <= compactLabelWidthUpperBound(thresholdRow),
-                    "Settings label column should stay close to the localized label text"
-            );
+            assertSharedCompactLabelColumn(panel);
 
             JCheckBox showProgressCheckBox = findCheckBox(
                     panel,
@@ -107,9 +106,30 @@ public class UISettingsPanelModernTest extends AbstractSwingUiTest {
         }
     }
 
-    private static int compactLabelWidthUpperBound(SettingsFieldRow row) {
-        int textWidth = row.label().getFontMetrics(row.label().getFont()).stringWidth(row.label().getText());
-        return Math.min(SettingsFieldRow.DEFAULT_LABEL_WIDTH, textWidth + 20);
+    static void assertSharedCompactLabelColumn(Container panel) {
+        List<SettingsFieldRow> rows = new ArrayList<>();
+        collectFieldRows(panel, rows);
+        assertTrue(rows.size() > 1, "Expected multiple settings field rows");
+        int labelWidth = rows.get(0).label().getPreferredSize().width;
+        int longestText = 0;
+        for (SettingsFieldRow row : rows) {
+            assertEquals(row.label().getPreferredSize().width, labelWidth,
+                    "All field rows on one settings page should share one label column: " + row.label().getText());
+            longestText = Math.max(longestText,
+                    row.label().getFontMetrics(row.label().getFont()).stringWidth(row.label().getText()));
+        }
+        assertTrue(labelWidth <= Math.min(SettingsFieldRow.DEFAULT_LABEL_WIDTH, longestText + 20),
+                "Settings label column should stay close to the longest localized label text");
+    }
+
+    private static void collectFieldRows(Container container, List<SettingsFieldRow> rows) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof SettingsFieldRow row) {
+                rows.add(row);
+            } else if (component instanceof Container child) {
+                collectFieldRows(child, rows);
+            }
+        }
     }
 
     private static SettingsFieldRow findFieldRow(Container container, String labelText) {

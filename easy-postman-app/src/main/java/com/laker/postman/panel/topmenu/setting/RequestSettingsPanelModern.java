@@ -53,6 +53,7 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
 
     @Override
     protected void buildContent(JPanel contentPanel) {
+        int fieldLabelWidth = calculatePageFieldLabelWidth();
         JPanel requestSection = createModernSection(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TITLE),
                 ""
@@ -64,7 +65,9 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
         JPanel maxBodySizeRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_MAX_BODY_SIZE),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_MAX_BODY_SIZE_TOOLTIP),
-                maxBodySizeField
+                maxBodySizeField,
+                fieldLabelWidth,
+                SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         requestSection.add(maxBodySizeRow);
         requestSection.add(createVerticalSpace(FIELD_SPACING));
@@ -74,7 +77,9 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
         JPanel requestTimeoutRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TIMEOUT),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TIMEOUT_TOOLTIP),
-                requestTimeoutField
+                requestTimeoutField,
+                fieldLabelWidth,
+                SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         requestSection.add(requestTimeoutRow);
         requestSection.add(createVerticalSpace(FIELD_SPACING));
@@ -85,7 +90,9 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
         JPanel maxDownloadSizeRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_MAX_DOWNLOAD_SIZE),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_MAX_DOWNLOAD_SIZE_TOOLTIP),
-                maxDownloadSizeField
+                maxDownloadSizeField,
+                fieldLabelWidth,
+                SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         requestSection.add(maxDownloadSizeRow);
         requestSection.add(createVerticalSpace(FIELD_SPACING));
@@ -118,7 +125,9 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
         JPanel defaultProtocolRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_DEFAULT_PROTOCOL),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_DEFAULT_PROTOCOL_TOOLTIP),
-                defaultProtocolComboBox
+                defaultProtocolComboBox,
+                fieldLabelWidth,
+                SettingsFieldRow.DEFAULT_FIELD_WIDTH
         );
         requestSection.add(defaultProtocolRow);
 
@@ -197,15 +206,13 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
         ));
         scriptSection.add(createVerticalSpace(FIELD_SPACING));
 
-        int scriptFieldLabelWidth = calculateScriptFieldLabelWidth();
-
         remoteScriptAllowedHostsField = new JTextField(10);
         remoteScriptAllowedHostsField.setText(SettingManager.getRemoteJsRequireAllowedHosts());
         remoteScriptAllowedHostsRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS_TOOLTIP),
                 remoteScriptAllowedHostsField,
-                scriptFieldLabelWidth,
+                fieldLabelWidth,
                 SCRIPT_FIELD_WIDTH
         );
         scriptSection.add(remoteScriptAllowedHostsRow);
@@ -217,7 +224,7 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT_TOOLTIP),
                 remoteScriptConnectTimeoutField,
-                scriptFieldLabelWidth,
+                fieldLabelWidth,
                 SCRIPT_FIELD_WIDTH
         );
         scriptSection.add(remoteScriptConnectTimeoutRow);
@@ -229,7 +236,7 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT_TOOLTIP),
                 remoteScriptReadTimeoutField,
-                scriptFieldLabelWidth,
+                fieldLabelWidth,
                 SCRIPT_FIELD_WIDTH
         );
         scriptSection.add(remoteScriptReadTimeoutRow);
@@ -241,7 +248,7 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_MAX_SIZE),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_MAX_SIZE_TOOLTIP),
                 remoteScriptMaxSizeField,
-                scriptFieldLabelWidth,
+                fieldLabelWidth,
                 SCRIPT_FIELD_WIDTH
         );
         scriptSection.add(remoteScriptMaxSizeRow);
@@ -391,8 +398,12 @@ public class RequestSettingsPanelModern extends ModernSettingsPanel {
         remoteScriptMaxSizeRow.setEnabled(enabled);
     }
 
-    private int calculateScriptFieldLabelWidth() {
+    private int calculatePageFieldLabelWidth() {
         return calculateFieldLabelWidth(List.of(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_MAX_BODY_SIZE),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TIMEOUT),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_MAX_DOWNLOAD_SIZE),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_DEFAULT_PROTOCOL),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT),

@@ -77,6 +77,18 @@ public class RequestSettingsPanelModernTest extends AbstractSwingUiTest {
         ));
     }
 
+    @Test
+    public void allFieldRowsShouldShareOneLabelColumn() throws Exception {
+        AtomicReference<RequestSettingsPanelModern> panelRef = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            RequestSettingsPanelModern panel = new RequestSettingsPanelModern();
+            panel.getPreferredSize();
+            panelRef.set(panel);
+        });
+
+        UISettingsPanelModernTest.assertSharedCompactLabelColumn(panelRef.get());
+    }
+
     private static SettingsFieldRow findFieldRow(Container container, String labelText) {
         for (Component component : container.getComponents()) {
             if (component instanceof SettingsFieldRow row && labelText.equals(row.label().getText())) {

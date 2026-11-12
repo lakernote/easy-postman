@@ -25,8 +25,8 @@ public class GlobalVariablesDialog extends JDialog {
         ToolWindowSurfaceStyle.skipDialogWindowChrome(this);
         ToolWindowSurfaceStyle.applyDialogSurface(globalVariablesPanel);
         setContentPane(globalVariablesPanel);
-        setSize(960, 620);
-        setMinimumSize(new Dimension(760, 480));
+        setSize(800, 500);
+        setMinimumSize(new Dimension(600, 400));
         setResizable(true);
         setLocationRelativeTo(getOwner());
         setDefaultCloseOperation(HIDE_ON_CLOSE);

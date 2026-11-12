@@ -11,6 +11,7 @@ import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import org.testng.annotations.Test;
 
+import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JCheckBox;
@@ -36,10 +37,12 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
     public void shouldDimProxyFieldRowsWhenProxyIsDisabled() throws Exception {
         boolean oldProxyEnabled = SettingManager.isProxyEnabled();
         String oldProxyMode = SettingManager.getProxyMode();
+        String oldProxyUsername = SettingManager.getProxyUsername();
 
         try {
             SettingManager.setProxyEnabled(false);
             SettingManager.setProxyMode(SettingManager.PROXY_MODE_MANUAL);
+            SettingManager.setProxyUsername("proxy-user");
 
             AtomicReference<ProxySettingsPanelModern> panelRef = new AtomicReference<>();
             SwingUtilities.invokeAndWait(() -> {
@@ -79,11 +82,12 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
         } finally {
             SettingManager.setProxyEnabled(oldProxyEnabled);
             SettingManager.setProxyMode(oldProxyMode);
+            SettingManager.setProxyUsername(oldProxyUsername);
         }
     }
 
     @Test
-    public void shouldUseRevealablePasswordFieldAndOnlyShowSystemPreviewInSystemMode() throws Exception {
+    public void shouldUseRevealablePasswordFieldAndAlwaysShowConnectionCheck() throws Exception {
         boolean oldProxyEnabled = SettingManager.isProxyEnabled();
         String oldProxyMode = SettingManager.getProxyMode();
 
@@ -106,7 +110,11 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
                     I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PREVIEW_TARGET)
             );
             assertNotNull(previewLabel);
-            assertFalse(isEffectivelyVisible(previewLabel, panel));
+            assertTrue(isEffectivelyVisible(previewLabel, panel));
+            JButton checkButton = findButton(panel, I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_BUTTON));
+            assertNotNull(checkButton);
+            assertTrue(checkButton.isEnabled());
+            assertTrue(isEffectivelyVisible(checkButton, panel));
 
             JComboBox<?> modeComboBox = findComboBoxContaining(
                     panel,
@@ -128,10 +136,12 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
     public void shouldSeparateManualProxyAuthenticationAndSystemPreviewSections() throws Exception {
         boolean oldProxyEnabled = SettingManager.isProxyEnabled();
         String oldProxyMode = SettingManager.getProxyMode();
+        String oldProxyUsername = SettingManager.getProxyUsername();
 
         try {
             SettingManager.setProxyEnabled(true);
             SettingManager.setProxyMode(SettingManager.PROXY_MODE_SYSTEM);
+            SettingManager.setProxyUsername("proxy-user");
 
             AtomicReference<ProxySettingsPanelModern> panelRef = new AtomicReference<>();
             SwingUtilities.invokeAndWait(() -> {
@@ -180,6 +190,7 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
         } finally {
             SettingManager.setProxyEnabled(oldProxyEnabled);
             SettingManager.setProxyMode(oldProxyMode);
+            SettingManager.setProxyUsername(oldProxyUsername);
         }
     }
 
@@ -286,6 +297,143 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
         }
     }
 
+    @Test
+    public void shouldDisableAndClearProxyCredentialsWhenAuthenticationIsUnchecked() throws Exception {
+        Properties props = getSettingsProperties();
+        Properties backup = new Properties();
+        backup.putAll(props);
+        Path configPath = Path.of(ConfigPathConstants.EASY_POSTMAN_SETTINGS);
+        boolean configExisted = Files.exists(configPath);
+        String originalConfig = configExisted ? Files.readString(configPath) : null;
+
+        try {
+            Properties testSettings = new Properties();
+            testSettings.setProperty("proxy_enabled", "true");
+            testSettings.setProperty("proxy_mode", SettingManager.PROXY_MODE_SYSTEM);
+            testSettings.setProperty("proxy_username", "proxy-user");
+            testSettings.setProperty("proxy_password", "proxy-pass");
+            replaceSettingsForTest(props, configPath, testSettings);
+
+            AtomicReference<ProxySettingsPanelModern> panelRef = new AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> {
+                ProxySettingsPanelModern panel = new ProxySettingsPanelModern();
+                panel.getPreferredSize();
+                panelRef.set(panel);
+            });
+
+            ProxySettingsPanelModern panel = panelRef.get();
+            JCheckBox authCheckBox = findCheckBox(
+                    panel,
+                    I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_AUTH_CHECKBOX)
+            );
+            assertNotNull(authCheckBox);
+            assertTrue(authCheckBox.isSelected());
+            SettingsFieldRow usernameRow = findFieldRow(
+                    panel,
+                    I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_USERNAME)
+            );
+            assertRowEnabled(usernameRow);
+
+            SwingUtilities.invokeAndWait(() -> authCheckBox.setSelected(false));
+            assertRowDisabled(usernameRow);
+            assertRowDisabled(findFieldRow(
+                    panel,
+                    I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PASSWORD)
+            ));
+
+            SwingUtilities.invokeAndWait(() -> panel.saveBtn.doClick());
+            assertEquals(SettingManager.getProxyUsername(), "");
+            assertEquals(SettingManager.getProxyPassword(), "");
+        } finally {
+            props.clear();
+            props.putAll(backup);
+            restoreConfig(configPath, configExisted, originalConfig);
+        }
+    }
+
+    @Test
+    public void shouldRejectEnabledAuthenticationWithoutCredentials() throws Exception {
+        Properties props = getSettingsProperties();
+        Properties backup = new Properties();
+        backup.putAll(props);
+        Path configPath = Path.of(ConfigPathConstants.EASY_POSTMAN_SETTINGS);
+        boolean configExisted = Files.exists(configPath);
+        String originalConfig = configExisted ? Files.readString(configPath) : null;
+
+        try {
+            Properties testSettings = new Properties();
+            testSettings.setProperty("proxy_enabled", "true");
+            testSettings.setProperty("proxy_mode", SettingManager.PROXY_MODE_SYSTEM);
+            testSettings.setProperty("proxy_username", "before-save");
+            testSettings.setProperty("proxy_password", "before-pass");
+            replaceSettingsForTest(props, configPath, testSettings);
+
+            AtomicReference<ProxySettingsPanelModern> panelRef = new AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> {
+                ProxySettingsPanelModern panel = new ProxySettingsPanelModern();
+                panel.getPreferredSize();
+                panelRef.set(panel);
+            });
+
+            ProxySettingsPanelModern panel = panelRef.get();
+            JComponent passwordField = findFieldRow(
+                    panel,
+                    I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PASSWORD)
+            ).inputComponent();
+            SwingUtilities.invokeAndWait(() -> {
+                ((EasyPasswordField) passwordField).setText("");
+                panel.saveBtn.doClick();
+            });
+
+            assertEquals(SettingManager.getProxyPassword(), "before-pass");
+        } finally {
+            props.clear();
+            props.putAll(backup);
+            restoreConfig(configPath, configExisted, originalConfig);
+        }
+    }
+
+    @Test
+    public void shouldKeepTextFieldsAsWideAsComboBoxesInNarrowLayout() throws Exception {
+        boolean oldProxyEnabled = SettingManager.isProxyEnabled();
+        String oldProxyMode = SettingManager.getProxyMode();
+
+        try {
+            SettingManager.setProxyEnabled(true);
+            SettingManager.setProxyMode(SettingManager.PROXY_MODE_MANUAL);
+
+            AtomicReference<int[]> widths = new AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> {
+                ProxySettingsPanelModern panel = new ProxySettingsPanelModern();
+                panel.getPreferredSize();
+                panel.setSize(520, 1200);
+                layoutRecursively(panel);
+                widths.set(new int[]{
+                        findFieldRow(panel, I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_MODE)).inputComponent().getWidth(),
+                        findFieldRow(panel, I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_HOST)).inputComponent().getWidth(),
+                        findFieldRow(panel, I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PASSWORD)).inputComponent().getWidth()
+                });
+            });
+
+            int comboWidth = widths.get()[0];
+            assertTrue(comboWidth > 0);
+            assertEquals(widths.get()[1], comboWidth);
+            assertEquals(widths.get()[2], comboWidth);
+        } finally {
+            SettingManager.setProxyEnabled(oldProxyEnabled);
+            SettingManager.setProxyMode(oldProxyMode);
+        }
+    }
+
+    private static void layoutRecursively(Container container) {
+        container.doLayout();
+        for (Component component : container.getComponents()) {
+            if (component instanceof Container child) {
+                layoutRecursively(child);
+            }
+        }
+    }
+
     private static <T extends JComponent> T findFirstComponent(Container container, Class<T> componentType) {
         for (Component component : container.getComponents()) {
             if (componentType.isInstance(component)) {
@@ -308,6 +456,21 @@ public class ProxySettingsPanelModernTest extends AbstractSwingUiTest {
             }
             if (component instanceof Container child) {
                 SettingsFieldRow found = findFieldRow(child, labelText);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static JButton findButton(Container container, String text) {
+        for (Component child : container.getComponents()) {
+            if (child instanceof JButton button && text.equals(button.getText())) {
+                return button;
+            }
+            if (child instanceof Container nested) {
+                JButton found = findButton(nested, text);
                 if (found != null) {
                     return found;
                 }

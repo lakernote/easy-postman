@@ -36,6 +36,10 @@ public class OkHttpClientManager {
     private static final int DEFAULT_MAX_REQUESTS = 64;
     private static final int DEFAULT_MAX_REQUESTS_PER_HOST = 5;
 
+    private static final String PROXY_AUTHORIZATION_HEADER = "Proxy-Authorization";
+    // OkHttp sends a synthetic challenge with this scheme before opening an HTTPS tunnel.
+    private static final String PREEMPTIVE_CHALLENGE_SCHEME = "OkHttp-Preemptive";
+
     // 全局 CookieManager，支持标准 CookiePolicy
     private static final CookieManager GLOBAL_COOKIE_MANAGER = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
     private static final JavaNetCookieJar GLOBAL_COOKIE_JAR = new JavaNetCookieJar(GLOBAL_COOKIE_MANAGER);
@@ -282,13 +286,34 @@ public class OkHttpClientManager {
             return;
         }
 
-        Authenticator proxyAuthenticator = (route, response) -> {
-            String credential = Credentials.basic(proxyUsername.trim(), proxyPassword);
-            return response.request().newBuilder()
-                    .header("Proxy-Authorization", credential)
-                    .build();
-        };
+        // Auto-detected proxies only receive credentials after an explicit Basic challenge.
+        boolean allowPreemptive = !settings().isSystemProxyMode();
+        String credential = Credentials.basic(proxyUsername.trim(), proxyPassword);
+        Authenticator proxyAuthenticator = (route, response) ->
+                buildProxyAuthorizationRequest(response, credential, allowPreemptive);
         builder.proxyAuthenticator(proxyAuthenticator);
+    }
+
+    static Request buildProxyAuthorizationRequest(Response response, String credential, boolean allowPreemptive) {
+        if (response.request().header(PROXY_AUTHORIZATION_HEADER) != null) {
+            // Credentials were already rejected; surface the 407 instead of retrying until OkHttp's follow-up limit.
+            return null;
+        }
+        boolean challengeSupported = false;
+        for (Challenge challenge : response.challenges()) {
+            String scheme = challenge.scheme();
+            if ("Basic".equalsIgnoreCase(scheme)
+                    || (allowPreemptive && PREEMPTIVE_CHALLENGE_SCHEME.equalsIgnoreCase(scheme))) {
+                challengeSupported = true;
+                break;
+            }
+        }
+        if (!challengeSupported) {
+            return null;
+        }
+        return response.request().newBuilder()
+                .header(PROXY_AUTHORIZATION_HEADER, credential)
+                .build();
     }
 
     /**
@@ -532,6 +557,21 @@ public class OkHttpClientManager {
         }
 
         return new ProxyInspection(true, selectSystemProxy(baseUri));
+    }
+
+    /**
+     * Resolves the proxy the default request policy would use for the URL under the current settings.
+     */
+    public static ProxyInspection inspectEffectiveProxyForUrl(String url) {
+        String baseUri = extractBaseUriSafely(url, "effective proxy inspection");
+        if (baseUri == null) {
+            return new ProxyInspection(false, Proxy.NO_PROXY);
+        }
+        if (!isProxyActiveForBaseUri(baseUri, HttpRequestProxyPolicy.DEFAULT)) {
+            return new ProxyInspection(true, Proxy.NO_PROXY);
+        }
+        Proxy proxy = settings().isSystemProxyMode() ? selectSystemProxy(baseUri) : createManualProxy();
+        return new ProxyInspection(true, proxy == null ? Proxy.NO_PROXY : proxy);
     }
 
     public static boolean isProxyActiveForUrl(String url, HttpRequestProxyPolicy proxyPolicy) {

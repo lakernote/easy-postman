@@ -3,7 +3,12 @@ package com.laker.postman.panel.topmenu.setting;
 import com.laker.postman.common.component.EasyPasswordField;
 import com.laker.postman.common.component.setting.SettingsFieldRow;
 import com.laker.postman.common.component.setting.SettingsHintLabel;
+import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.http.runtime.config.HttpRuntimeSettings;
+import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
+import com.laker.postman.http.runtime.config.ProxyOverrideRuntimeSettings;
 import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
+import com.laker.postman.http.runtime.okhttp.ProxyConnectionChecker;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
@@ -20,15 +25,15 @@ import java.net.URI;
 public class ProxySettingsPanelModern extends ModernSettingsPanel {
     private static final int FIELD_SPACING = 8;
     private static final int SECTION_SPACING = 12;
-    private static final int FIELD_LABEL_WIDTH = 220;
-    private static final int PREVIEW_ROW_WIDTH = 460;
     private static final int SUBSECTION_DESCRIPTION_WIDTH = 660;
     private static final String DEFAULT_PROXY_PREVIEW_TARGET = "example.com";
+    private static final int PREVIEW_REFRESH_DELAY_MS = 300;
     private JCheckBox proxyEnabledCheckBox;
     private JComboBox<String> proxyModeComboBox;
     private JComboBox<String> proxyTypeComboBox;
     private JTextField proxyHostField;
     private JTextField proxyPortField;
+    private JCheckBox proxyAuthCheckBox;
     private JTextField proxyUsernameField;
     private EasyPasswordField proxyPasswordField;
     private SettingsFieldRow proxyModeRow;
@@ -41,16 +46,16 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
     private JCheckBox sslVerificationDisabledCheckBox;
     private JTextArea proxyStatusArea;
     private JTextField proxyPreviewTargetField;
-    private JComponent proxyPreviewSectionHeader;
-    private Component proxyPreviewHeaderSpacing;
-    private Component proxyPreviewSpacing;
+    private Timer previewRefreshTimer;
+    private JButton checkConnectionButton;
+    private JTextArea checkResultArea;
+    private boolean connectionCheckRunning;
 
     private record ProxyViewState(
             boolean proxyEnabled,
             boolean manualMode,
             boolean manualFieldsEnabled,
-            boolean authFieldsEnabled,
-            boolean showSystemPreviewControls
+            boolean authFieldsEnabled
     ) {
     }
 
@@ -122,6 +127,16 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
                 I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_AUTH_SECTION_DESCRIPTION)
         ));
         proxySection.add(createVerticalSpace(FIELD_SPACING));
+        String savedProxyUsername = SettingManager.getProxyUsername();
+        proxyAuthCheckBox = new JCheckBox(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_AUTH_CHECKBOX),
+                savedProxyUsername != null && !savedProxyUsername.isBlank()
+        );
+        proxySection.add(createCheckBoxRow(
+                proxyAuthCheckBox,
+                I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_AUTH_TOOLTIP)
+        ));
+        proxySection.add(createVerticalSpace(FIELD_SPACING));
         proxyUsernameField = new JTextField(10);
         proxyUsernameField.setText(SettingManager.getProxyUsername());
         proxyUsernameRow = createFieldRow(
@@ -155,25 +170,25 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         );
         proxySection.add(sslVerificationRow);
         proxySection.add(createVerticalSpace(FIELD_SPACING));
-        proxyPreviewSectionHeader = createSubsectionHeader(
+        proxySection.add(createSubsectionHeader(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PREVIEW_SECTION_TITLE),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PREVIEW_SECTION_DESCRIPTION)
-        );
-        proxySection.add(proxyPreviewSectionHeader);
-        proxyPreviewHeaderSpacing = createVerticalSpace(FIELD_SPACING);
-        proxySection.add(proxyPreviewHeaderSpacing);
+        ));
+        proxySection.add(createVerticalSpace(FIELD_SPACING));
         proxyPreviewTargetField = new JTextField(10);
         proxyPreviewTargetField.setText(DEFAULT_PROXY_PREVIEW_TARGET);
         proxyPreviewTargetRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PREVIEW_TARGET),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_PREVIEW_TARGET_TOOLTIP),
-                proxyPreviewTargetField,
-                FIELD_LABEL_WIDTH,
-                PREVIEW_ROW_WIDTH
+                proxyPreviewTargetField
         );
         proxySection.add(proxyPreviewTargetRow);
-        proxyPreviewSpacing = createVerticalSpace(FIELD_SPACING);
-        proxySection.add(proxyPreviewSpacing);
+        proxySection.add(createVerticalSpace(FIELD_SPACING));
+        proxySection.add(createCheckConnectionRow());
+        proxySection.add(createVerticalSpace(FIELD_SPACING));
+        checkResultArea = createInfoTextArea();
+        checkResultArea.setVisible(false);
+        proxySection.add(checkResultArea);
         proxyStatusArea = createInfoTextArea();
         proxySection.add(proxyStatusArea);
         contentPanel.add(proxySection);
@@ -196,7 +211,12 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         proxyEnabledCheckBox.addItemListener(e -> updateProxyInputState());
         proxyModeComboBox.addItemListener(e -> updateProxyInputState());
         proxyTypeComboBox.addItemListener(e -> updateProxyInputState());
-        addRefreshListeners(proxyHostField, proxyPortField, proxyUsernameField, proxyPasswordField, proxyPreviewTargetField);
+        proxyAuthCheckBox.addItemListener(e -> updateProxyInputState());
+        addRefreshListeners(this::updateProxyInputState, proxyHostField, proxyPortField);
+        previewRefreshTimer = new Timer(PREVIEW_REFRESH_DELAY_MS, e -> updateProxyInputState());
+        previewRefreshTimer.setRepeats(false);
+        addRefreshListeners(previewRefreshTimer::restart, proxyPreviewTargetField);
+        checkConnectionButton.addActionListener(e -> runConnectionCheck());
         saveBtn.addActionListener(e -> saveSettings(true));
         applyBtn.addActionListener(e -> saveSettings(false));
         cancelBtn.addActionListener(e -> {
@@ -207,12 +227,12 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
     }
 
     private void saveSettings(boolean closeAfterSave) {
-        boolean proxyEnabled = isProxyEnabledSelected();
-        boolean manualMode = SettingManager.isManualProxyModeValue(getSelectedProxyMode());
-        if (proxyEnabled && manualMode && (!hasRequiredManualProxyFields() || !validateAllFields())) {
-            NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_VALIDATION_ERROR_MESSAGE));
+        if (!validateProxyForm()) {
             return;
         }
+        boolean proxyEnabled = isProxyEnabledSelected();
+        boolean manualMode = SettingManager.isManualProxyModeValue(getSelectedProxyMode());
+        boolean authEnabled = proxyAuthCheckBox.isSelected();
         try {
             SettingManager.setProxyEnabled(proxyEnabled);
             SettingManager.setProxyMode(getSelectedProxyMode());
@@ -221,8 +241,8 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
                 SettingManager.setProxyHost(getTrimmedText(proxyHostField));
                 SettingManager.setProxyPort(Integer.parseInt(getTrimmedText(proxyPortField)));
             }
-            SettingManager.setProxyUsername(getTrimmedText(proxyUsernameField));
-            SettingManager.setProxyPassword(new String(proxyPasswordField.getPassword()));
+            SettingManager.setProxyUsername(authEnabled ? getTrimmedText(proxyUsernameField) : "");
+            SettingManager.setProxyPassword(authEnabled ? new String(proxyPasswordField.getPassword()) : "");
             SettingManager.setProxySslVerificationDisabled(sslVerificationDisabledCheckBox.isSelected());
             OkHttpClientManager.clearClientCache();
             trackProxyFormState();
@@ -236,6 +256,119 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         } catch (Exception ex) {
             NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_ERROR_MESSAGE) + ": " + ex.getMessage());
         }
+    }
+
+    private boolean validateProxyForm() {
+        boolean proxyEnabled = isProxyEnabledSelected();
+        boolean manualMode = SettingManager.isManualProxyModeValue(getSelectedProxyMode());
+        if (proxyEnabled && manualMode && (!hasRequiredManualProxyFields() || !validateAllFields())) {
+            NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_VALIDATION_ERROR_MESSAGE));
+            return false;
+        }
+        if (proxyEnabled && proxyAuthCheckBox.isSelected() && !hasRequiredAuthFields()) {
+            NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_AUTH_REQUIRED));
+            return false;
+        }
+        return true;
+    }
+
+    private JPanel createCheckConnectionRow() {
+        JPanel row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        checkConnectionButton = createModernButton(I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_BUTTON), false);
+        checkConnectionButton.setToolTipText(I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_TOOLTIP));
+        Dimension buttonSize = checkConnectionButton.getPreferredSize();
+        checkConnectionButton.setMaximumSize(buttonSize);
+        row.add(Box.createHorizontalStrut(SettingsFieldRow.DEFAULT_LABEL_WIDTH + SettingsFieldRow.DEFAULT_GAP));
+        row.add(checkConnectionButton);
+        row.add(Box.createHorizontalGlue());
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, buttonSize.height));
+        return row;
+    }
+
+    private void runConnectionCheck() {
+        if (connectionCheckRunning || !validateProxyForm()) {
+            return;
+        }
+        HttpRuntimeSettings formSettings = buildFormRuntimeSettings();
+        String target = getPreviewTargetInput();
+        connectionCheckRunning = true;
+        checkConnectionButton.setEnabled(false);
+        showCheckResult(I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_RUNNING, target), getTextSecondaryColor());
+        new SwingWorker<ProxyConnectionChecker.Result, Void>() {
+            @Override
+            protected ProxyConnectionChecker.Result doInBackground() {
+                return ProxyConnectionChecker.check(formSettings, target, ProxyConnectionChecker.DEFAULT_TIMEOUT_MS);
+            }
+
+            @Override
+            protected void done() {
+                connectionCheckRunning = false;
+                checkConnectionButton.setEnabled(true);
+                try {
+                    renderCheckResult(get());
+                } catch (Exception ex) {
+                    showCheckResult(I18nUtil.getMessage(
+                            MessageKeys.SETTINGS_PROXY_CHECK_FAILED,
+                            I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_ROUTE_DIRECT),
+                            ex.getMessage()
+                    ), ModernColors.getError());
+                }
+            }
+        }.execute();
+    }
+
+    private HttpRuntimeSettings buildFormRuntimeSettings() {
+        boolean authEnabled = proxyAuthCheckBox.isSelected();
+        String port = getTrimmedText(proxyPortField);
+        return ProxyOverrideRuntimeSettings.builder()
+                .base(HttpRuntimeSettingsProvider.get())
+                .proxyEnabled(isProxyEnabledSelected())
+                .proxyMode(getSelectedProxyMode())
+                .proxyType(proxyTypeComboBox.getSelectedIndex() == 1
+                        ? HttpRuntimeSettings.PROXY_TYPE_SOCKS
+                        : HttpRuntimeSettings.PROXY_TYPE_HTTP)
+                .proxyHost(getTrimmedText(proxyHostField))
+                .proxyPort(isInteger(port) ? Integer.parseInt(port) : 0)
+                .proxyUsername(authEnabled ? getTrimmedText(proxyUsernameField) : "")
+                .proxyPassword(authEnabled ? new String(proxyPasswordField.getPassword()) : "")
+                .proxySslVerificationDisabled(sslVerificationDisabledCheckBox.isSelected())
+                .build();
+    }
+
+    private void renderCheckResult(ProxyConnectionChecker.Result result) {
+        String route = result.route().active()
+                ? I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_ROUTE_PROXY, result.route().description())
+                : I18nUtil.getMessage(MessageKeys.SETTINGS_PROXY_CHECK_ROUTE_DIRECT);
+        switch (result.status()) {
+            case SUCCESS -> showCheckResult(I18nUtil.getMessage(
+                    MessageKeys.SETTINGS_PROXY_CHECK_SUCCESS,
+                    String.valueOf(result.httpCode()),
+                    route,
+                    String.valueOf(result.elapsedMs())
+            ), ModernColors.getSuccess());
+            case PROXY_AUTH_FAILED -> showCheckResult(I18nUtil.getMessage(
+                    MessageKeys.SETTINGS_PROXY_CHECK_AUTH_FAILED,
+                    route
+            ), ModernColors.getError());
+            case FAILED -> showCheckResult(I18nUtil.getMessage(
+                    MessageKeys.SETTINGS_PROXY_CHECK_FAILED,
+                    route,
+                    result.message()
+            ), ModernColors.getError());
+        }
+    }
+
+    private void showCheckResult(String text, Color color) {
+        checkResultArea.setText(text);
+        checkResultArea.setForeground(color);
+        if (!checkResultArea.isVisible()) {
+            checkResultArea.setVisible(true);
+            revalidate();
+        }
+        repaint();
     }
 
     private String getSelectedProxyMode() {
@@ -287,21 +420,21 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         return header;
     }
 
-    private void addRefreshListeners(JTextField... fields) {
+    private void addRefreshListeners(Runnable refresh, JTextField... fields) {
         DocumentListener listener = new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                updateProxyInputState();
+                refresh.run();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                updateProxyInputState();
+                refresh.run();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                updateProxyInputState();
+                refresh.run();
             }
         };
         for (JTextField field : fields) {
@@ -316,8 +449,7 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
                 proxyEnabled,
                 manualMode,
                 proxyEnabled && manualMode,
-                proxyEnabled,
-                proxyEnabled && !manualMode
+                proxyEnabled && proxyAuthCheckBox.isSelected()
         );
     }
 
@@ -326,23 +458,10 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         proxyTypeRow.setEnabled(state.manualFieldsEnabled());
         proxyHostRow.setEnabled(state.manualFieldsEnabled());
         proxyPortRow.setEnabled(state.manualFieldsEnabled());
+        proxyAuthCheckBox.setEnabled(state.proxyEnabled());
         proxyUsernameRow.setEnabled(state.authFieldsEnabled());
         proxyPasswordRow.setEnabled(state.authFieldsEnabled());
         sslVerificationDisabledCheckBox.setEnabled(state.proxyEnabled());
-        proxyPreviewTargetRow.setEnabled(state.showSystemPreviewControls());
-        updateSystemPreviewVisibility(state.showSystemPreviewControls());
-    }
-
-    private void updateSystemPreviewVisibility(boolean visible) {
-        proxyPreviewSectionHeader.setVisible(visible);
-        proxyPreviewHeaderSpacing.setVisible(visible);
-        if (proxyPreviewTargetRow.isVisible() == visible) {
-            return;
-        }
-        proxyPreviewTargetRow.setVisible(visible);
-        proxyPreviewSpacing.setVisible(visible);
-        revalidate();
-        repaint();
     }
 
     private void updateInformationalAreas(ProxyViewState state) {
@@ -469,6 +588,18 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         return true;
     }
 
+    private boolean hasRequiredAuthFields() {
+        if (getTrimmedText(proxyUsernameField).isEmpty()) {
+            proxyUsernameField.requestFocus();
+            return false;
+        }
+        if (new String(proxyPasswordField.getPassword()).trim().isEmpty()) {
+            proxyPasswordField.requestFocus();
+            return false;
+        }
+        return true;
+    }
+
     private String getTrimmedText(JTextField field) {
         String value = field.getText();
         return value == null ? "" : value.trim();
@@ -488,6 +619,7 @@ public class ProxySettingsPanelModern extends ModernSettingsPanel {
         trackComponentValue(proxyTypeComboBox);
         trackComponentValue(proxyHostField);
         trackComponentValue(proxyPortField);
+        trackComponentValue(proxyAuthCheckBox);
         trackComponentValue(proxyUsernameField);
         trackComponentValue(proxyPasswordField);
         trackComponentValue(sslVerificationDisabledCheckBox);

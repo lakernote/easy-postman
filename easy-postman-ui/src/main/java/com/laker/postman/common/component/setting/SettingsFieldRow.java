@@ -8,6 +8,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -19,6 +20,7 @@ public class SettingsFieldRow extends JPanel {
 
     public static final int DEFAULT_LABEL_WIDTH = 220;
     public static final int DEFAULT_FIELD_WIDTH = 300;
+    public static final int DEFAULT_MIN_FIELD_WIDTH = 160;
     public static final int DEFAULT_ROW_HEIGHT = 36;
     public static final int DEFAULT_GAP = 16;
 
@@ -43,8 +45,14 @@ public class SettingsFieldRow extends JPanel {
             label.setToolTipText(tooltip);
         }
         if (fieldWidth > 0) {
+            if (inputComponent instanceof JTextField textField) {
+                // JTextField recomputes preferred width from columns and would ignore the configured field width.
+                textField.setColumns(0);
+            }
             inputComponent.setPreferredSize(new Dimension(fieldWidth, 34));
             inputComponent.setMaximumSize(new Dimension(fieldWidth, 34));
+            // Text fields and combo boxes report different natural minimums; align them so they shrink together.
+            inputComponent.setMinimumSize(new Dimension(Math.min(fieldWidth, DEFAULT_MIN_FIELD_WIDTH), 34));
         }
 
         add(label);

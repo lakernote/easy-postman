@@ -2575,6 +2575,9 @@ public final class MessageKeys {
     public static final String SETTINGS_PROXY_SYSTEM_AUTH_HINT = "settings.proxy.system_auth_hint";
     public static final String SETTINGS_PROXY_AUTH_SECTION_TITLE = "settings.proxy.auth_section.title";
     public static final String SETTINGS_PROXY_AUTH_SECTION_DESCRIPTION = "settings.proxy.auth_section.description";
+    public static final String SETTINGS_PROXY_AUTH_CHECKBOX = "settings.proxy.auth.checkbox";
+    public static final String SETTINGS_PROXY_AUTH_TOOLTIP = "settings.proxy.auth.tooltip";
+    public static final String SETTINGS_PROXY_AUTH_REQUIRED = "settings.proxy.auth.required";
     public static final String SETTINGS_PROXY_ADVANCED_SECTION_TITLE = "settings.proxy.advanced_section.title";
     public static final String SETTINGS_PROXY_ADVANCED_SECTION_DESCRIPTION = "settings.proxy.advanced_section.description";
     public static final String SETTINGS_PROXY_SSL_VERIFICATION_TOOLTIP = "settings.proxy.ssl.verification.tooltip";
@@ -2589,6 +2592,14 @@ public final class MessageKeys {
     public static final String SETTINGS_PROXY_STATUS_SYSTEM_ACTIVE = "settings.proxy.status.system.active";
     public static final String SETTINGS_PROXY_STATUS_DIRECT = "settings.proxy.status.direct";
     public static final String SETTINGS_PROXY_STATUS_UNAVAILABLE = "settings.proxy.status.unavailable";
+    public static final String SETTINGS_PROXY_CHECK_BUTTON = "settings.proxy.check.button";
+    public static final String SETTINGS_PROXY_CHECK_TOOLTIP = "settings.proxy.check.tooltip";
+    public static final String SETTINGS_PROXY_CHECK_RUNNING = "settings.proxy.check.running";
+    public static final String SETTINGS_PROXY_CHECK_SUCCESS = "settings.proxy.check.success";
+    public static final String SETTINGS_PROXY_CHECK_AUTH_FAILED = "settings.proxy.check.auth_failed";
+    public static final String SETTINGS_PROXY_CHECK_FAILED = "settings.proxy.check.failed";
+    public static final String SETTINGS_PROXY_CHECK_ROUTE_PROXY = "settings.proxy.check.route.proxy";
+    public static final String SETTINGS_PROXY_CHECK_ROUTE_DIRECT = "settings.proxy.check.route.direct";
     public static final String NETWORK_ERROR_PROXY_SOCKS_MALFORMED = "network.error.proxy.socks.malformed";
     public static final String NETWORK_ERROR_UNKNOWN_HOST = "network.error.unknown_host";
 

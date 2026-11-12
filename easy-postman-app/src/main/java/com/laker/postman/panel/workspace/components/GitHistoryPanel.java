@@ -165,8 +165,7 @@ public class GitHistoryPanel extends JPanel {
         detailsArea = new JTextArea();
         detailsArea.setEditable(false);
         detailsArea.setLineWrap(false);
-        detailsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN,
-                FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1).getSize()));
+        detailsArea.setFont(FontsUtil.getMonospacedFontWithOffset(Font.PLAIN, -1));
         detailsArea.setBorder(new EmptyBorder(8, 10, 8, 10));
         ToolWindowSurfaceStyle.applyTextComponentCard(detailsArea);
         renderDetails(I18nUtil.getMessage(MessageKeys.GIT_HISTORY_SELECT_COMMIT));

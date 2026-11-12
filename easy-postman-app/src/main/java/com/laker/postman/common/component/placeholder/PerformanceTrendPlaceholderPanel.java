@@ -24,6 +24,8 @@ public class PerformanceTrendPlaceholderPanel extends AbstractPlaceholderPanel {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        FontsUtil.applyTextRenderingHints(g2);
         try {
             enableAntialias(g2);
 

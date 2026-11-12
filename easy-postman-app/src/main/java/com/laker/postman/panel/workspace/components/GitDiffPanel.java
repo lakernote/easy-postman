@@ -139,8 +139,7 @@ public class GitDiffPanel extends JPanel {
     private JScrollPane createDiffScrollPane() {
         diffPane = new JTextPane();
         diffPane.setEditable(false);
-        diffPane.setFont(new Font(Font.MONOSPACED, Font.PLAIN,
-                FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1).getSize()));
+        diffPane.setFont(FontsUtil.getMonospacedFontWithOffset(Font.PLAIN, -1));
         diffPane.setBorder(new EmptyBorder(8, 10, 8, 10));
         ToolWindowSurfaceStyle.applyTextComponentCard(diffPane);
         renderPlainMessage(I18nUtil.getMessage(MessageKeys.GIT_DIFF_SELECT_FILE));

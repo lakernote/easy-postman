@@ -212,6 +212,7 @@ public class EasyTextField extends FlatTextField {
                             super.paintComponent(g);
                             Graphics2D g2d = (Graphics2D) g.create();
                             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                            FontsUtil.applyTextRenderingHints(g2d);
 
                             // 获取字体度量信息以实现垂直对齐
                             int panelHeight = getHeight();

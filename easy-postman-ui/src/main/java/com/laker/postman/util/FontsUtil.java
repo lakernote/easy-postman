@@ -4,6 +4,7 @@ import lombok.experimental.UtilityClass;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Map;
 
 /**
  * 字体工具类，提供系统默认字体，保留完整的字体降级链以支持 emoji 等特殊字符
@@ -76,6 +77,18 @@ public class FontsUtil {
      * @param offset 相对于用户设置字体大小的偏移量（可正可负）
      * @return Font 对象
      */
+    /**
+     * 自绘文字前调用：沿用系统桌面文字抗锯齿设置（缺省时开启灰度抗锯齿），与 Swing 组件文字渲染保持一致。
+     */
+    public static void applyTextRenderingHints(Graphics2D g2) {
+        Object desktopHints = Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints");
+        if (desktopHints instanceof Map<?, ?> hints) {
+            g2.addRenderingHints(hints);
+        } else {
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        }
+    }
+
     public static Font getMonospacedFontWithOffset(int style, int offset) {
         Font baseFont = UIManager.getFont(MONOSPACED_FONT_KEY);
         if (baseFont == null) {

@@ -7,6 +7,7 @@ import com.laker.postman.common.component.button.SegmentedButtonBar;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.performance.core.threadgroup.ThreadGroupData;
 import com.laker.postman.performance.model.PerformanceTreeNode;
+import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import net.miginfocom.swing.MigLayout;
@@ -686,6 +687,7 @@ public class ThreadGroupPropertyPanel extends JPanel {
     private static class ThreadLoadPreviewPanel extends JPanel {
         private ThreadLoadPreviewData previewData;
         private static final int PADDING = 40;
+        private static final int AXIS_LABEL_GAP = 6;
 
         public void setPreviewData(ThreadLoadPreviewData data) {
             this.previewData = data;
@@ -698,6 +700,8 @@ public class ThreadGroupPropertyPanel extends JPanel {
 
             Graphics2D g2d = (Graphics2D) g.create();
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            FontsUtil.applyTextRenderingHints(g2d);
+            g2d.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
 
             int width = getWidth() - 2 * PADDING;
             int height = getHeight() - 2 * PADDING;
@@ -770,7 +774,9 @@ public class ThreadGroupPropertyPanel extends JPanel {
                 g2d.draw(new java.awt.geom.Line2D.Double(PADDING, y, PADDING + width, y));
                 if (threadValue > 0) {
                     g2d.setColor(textColor);
-                    g2d.drawString(String.valueOf(threadValue), PADDING - 30, y + 5);
+                    String label = String.valueOf(threadValue);
+                    FontMetrics fm = g2d.getFontMetrics();
+                    g2d.drawString(label, PADDING - AXIS_LABEL_GAP - fm.stringWidth(label), y + fm.getAscent() / 2 - 1);
                     g2d.setColor(gridColor);
                 }
             }
@@ -784,7 +790,9 @@ public class ThreadGroupPropertyPanel extends JPanel {
                 g2d.draw(new java.awt.geom.Line2D.Double(x, PADDING, x, PADDING + height));
                 if (timeValue > 0) {
                     g2d.setColor(textColor);
-                    g2d.drawString(timeValue + "s", x - 10, PADDING + height + 15);
+                    String label = timeValue + "s";
+                    FontMetrics fm = g2d.getFontMetrics();
+                    g2d.drawString(label, x - fm.stringWidth(label) / 2, PADDING + height + AXIS_LABEL_GAP + fm.getAscent());
                     g2d.setColor(gridColor);
                 }
             }
@@ -800,7 +808,10 @@ public class ThreadGroupPropertyPanel extends JPanel {
 
             // 坐标轴标签
             g2d.setColor(textColor);
-            g2d.drawString(I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_TIME_SECONDS), PADDING + width / 2 - 20, PADDING + height + 30);
+            FontMetrics fm = g2d.getFontMetrics();
+            String axisTitle = I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_TIME_SECONDS);
+            g2d.drawString(axisTitle, PADDING + (width - fm.stringWidth(axisTitle)) / 2,
+                    PADDING + height + AXIS_LABEL_GAP + fm.getHeight() + fm.getAscent());
 
             // 在左上角添加模式信息
             g2d.drawString(I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_MODE_PREFIX)

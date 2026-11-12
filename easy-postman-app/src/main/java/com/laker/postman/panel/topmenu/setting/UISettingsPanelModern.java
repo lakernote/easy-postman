@@ -28,6 +28,7 @@ import javax.swing.event.PopupMenuListener;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.KeyEvent;
+import java.awt.font.FontRenderContext;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -1185,6 +1186,7 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
                     g2.setColor(getBackground());
                     g2.fillRect(0, 0, getWidth(), getHeight());
                 }
+                applyEditorTextHints(g2);
                 paintPreviewText(g2);
             } finally {
                 g2.dispose();
@@ -1226,32 +1228,55 @@ public class UISettingsPanelModern extends ModernSettingsPanel {
             int x = insets.left;
 
             g2.setColor(getForeground());
-            for (int offset = 0; offset < text.length(); ) {
-                int codePoint = text.codePointAt(offset);
-                int charCount = Character.charCount(codePoint);
-                String glyph = text.substring(offset, offset + charCount);
-                Font glyphFont = choosePreviewFont(codePoint, primary, fallback);
-                FontMetrics glyphMetrics = g2.getFontMetrics(glyphFont);
-
-                g2.setFont(glyphFont);
-                g2.drawString(glyph, x, baseline);
-                x += glyphMetrics.stringWidth(glyph);
-                offset += charCount;
+            FontRenderContext frc = g2.getFontRenderContext();
+            float runX = x;
+            for (FontRun run : splitFontRuns(text, primary, fallback)) {
+                g2.setFont(run.font());
+                g2.drawString(run.text(), runX, baseline);
+                runX += (float) run.font().getStringBounds(run.text(), frc).getWidth();
             }
         }
 
         private int calculatePreviewTextWidth(Font primary, Font fallback) {
             String text = Objects.toString(getText(), "");
-            int width = 0;
+            FontRenderContext frc = new FontRenderContext(null, true, false);
+            double width = 0;
+            for (FontRun run : splitFontRuns(text, primary, fallback)) {
+                width += run.font().getStringBounds(run.text(), frc).getWidth();
+            }
+            return (int) Math.ceil(width);
+        }
+
+        /**
+         * 按字体切分连续文本段整体绘制，与代码编辑器一致；逐字绘制会累积取整误差，导致字距偏大。
+         */
+        private List<FontRun> splitFontRuns(String text, Font primary, Font fallback) {
+            List<FontRun> runs = new ArrayList<>();
+            int runStart = 0;
+            Font runFont = null;
             for (int offset = 0; offset < text.length(); ) {
                 int codePoint = text.codePointAt(offset);
-                int charCount = Character.charCount(codePoint);
-                String glyph = text.substring(offset, offset + charCount);
                 Font glyphFont = choosePreviewFont(codePoint, primary, fallback);
-                width += getFontMetrics(glyphFont).stringWidth(glyph);
-                offset += charCount;
+                if (runFont != null && glyphFont != runFont) {
+                    runs.add(new FontRun(text.substring(runStart, offset), runFont));
+                    runStart = offset;
+                }
+                runFont = glyphFont;
+                offset += Character.charCount(codePoint);
             }
-            return width;
+            if (runFont != null) {
+                runs.add(new FontRun(text.substring(runStart), runFont));
+            }
+            return runs;
+        }
+
+        private static void applyEditorTextHints(Graphics2D g2) {
+            FontsUtil.applyTextRenderingHints(g2);
+            // RSyntaxTextArea 默认关闭小数字宽，保持预览与真实编辑器字距一致
+            g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
+        }
+
+        private record FontRun(String text, Font font) {
         }
 
         private Font choosePreviewFont(int codePoint, Font primary, Font fallback) {

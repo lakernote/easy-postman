@@ -151,7 +151,7 @@ final class SystemProxyService {
         for (String service : services) {
             captured.put(service, readSnapshot(service));
         }
-        saveRecoverySnapshotQuietly(proxyHost, port, captured, null);
+        saveRecoverySnapshot(proxyHost, port, captured, null);
         try {
             for (Map.Entry<String, ProxyServiceSnapshot> entry : captured.entrySet()) {
                 applyProxy(entry.getKey(), proxyHost, port, entry.getValue().bypassDomains());
@@ -267,9 +267,8 @@ final class SystemProxyService {
     }
 
     private boolean isWindowsProxyEffective() throws Exception {
-        WindowsProxySnapshot current = readWindowsSnapshot();
-        return isRegistryDwordEnabled(current.proxyEnable())
-                && windowsProxyServerMatches(registryData(current.proxyServer()), activeHost, activePort);
+        return windowsCaptureStateMismatch(readWindowsSnapshot(), activeHost, activePort,
+                windowsSnapshot.proxyOverrideData()) == null;
     }
 
     String statusSummary() {
@@ -324,6 +323,25 @@ final class SystemProxyService {
         windowsSnapshot = null;
     }
 
+    /**
+     * Write-ahead record of the pre-capture settings. It must be durable before the first system
+     * setting changes, otherwise a crash leaves the system pointing at a stopped capture port with
+     * nothing to restore it from.
+     */
+    private void saveRecoverySnapshot(
+            String host,
+            int port,
+            Map<String, ProxyServiceSnapshot> macSnapshots,
+            WindowsProxySnapshot windowsSnapshot
+    ) {
+        try {
+            writeRecoverySnapshot(host, port, macSnapshots, windowsSnapshot);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Cannot persist system proxy recovery snapshot; system proxy was not changed", ex);
+        }
+    }
+
+    /** Refreshes the existing snapshot while reapplying; the copy persisted on enable remains valid. */
     private void saveRecoverySnapshotQuietly(
             String host,
             int port,
@@ -331,15 +349,24 @@ final class SystemProxyService {
             WindowsProxySnapshot windowsSnapshot
     ) {
         try {
-            storage.writeString(RECOVERY_STORAGE_FILE, recoverySnapshotJson(
-                    host,
-                    port,
-                    macSnapshots == null ? Map.of() : macSnapshots,
-                    windowsSnapshot
-            ));
+            writeRecoverySnapshot(host, port, macSnapshots, windowsSnapshot);
         } catch (IOException ex) {
             log.warn("Failed to persist system proxy recovery snapshot", ex);
         }
+    }
+
+    private void writeRecoverySnapshot(
+            String host,
+            int port,
+            Map<String, ProxyServiceSnapshot> macSnapshots,
+            WindowsProxySnapshot windowsSnapshot
+    ) throws IOException {
+        storage.writeString(RECOVERY_STORAGE_FILE, recoverySnapshotJson(
+                host,
+                port,
+                macSnapshots == null ? Map.of() : macSnapshots,
+                windowsSnapshot
+        ));
     }
 
     private Optional<SystemProxyRecoverySnapshot> loadRecoverySnapshot() {
@@ -388,9 +415,12 @@ final class SystemProxyService {
             return false;
         }
         if (isWindows()) {
-            WindowsProxySnapshot current = readWindowsSnapshot();
-            return isRegistryDwordEnabled(current.proxyEnable())
-                    && windowsProxyServerMatches(registryData(current.proxyServer()), host, port);
+            String mismatch = windowsRecoveryOwnershipMismatch(readWindowsSnapshot(), snapshot.windowsSnapshot(),
+                    host, port);
+            if (mismatch != null) {
+                log.info("Windows proxy settings changed after capture stopped; leaving them untouched: {}", mismatch);
+            }
+            return mismatch == null;
         }
 
         for (String service : snapshot.macSnapshots().keySet()) {
@@ -413,20 +443,92 @@ final class SystemProxyService {
                 && endpoint.port() == port;
     }
 
-    private boolean windowsProxyServerMatches(String proxyServer, String host, int port) {
-        if (proxyServer == null || proxyServer.isBlank()) {
-            return false;
+    /**
+     * Scope the capture proxy to HTTP and HTTPS. A bare {@code host:port} value applies to
+     * every protocol, and the JDK on Windows then also treats it as a SOCKS proxy for plain
+     * {@code java.net.Socket} connections, sending SOCKS handshakes to this HTTP proxy.
+     */
+    static String windowsProxyServerValue(String host, int port) {
+        String endpoint = host + ":" + port;
+        return "http=" + endpoint + ";https=" + endpoint;
+    }
+
+    /**
+     * While capture runs it owns the Windows proxy settings exclusively, and stopping it restores the
+     * whole pre-capture snapshot. Runtime health and post-write verification therefore compare the
+     * current registry with exactly what capture writes; tolerating other edits would let them be
+     * silently overwritten later.
+     *
+     * @return {@code null} when the state matches, otherwise a description of the first difference
+     */
+    private String windowsCaptureStateMismatch(WindowsProxySnapshot current, String host, int port,
+                                               String originalBypass) {
+        if (!isRegistryDwordEnabled(current.proxyEnable())) {
+            return "ProxyEnable is off";
         }
-        String expected = (host + ":" + port).toLowerCase(Locale.ROOT);
-        for (String rawToken : proxyServer.split(";")) {
-            String token = rawToken.trim();
-            int separator = token.indexOf('=');
-            String endpoint = separator >= 0 ? token.substring(separator + 1).trim() : token;
-            if (expected.equals(endpoint.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
+        if (!isCaptureProxyServer(current.proxyServer(), host, port, false)) {
+            return "ProxyServer expected " + windowsProxyServerValue(host, port)
+                    + ", actual " + registryData(current.proxyServer());
         }
-        return false;
+        String expectedBypass = mergeWindowsBypass(originalBypass);
+        if (!expectedBypass.equals(registryData(current.proxyOverride()))) {
+            return "ProxyOverride expected " + expectedBypass + ", actual " + registryData(current.proxyOverride());
+        }
+        // PAC and auto-detect take precedence over the manual proxy, so capture would silently miss traffic.
+        if (!registryData(current.autoConfigUrl()).isBlank() || isRegistryDwordEnabled(current.autoDetect())) {
+            return "automatic proxy configuration (AutoConfigURL/AutoDetect) is enabled";
+        }
+        return null;
+    }
+
+    /**
+     * Enable, reapply and restore all write the registry one value at a time, so a crash, power loss or
+     * failed restore can leave any mix of pre-capture and capture values. Such a mix is still owned by
+     * capture and must be restored, otherwise the system may keep pointing at a stopped capture port.
+     * A value that matches neither side was changed by the user or policy, and recovery must not
+     * overwrite it.
+     *
+     * @return {@code null} when every value is either the original or the capture value, otherwise the
+     * first value changed by someone else
+     */
+    private String windowsRecoveryOwnershipMismatch(WindowsProxySnapshot current, WindowsProxySnapshot original,
+                                                    String host, int port) {
+        if (!isRegistryDwordEnabled(current.proxyEnable())
+                && !sameRegistryValue(original.proxyEnable(), current.proxyEnable())) {
+            return "ProxyEnable changed to " + registryData(current.proxyEnable());
+        }
+        // Versions before the protocol-scoped format wrote the bare host:port.
+        if (!isCaptureProxyServer(current.proxyServer(), host, port, true)
+                && !sameRegistryValue(original.proxyServer(), current.proxyServer())) {
+            return "ProxyServer changed to " + registryData(current.proxyServer());
+        }
+        if (!mergeWindowsBypass(original.proxyOverrideData()).equals(registryData(current.proxyOverride()))
+                && !sameRegistryValue(original.proxyOverride(), current.proxyOverride())) {
+            return "ProxyOverride changed to " + registryData(current.proxyOverride());
+        }
+        if (!registryData(current.autoConfigUrl()).isBlank()
+                && !sameRegistryValue(original.autoConfigUrl(), current.autoConfigUrl())) {
+            return "AutoConfigURL changed to " + registryData(current.autoConfigUrl());
+        }
+        if (isRegistryDwordEnabled(current.autoDetect())
+                && !sameRegistryValue(original.autoDetect(), current.autoDetect())) {
+            return "AutoDetect changed to " + registryData(current.autoDetect());
+        }
+        return null;
+    }
+
+    private boolean isCaptureProxyServer(WindowsRegistryValue value, String host, int port, boolean acceptLegacy) {
+        String proxyServer = registryData(value);
+        return windowsProxyServerValue(host, port).equals(proxyServer)
+                || (acceptLegacy && (host + ":" + port).equals(proxyServer));
+    }
+
+    /**
+     * The WinINet {@code ProxyServer} syntax and the JDK Windows parser split the port at the
+     * first colon, so IPv6 literals cannot be represented there.
+     */
+    private static boolean isIpv6Literal(String host) {
+        return host != null && host.contains(":");
     }
 
     private String recoverySnapshotJson(
@@ -620,6 +722,10 @@ final class SystemProxyService {
 
     private void enableWindows(String host, int port) throws Exception {
         String proxyHost = normalizeProxyHost(host);
+        if (isIpv6Literal(proxyHost)) {
+            throw new IllegalArgumentException("Windows system proxy sync does not support IPv6 listen address "
+                    + proxyHost + "; use 127.0.0.1 or an IPv4 address");
+        }
         if (active) {
             if (proxyHost.equals(activeHost) && port == activePort) {
                 return;
@@ -628,7 +734,7 @@ final class SystemProxyService {
         }
 
         WindowsProxySnapshot snapshot = readWindowsSnapshot();
-        saveRecoverySnapshotQuietly(proxyHost, port, Map.of(), snapshot);
+        saveRecoverySnapshot(proxyHost, port, Map.of(), snapshot);
         try {
             applyWindowsProxy(proxyHost, port, snapshot.proxyOverrideData());
             windowsSnapshot = snapshot;
@@ -661,17 +767,16 @@ final class SystemProxyService {
     }
 
     private void applyWindowsProxy(String host, int port, String originalBypass) throws Exception {
-        applyWindowsProxyWithRegistry(host, port, originalBypass);
-    }
-
-    private void applyWindowsProxyWithRegistry(String host, int port, String originalBypass) throws Exception {
-        writeWindowsRegistryValue("ProxyServer", "REG_SZ", host + ":" + port);
+        writeWindowsRegistryValue("ProxyServer", "REG_SZ", windowsProxyServerValue(host, port));
         writeWindowsRegistryValue("ProxyOverride", "REG_SZ", mergeWindowsBypass(originalBypass));
         writeWindowsRegistryValue("ProxyEnable", "REG_DWORD", "1");
         deleteWindowsRegistryValue("AutoConfigURL");
         writeWindowsRegistryValue("AutoDetect", "REG_DWORD", "0");
         refreshWindowsInternetOptions();
-        verifyWindowsProxyApplied(host, port);
+        String mismatch = windowsCaptureStateMismatch(readWindowsSnapshot(), host, port, originalBypass);
+        if (mismatch != null) {
+            throw new IllegalStateException("Windows system proxy was not applied: " + mismatch);
+        }
     }
 
     private void restoreSnapshot(String service, ProxyServiceSnapshot snapshot) throws Exception {
@@ -916,17 +1021,6 @@ final class SystemProxyService {
         return new WindowsRegistryValue(false, "", "");
     }
 
-    private void verifyWindowsProxyApplied(String host, int port) throws Exception {
-        WindowsProxySnapshot current = readWindowsSnapshot();
-        if (!isRegistryDwordEnabled(current.proxyEnable())) {
-            throw new IllegalStateException("Windows system proxy was not enabled after update");
-        }
-        if (!windowsProxyServerMatches(registryData(current.proxyServer()), host, port)) {
-            throw new IllegalStateException("Windows system proxy endpoint was not applied: expected "
-                    + host + ":" + port + ", actual " + registryData(current.proxyServer()));
-        }
-    }
-
     private void verifyWindowsSnapshotRestored(WindowsProxySnapshot expected) throws Exception {
         WindowsProxySnapshot current = readWindowsSnapshot();
         verifyWindowsRegistryValueRestored("ProxyEnable", expected.proxyEnable(), current.proxyEnable());
@@ -941,21 +1035,24 @@ final class SystemProxyService {
             WindowsRegistryValue expected,
             WindowsRegistryValue actual
     ) {
+        if (!sameRegistryValue(expected, actual)) {
+            throw new IllegalStateException("Windows system proxy value was not restored: " + name
+                    + " expected " + describeRegistryValue(expected) + ", actual " + describeRegistryValue(actual));
+        }
+    }
+
+    private boolean sameRegistryValue(WindowsRegistryValue expected, WindowsRegistryValue actual) {
         boolean expectedPresent = expected != null && expected.present();
         boolean actualPresent = actual != null && actual.present();
         if (expectedPresent != actualPresent) {
-            throw new IllegalStateException("Windows system proxy value was not restored: "
-                    + name + " expected present=" + expectedPresent + ", actual present=" + actualPresent);
+            return false;
         }
-        if (!expectedPresent) {
-            return;
-        }
-        if (!expected.type().equalsIgnoreCase(actual.type())
-                || !expected.data().equalsIgnoreCase(actual.data())) {
-            throw new IllegalStateException("Windows system proxy value was not restored: "
-                    + name + " expected " + expected.type() + " " + expected.data()
-                    + ", actual " + actual.type() + " " + actual.data());
-        }
+        return !expectedPresent || (expected.type().equalsIgnoreCase(actual.type())
+                && expected.data().equalsIgnoreCase(actual.data()));
+    }
+
+    private String describeRegistryValue(WindowsRegistryValue value) {
+        return value == null || !value.present() ? "<absent>" : value.type() + " " + value.data();
     }
 
     private void writeWindowsRegistryValue(String name, String type, String data) throws Exception {

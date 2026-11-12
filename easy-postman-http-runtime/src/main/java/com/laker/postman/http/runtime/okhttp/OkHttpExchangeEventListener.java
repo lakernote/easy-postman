@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -49,6 +50,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 public class OkHttpExchangeEventListener extends EventListener {
+    private static final long INTERCEPTION_WARNING_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(60);
+    static final AtomicLong lastInterceptionWarningNanos = new AtomicLong();
     // Match OkHttp's HTTP/2 codec filtering; this is a logical view, not captured wire bytes.
     private static final Set<String> HTTP2_OMITTED_HEADERS = Set.of(
             "connection", "keep-alive", "proxy-connection", "transfer-encoding", "encoding", "upgrade",
@@ -165,7 +168,7 @@ public class OkHttpExchangeEventListener extends EventListener {
     private static boolean containsEndpointDiagnostics(NetworkLogEventStage stage) {
         return switch (stage) {
             case PROXY_SELECT_END, DNS_START, DNS_END, CONNECT_START, CONNECT_END, CONNECT_FAILED,
-                    CONNECTION_ACQUIRED, CONNECTION_RELEASED, RETRY_DECISION,
+                    CONNECTION_ACQUIRED, CONNECTION_RELEASED, ROUTE_INTERCEPTED, RETRY_DECISION,
                     REQUEST_FAILED, RESPONSE_FAILED, CALL_FAILED -> true;
             default -> false;
         };
@@ -751,6 +754,51 @@ public class OkHttpExchangeEventListener extends EventListener {
                 .findFirst().orElse(null);
         log(NetworkLogEventStage.CONNECTION_ACQUIRED, label + ": " + connectionRouteDescription(connection)
                 + ", local=" + info.getLocalAddress() + ", remote=" + info.getRemoteAddress(), setupDuration);
+        if ((!reused || enableNetworkLog) && isInterceptedDirectRoute(connection)) {
+            if (!reused) {
+                warnInterceptedDirectRoute(info.getLocalAddress(), info.getRemoteAddress());
+            }
+            log(NetworkLogEventStage.ROUTE_INTERCEPTED, "Direct route intercepted: local="
+                    + info.getLocalAddress() + ", remote=" + info.getRemoteAddress());
+        }
+    }
+
+    /**
+     * Interception usually affects every connection; log it to the application log at most once per
+     * interval so load tests do not flood the console and log files.
+     */
+    static boolean warnInterceptedDirectRoute(String local, String remote) {
+        long now = System.nanoTime();
+        long last = lastInterceptionWarningNanos.get();
+        if (last != 0L && now - last < INTERCEPTION_WARNING_INTERVAL_NANOS) {
+            return false;
+        }
+        if (!lastInterceptionWarningNanos.compareAndSet(last, now)) {
+            return false;
+        }
+        log.warn("Direct route intercepted (further warnings suppressed for 60s): local={}, remote={}",
+                local, remote);
+        return true;
+    }
+
+    /**
+     * A genuine direct TCP connection to a non-loopback host never has a loopback local address.
+     * When it does, the socket was redirected to a local endpoint, typically a JVM-level SOCKS proxy
+     * or a WFP/transparent redirector, even though OkHttp selected DIRECT. TUN adapters normally
+     * expose a non-loopback local address and are not detected here.
+     */
+    static boolean isInterceptedDirectRoute(Connection connection) {
+        try {
+            Socket socket = connection.socket();
+            InetAddress local = socket.getLocalAddress();
+            InetAddress remote = socket.getInetAddress();
+            return connection.route().proxy().type() == Proxy.Type.DIRECT
+                    && local != null && remote != null
+                    && local.isLoopbackAddress()
+                    && !remote.isLoopbackAddress();
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     @Override

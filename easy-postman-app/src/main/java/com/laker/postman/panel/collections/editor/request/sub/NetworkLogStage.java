@@ -49,6 +49,7 @@ public enum NetworkLogStage {
     CONNECT_END("ConnectEnd", "🔗", ModernColors::getTextSecondary, false),
     CONNECTION_ACQUIRED("ConnectionReady", "🔗", ModernColors::getTextSecondary, false),
     CONNECTION_RELEASED("ConnectionReleased", "↩", ModernColors::getTextSecondary, false),
+    ROUTE_INTERCEPTED("RouteIntercepted", "⚠️", ModernColors::getWarning, true),
 
     // ==================== DNS ====================
     DNS_START("DNSStart", "🔍", ModernColors::getTextSecondary, false),

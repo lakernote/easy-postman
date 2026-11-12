@@ -2,6 +2,7 @@ package com.laker.postman.plugin.capture;
 
 import com.laker.postman.plugin.api.PluginStorage;
 import com.laker.postman.util.JsonUtil;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -44,7 +46,7 @@ public class SystemProxyServiceTest {
         assertTrue(commands.stream().anyMatch(command -> command.equals(List.of(
                 "reg", "add",
                 "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                "/v", "ProxyServer", "/t", "REG_SZ", "/d", "127.0.0.1:8888", "/f"
+                "/v", "ProxyServer", "/t", "REG_SZ", "/d", "http=127.0.0.1:8888;https=127.0.0.1:8888", "/f"
         ))), "Windows Settings should see the configured proxy endpoint");
         assertTrue(commands.stream().anyMatch(command -> command.equals(List.of(
                 "reg", "add",
@@ -69,7 +71,7 @@ public class SystemProxyServiceTest {
         assertTrue(commands.stream().anyMatch(command -> command.equals(List.of(
                 "reg", "add",
                 "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                "/v", "ProxyServer", "/t", "REG_SZ", "/d", "127.0.0.1:8888", "/f"
+                "/v", "ProxyServer", "/t", "REG_SZ", "/d", "http=127.0.0.1:8888;https=127.0.0.1:8888", "/f"
         ))), "Registry should apply ProxyServer even when WinINet refresh is unavailable");
         assertTrue(commands.stream().anyMatch(command -> command.equals(List.of(
                 "cmd", "/c", "RUNDLL32.EXE", "USER32.DLL,UpdatePerUserSystemParameters", "1", "True"
@@ -90,7 +92,7 @@ public class SystemProxyServiceTest {
                 () -> service.enable("127.0.0.1", 8888)
         );
 
-        assertTrue(exception.getMessage().contains("Windows system proxy was not enabled"));
+        assertTrue(exception.getMessage().contains("ProxyEnable is off"), exception.getMessage());
     }
 
     @Test
@@ -121,55 +123,207 @@ public class SystemProxyServiceTest {
     }
 
     @Test
-    public void shouldRecoverPersistedWindowsProxySnapshotWhenCurrentProxyIsOwned() throws Exception {
-        MemoryPluginStorage storage = new MemoryPluginStorage();
-        SystemProxyService original = new SystemProxyService(new WindowsRegistryCommandRunner(), "Windows 11", false);
-        original.configureStorage(storage);
+    public void shouldScopeWindowsCaptureProxyToHttpAndHttps() {
+        assertEquals(SystemProxyService.windowsProxyServerValue("127.0.0.1", 8888),
+                "http=127.0.0.1:8888;https=127.0.0.1:8888");
+    }
 
-        original.enable("127.0.0.1", 8888);
+    @DataProvider
+    public Object[][] nonExactCaptureProxyServerValues() {
+        return new Object[][]{
+                {"127.0.0.1:8888"},
+                {"https=127.0.0.1:8888;http=127.0.0.1:8888"},
+                {"HTTP=127.0.0.1:8888;https=127.0.0.1:8888"},
+                {"http =127.0.0.1:8888;https=127.0.0.1:8888"},
+                {"http= 127.0.0.1:8888;https=127.0.0.1:8888"},
+                {"http=127.0.0.1:8888;https=127.0.0.1:8888;"},
+                {"http=127.0.0.1:8888;https=127.0.0.1:8888;ftp=10.0.0.1:21"},
+                {"http=corp:8080;http=127.0.0.1:8888;https=127.0.0.1:8888"},
+                {"http=127.0.0.1:8888;https=127.0.0.1:8888;socks=127.0.0.1:8888"},
+                {"http=127.0.0.1:8888;https=127.0.0.1:8888;socks=socks://127.0.0.1:8888"},
+                {"http=127.0.0.1:8888;https=127.0.0.1:8888;socks=corp:1080"},
+                {"http=127.0.0.1:8888"},
+        };
+    }
 
-        assertTrue(storage.files.containsKey(SystemProxyService.RECOVERY_STORAGE_FILE));
-        setSnapshotOwnerProcess(storage, Long.MAX_VALUE, 0L);
+    @Test(dataProvider = "nonExactCaptureProxyServerValues")
+    public void shouldRewriteAnyProxyServerValueOtherThanTheExactCaptureValue(String changedValue)
+            throws Exception {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner();
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+        service.enable("127.0.0.1", 8888);
+        assertFalse(service.ensureSynced(), "The exact value written by capture is healthy");
 
-        WindowsRegistryCommandRunner recoveryRunner = new WindowsRegistryCommandRunner(Map.of(
-                "ProxyEnable", new RegistryValue("REG_DWORD", "0x1"),
-                "ProxyServer", new RegistryValue("REG_SZ", "127.0.0.1:8888")
-        ));
-        SystemProxyService recovered = new SystemProxyService(recoveryRunner, "Windows 11", false);
-        recovered.configureStorage(storage);
+        runner.registry.put("ProxyServer", new RegistryValue("REG_SZ", changedValue));
 
-        SystemProxyService.SystemProxyRecoveryResult result = recovered.restorePersistedSnapshotIfOwned();
-
-        assertTrue(result.attempted());
-        assertTrue(result.restored());
-        assertFalse(result.stale());
-        assertFalse(storage.files.containsKey(SystemProxyService.RECOVERY_STORAGE_FILE));
-        assertTrue(recoveryRunner.commands().stream().anyMatch(command -> command.equals(List.of(
-                "reg",
-                "delete",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                "/v",
-                "ProxyEnable",
-                "/f"
-        ))), "Persisted Windows proxy snapshot should be restored through registry values");
+        assertTrue(service.ensureSynced(), "Capture owns ProxyServer exclusively: " + changedValue);
+        assertEquals(runner.registry.get("ProxyServer").data(), "http=127.0.0.1:8888;https=127.0.0.1:8888");
     }
 
     @Test
-    public void shouldDropPersistedWindowsProxySnapshotWhenCurrentProxyWasChangedByUser() throws Exception {
-        MemoryPluginStorage storage = new MemoryPluginStorage();
-        SystemProxyService original = new SystemProxyService(new WindowsRegistryCommandRunner(), "Windows 11", false);
+    public void shouldRewriteProxyOverrideEditedDuringCapture() throws Exception {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner();
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+        service.enable("127.0.0.1", 8888);
+        String applied = runner.registry.get("ProxyOverride").data();
+
+        runner.registry.put("ProxyOverride", new RegistryValue("REG_SZ", "*.corp.example"));
+
+        assertTrue(service.ensureSynced());
+        assertEquals(runner.registry.get("ProxyOverride").data(), applied);
+    }
+
+    @Test
+    public void shouldRejectIpv6ListenAddressForWindowsProxySync() {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner();
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+
+        IllegalArgumentException exception = expectThrows(IllegalArgumentException.class,
+                () -> service.enable("::1", 8888));
+
+        assertTrue(exception.getMessage().contains("IPv6"), exception.getMessage());
+        assertFalse(service.isActive());
+        assertFalse(runner.commands().stream().anyMatch(command -> command.size() > 1
+                && "reg".equals(command.get(0)) && "add".equals(command.get(1))));
+    }
+
+    @DataProvider
+    public Object[][] windowsAutomaticProxySettings() {
+        return new Object[][]{
+                {"AutoConfigURL", new RegistryValue("REG_SZ", "http://wpad.corp/proxy.pac")},
+                {"AutoDetect", new RegistryValue("REG_DWORD", "0x1")},
+        };
+    }
+
+    @Test(dataProvider = "windowsAutomaticProxySettings")
+    public void shouldReapplyWhenWindowsAutomaticProxyIsReEnabledDuringCapture(String name, RegistryValue value)
+            throws Exception {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner();
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+        service.enable("127.0.0.1", 8888);
+        assertFalse(service.ensureSynced());
+
+        runner.registry.put(name, value);
+
+        assertTrue(service.ensureSynced(), "PAC/auto-detect overrides the manual proxy and must be repaired");
+        assertFalse(runner.registry.containsKey("AutoConfigURL"));
+        assertTrue(Long.decode(runner.registry.get("AutoDetect").data()) == 0L);
+    }
+
+    @Test
+    public void shouldRewriteExtraWindowsProxyEntriesAddedDuringCaptureAndRestoreOriginalOnStop()
+            throws Exception {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner(Map.of(
+                "ProxyEnable", new RegistryValue("REG_DWORD", "0x1"),
+                "ProxyServer", new RegistryValue("REG_SZ", "corp:8080")
+        ));
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+        service.enable("127.0.0.1", 8888);
+
+        runner.registry.put("ProxyServer", new RegistryValue("REG_SZ",
+                "http=127.0.0.1:8888;https=127.0.0.1:8888;socks=socks://127.0.0.1:8888"));
+
+        assertTrue(service.ensureSynced());
+        assertEquals(runner.registry.get("ProxyServer").data(), "http=127.0.0.1:8888;https=127.0.0.1:8888");
+        service.disable();
+        assertEquals(runner.registry.get("ProxyServer").data(), "corp:8080");
+    }
+
+    @Test
+    public void shouldReapplyScopedProxyWhenWindowsValueRevertsToBareFormat() throws Exception {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner();
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+        service.enable("127.0.0.1", 8888);
+        assertFalse(service.ensureSynced());
+
+        runner.registry.put("ProxyServer", new RegistryValue("REG_SZ", "127.0.0.1:8888"));
+
+        assertTrue(service.ensureSynced());
+        assertEquals(runner.registry.get("ProxyServer").data(), "http=127.0.0.1:8888;https=127.0.0.1:8888");
+    }
+
+    private static final Map<String, RegistryValue> ORIGINAL_WINDOWS_PROXY = Map.of(
+            "ProxyEnable", new RegistryValue("REG_DWORD", "0x0"),
+            "ProxyServer", new RegistryValue("REG_SZ", "corp.example:8080"),
+            "ProxyOverride", new RegistryValue("REG_SZ", "*.corp.example"),
+            "AutoConfigURL", new RegistryValue("REG_SZ", "http://wpad.corp.example/proxy.pac"),
+            "AutoDetect", new RegistryValue("REG_DWORD", "0x1"));
+
+    /** Simulates a capture process that applied the Windows proxy and then crashed; returns the applied state. */
+    private static Map<String, RegistryValue> crashedWindowsCapture(MemoryPluginStorage storage) throws Exception {
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner(ORIGINAL_WINDOWS_PROXY);
+        SystemProxyService original = new SystemProxyService(runner, "Windows 11", false);
         original.configureStorage(storage);
         original.enable("127.0.0.1", 8888);
+        assertTrue(storage.files.containsKey(SystemProxyService.RECOVERY_STORAGE_FILE));
         setSnapshotOwnerProcess(storage, Long.MAX_VALUE, 0L);
+        return new HashMap<>(runner.registry);
+    }
 
-        WindowsRegistryCommandRunner recoveryRunner = new WindowsRegistryCommandRunner(Map.of(
-                "ProxyEnable", new RegistryValue("REG_DWORD", "0x1"),
-                "ProxyServer", new RegistryValue("REG_SZ", "127.0.0.1:9000")
-        ));
-        SystemProxyService recovered = new SystemProxyService(recoveryRunner, "Windows 11", false);
+    private static SystemProxyService.SystemProxyRecoveryResult recover(
+            MemoryPluginStorage storage, WindowsRegistryCommandRunner runner) throws Exception {
+        SystemProxyService recovered = new SystemProxyService(runner, "Windows 11", false);
         recovered.configureStorage(storage);
+        return recovered.restorePersistedSnapshotIfOwned();
+    }
 
-        SystemProxyService.SystemProxyRecoveryResult result = recovered.restorePersistedSnapshotIfOwned();
+    @DataProvider
+    public Object[][] ownedWindowsProxyStates() {
+        return new Object[][]{
+                {"fully applied", List.of(), null},
+                {"legacy bare ProxyServer", List.of(), "127.0.0.1:8888"},
+                {"crashed after writing ProxyServer only",
+                        List.of("ProxyEnable", "ProxyOverride", "AutoConfigURL", "AutoDetect"), null},
+                {"crashed after writing ProxyServer and ProxyOverride",
+                        List.of("ProxyEnable", "AutoConfigURL", "AutoDetect"), null},
+                {"crashed before deleting AutoConfigURL", List.of("AutoConfigURL", "AutoDetect"), null},
+                {"restore interrupted after ProxyEnable", List.of("ProxyEnable"), null},
+                {"restore interrupted after ProxyOverride",
+                        List.of("ProxyEnable", "ProxyServer", "ProxyOverride"), null},
+                {"restore finished but snapshot not deleted", List.copyOf(ORIGINAL_WINDOWS_PROXY.keySet()), null},
+        };
+    }
+
+    @Test(dataProvider = "ownedWindowsProxyStates")
+    public void shouldRecoverWindowsProxyFromAnyMixOfOriginalAndCaptureValues(
+            String scenario, List<String> originalValues, String proxyServer) throws Exception {
+        MemoryPluginStorage storage = new MemoryPluginStorage();
+        Map<String, RegistryValue> registry = crashedWindowsCapture(storage);
+        originalValues.forEach(name -> registry.put(name, ORIGINAL_WINDOWS_PROXY.get(name)));
+        if (proxyServer != null) {
+            registry.put("ProxyServer", new RegistryValue("REG_SZ", proxyServer));
+        }
+        WindowsRegistryCommandRunner recoveryRunner = new WindowsRegistryCommandRunner(registry);
+
+        SystemProxyService.SystemProxyRecoveryResult result = recover(storage, recoveryRunner);
+
+        assertTrue(result.restored(), scenario + ": " + result.detail());
+        assertFalse(result.stale(), scenario);
+        assertFalse(storage.files.containsKey(SystemProxyService.RECOVERY_STORAGE_FILE), scenario);
+        assertEquals(recoveryRunner.registry, ORIGINAL_WINDOWS_PROXY, scenario);
+    }
+
+    @DataProvider
+    public Object[][] userChangedWindowsProxySettings() {
+        return new Object[][]{
+                {"ProxyServer", new RegistryValue("REG_SZ", "127.0.0.1:9000")},
+                {"ProxyServer", new RegistryValue("REG_SZ", "127.0.0.1:8888;http=corp:8080;https=corp:8080")},
+                {"ProxyServer", new RegistryValue("REG_SZ", "http=127.0.0.1:8888;https=127.0.0.1:8888;ftp=corp:21")},
+                {"ProxyServer", new RegistryValue("REG_SZ", "http =127.0.0.1:8888;https=127.0.0.1:8888")},
+                {"ProxyOverride", new RegistryValue("REG_SZ", "*.other.example;<local>")},
+                {"AutoConfigURL", new RegistryValue("REG_SZ", "http://wpad.other.example/proxy.pac")},
+        };
+    }
+
+    @Test(dataProvider = "userChangedWindowsProxySettings")
+    public void shouldDropPersistedWindowsProxySnapshotWhenSettingsWereChangedAfterCrash(
+            String name, RegistryValue value) throws Exception {
+        MemoryPluginStorage storage = new MemoryPluginStorage();
+        Map<String, RegistryValue> registry = crashedWindowsCapture(storage);
+        registry.put(name, value);
+        WindowsRegistryCommandRunner recoveryRunner = new WindowsRegistryCommandRunner(registry);
+
+        SystemProxyService.SystemProxyRecoveryResult result = recover(storage, recoveryRunner);
 
         assertTrue(result.attempted());
         assertFalse(result.restored());
@@ -178,7 +332,21 @@ public class SystemProxyServiceTest {
         assertFalse(recoveryRunner.commands().stream().anyMatch(command -> command.size() > 1
                         && "reg".equals(command.get(0))
                         && ("add".equals(command.get(1)) || "delete".equals(command.get(1)))),
-                "Recovery should not restore a snapshot after the user changes the system proxy");
+                "Recovery must not overwrite " + name + " changed by the user or group policy");
+    }
+
+    @Test
+    public void shouldNotTouchWindowsProxyWhenRecoverySnapshotCannotBePersisted() {
+        MemoryPluginStorage storage = new MemoryPluginStorage();
+        storage.failWrites = true;
+        WindowsRegistryCommandRunner runner = new WindowsRegistryCommandRunner(ORIGINAL_WINDOWS_PROXY);
+        SystemProxyService service = new SystemProxyService(runner, "Windows 11", false);
+        service.configureStorage(storage);
+
+        expectThrows(IllegalStateException.class, () -> service.enable("127.0.0.1", 8888));
+
+        assertFalse(service.isActive());
+        assertEquals(runner.registry, ORIGINAL_WINDOWS_PROXY);
     }
 
     @Test
@@ -364,6 +532,7 @@ public class SystemProxyServiceTest {
 
     private static final class MemoryPluginStorage implements PluginStorage {
         private final Map<String, String> files = new HashMap<>();
+        private boolean failWrites;
 
         @Override
         public Optional<String> readString(String relativePath) {
@@ -371,7 +540,10 @@ public class SystemProxyServiceTest {
         }
 
         @Override
-        public void writeString(String relativePath, String content) {
+        public void writeString(String relativePath, String content) throws IOException {
+            if (failWrites) {
+                throw new IOException("disk full");
+            }
             files.put(relativePath, content);
         }
 

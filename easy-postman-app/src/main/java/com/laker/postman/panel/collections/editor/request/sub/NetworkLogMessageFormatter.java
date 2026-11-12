@@ -28,6 +28,8 @@ public class NetworkLogMessageFormatter {
     private static final Pattern REDIRECT_STOPPED = Pattern.compile(
             "^Redirect stopped: ([^,]+), status: (\\d+)(?:, max: (\\d+))?$");
     private static final Pattern RESPONSE_WAIT = Pattern.compile("^Wait: (\\d+)ms$");
+    private static final Pattern ROUTE_INTERCEPTED = Pattern.compile(
+            "^Direct route intercepted: local=(.*), remote=(.*)$");
 
     public static String format(NetworkLogEventStage stage, String message) {
         if (message == null || message.isEmpty()) {
@@ -43,6 +45,7 @@ public class NetworkLogMessageFormatter {
                     MessageKeys.NETWORK_LOG_MESSAGE_TLS_START);
             case SECURE_CONNECT_END -> formatTlsMessage(message);
             case CONNECTION_ACQUIRED -> formatConnectionAcquired(message);
+            case ROUTE_INTERCEPTED -> formatRouteIntercepted(message);
             case CONNECTION_RELEASED -> "Connection use released".equals(message)
                     || "Returned to connection pool".equals(message)
                     || message.startsWith("Connection released: ")
@@ -152,6 +155,15 @@ public class NetworkLogMessageFormatter {
         }
         return replacePrefix(message, "Connection acquired: ",
                 MessageKeys.NETWORK_LOG_MESSAGE_CONNECTION_ACQUIRED);
+    }
+
+    private static String formatRouteIntercepted(String message) {
+        Matcher matcher = ROUTE_INTERCEPTED.matcher(message);
+        if (!matcher.matches()) {
+            return message;
+        }
+        return I18nUtil.getMessage(MessageKeys.NETWORK_LOG_MESSAGE_ROUTE_INTERCEPTED,
+                matcher.group(1), matcher.group(2));
     }
 
     private static String formatHeaderSnapshot(String message) {

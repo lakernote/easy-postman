@@ -114,6 +114,17 @@ public class NetworkLogMessageFormatterTest {
     }
 
     @Test
+    public void shouldLocalizeDirectRouteInterceptionWarning() {
+        String formatted = NetworkLogMessageFormatter.format(NetworkLogEventStage.ROUTE_INTERCEPTED,
+                "Direct route intercepted: local=127.0.0.1:53000, remote=10.175.180.2:80");
+        assertTrue(formatted.startsWith("直连疑似被截获：本地地址 127.0.0.1:53000"), formatted);
+        assertTrue(formatted.contains("目标 10.175.180.2:80"), formatted);
+        assertEquals(NetworkLogStage.fromEventStage(NetworkLogEventStage.ROUTE_INTERCEPTED),
+                NetworkLogStage.ROUTE_INTERCEPTED);
+        assertEquals(NetworkLogStage.ROUTE_INTERCEPTED.getDisplayName(), "直连疑似被截获");
+    }
+
+    @Test
     public void shouldExplainHeaderSnapshotWithoutChangingHeaderValues() {
         String headers = "\n:authority: example.test\nX-Custom: Status: 200";
         for (String leadingNewline : new String[]{"", "\n"}) {

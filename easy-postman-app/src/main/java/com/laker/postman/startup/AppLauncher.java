@@ -6,6 +6,7 @@ import com.laker.postman.common.themes.SimpleThemeManager;
 import com.laker.postman.http.runtime.app.AppHttpRuntimeBootstrap;
 import com.laker.postman.ioc.BeanFactory;
 import com.laker.postman.platform.instance.SingleInstanceCoordinator;
+import com.laker.postman.platform.network.SocketDirectProxySelector;
 import com.laker.postman.plugin.runtime.PluginRuntime;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.AppRuntimeLayout;
@@ -97,6 +98,8 @@ public class AppLauncher {
         // 这些配置对 GUI 和 headless CLI 都有效，且不应触发 Swing 初始化。
         Thread.setDefaultUncaughtExceptionHandler(new AppUncaughtExceptionHandler());
         System.setProperty("java.net.useSystemProxies", "true");
+        // Must precede any HTTP client creation: clients capture ProxySelector.getDefault() when built.
+        SocketDirectProxySelector.install();
         AppHttpRuntimeBootstrap.configure();
     }
 

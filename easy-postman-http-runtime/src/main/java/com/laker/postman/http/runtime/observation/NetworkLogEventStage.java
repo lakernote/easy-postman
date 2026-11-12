@@ -30,6 +30,7 @@ public enum NetworkLogEventStage {
     CONNECT_END,
     CONNECTION_ACQUIRED,
     CONNECTION_RELEASED,
+    ROUTE_INTERCEPTED,
     DNS_START,
     DNS_END,
     PROXY_SELECT,

@@ -435,6 +435,7 @@ public final class MessageKeys {
     public static final String NETWORK_LOG_MESSAGE_PROXY_FALLBACK = "network_log.message.proxy_fallback";
     public static final String NETWORK_LOG_MESSAGE_JVM_SOCKS_ACTIVE = "network_log.message.jvm_socks_active";
     public static final String NETWORK_LOG_MESSAGE_CONNECTION_REUSED = "network_log.message.connection_reused";
+    public static final String NETWORK_LOG_MESSAGE_ROUTE_INTERCEPTED = "network_log.message.route_intercepted";
     public static final String NETWORK_LOG_MESSAGE_HEADER_SNAPSHOT = "network_log.message.header_snapshot";
     public static final String NETWORK_LOG_MESSAGE_HEADER_SNAPSHOT_HTTP2 = "network_log.message.header_snapshot_http2";
     public static final String NETWORK_LOG_MESSAGE_REQUEST_BODY_PREVIEW_UNAVAILABLE = "network_log.message.request_body_preview_unavailable";

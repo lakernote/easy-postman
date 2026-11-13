@@ -1764,6 +1764,27 @@ public class DefaultHttpTransportIntegrationTest {
         assertEquals(response.body, I18nUtil.getMessage(MessageKeys.RESPONSE_INCOMPLETE, "unexpected end of stream"));
         assertEquals(response.bodySize, 0L);
         assertEquals(response.filePath, null);
+        assertTrue(response.bodyIncomplete);
+    }
+
+    @Test
+    public void shouldMarkIncompletePreviewResponseWhenConnectionDropsDuringBodyRead() throws Exception {
+        server = createServer();
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/plain; charset=utf-8")
+                .setBody("partial-body")
+                .throttleBody(1, 1, TimeUnit.MILLISECONDS)
+                .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY));
+
+        PreparedRequest request = createRequest("GET", serverUrl("/partial-preview"));
+        request.responseBodyMode = PreparedRequest.ResponseBodyMode.PREVIEW;
+        request.responseBodyPreviewLimitBytes = 1024;
+
+        HttpResponse response = httpTransport.execute(request, HttpExchangeOptions.defaults());
+
+        assertEquals(response.code, 200);
+        assertTrue(response.bodyIncomplete);
     }
 
     @Test

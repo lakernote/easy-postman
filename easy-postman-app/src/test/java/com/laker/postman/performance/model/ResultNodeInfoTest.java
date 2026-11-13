@@ -29,4 +29,14 @@ public class ResultNodeInfoTest {
 
         assertFalse(ResultNodeInfo.isActuallySuccessful(true, switchingProtocols, null));
     }
+
+    @Test
+    public void incompleteResponseBodyShouldNotCountAsSuccess() {
+        HttpResponse truncated = new HttpResponse();
+        truncated.code = 200;
+        truncated.bodyIncomplete = true;
+
+        assertFalse(ResultNodeInfo.isActuallySuccessful(false, truncated, null));
+        assertFalse(ResultNodeInfo.isActuallySuccessful(false, truncated, List.of(new TestResult("status", true, ""))));
+    }
 }

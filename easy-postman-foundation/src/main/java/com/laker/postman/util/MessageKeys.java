@@ -1076,6 +1076,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MSG_SELECT_THREAD_GROUP = "performance.msg.select_thread_group";
     public static final String PERFORMANCE_NODE_NAME_EMPTY = "performance.node.name.empty";
     public static final String PERFORMANCE_MSG_EXECUTION_INTERRUPTED = "performance.msg.execution_interrupted";
+    public static final String PERFORMANCE_MSG_ITERATION_FAILED_CONTINUING = "performance.msg.iteration_failed_continuing";
     public static final String PERFORMANCE_MSG_EXECUTION_COMPLETED = "performance.msg.execution_completed";
     public static final String PERFORMANCE_RESULT_CANCELLED = "performance.result.cancelled";
     public static final String PERFORMANCE_MSG_PRE_SCRIPT_FAILED = "performance.msg.pre_script_failed";
@@ -1908,6 +1909,8 @@ public final class MessageKeys {
     public static final String RESPONSE_INCOMPLETE = "response.incomplete";
     public static final String RESPONSE_BODY_SKIPPED_PERFORMANCE = "response.body.skipped.performance";
     public static final String RESPONSE_BODY_TRUNCATED_PERFORMANCE = "response.body.truncated.performance";
+    public static final String PERFORMANCE_MSG_RESPONSE_BODY_TOO_LARGE_TO_EVALUATE =
+            "performance.msg.response_body_too_large_to_evaluate";
 
     // ============ ResponseAssertion 国际化 ============
     public static final String RESPONSE_ASSERTION_STATUS_FAILED = "response.assertion.status_failed";

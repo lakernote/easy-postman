@@ -131,6 +131,9 @@ public class ResultNodeInfo {
         if (executionFailed) {
             return false;
         }
+        if (resp != null && resp.bodyIncomplete) {
+            return false;
+        }
 
         // 2. 如果有断言结果，以断言为准
         if (testResults != null && !testResults.isEmpty()) {

@@ -1,5 +1,7 @@
 package com.laker.postman.http.runtime.okhttp;
 
+import com.laker.postman.http.runtime.config.HttpRuntimeSettings;
+import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
 import com.laker.postman.http.runtime.file.ResponseFileFixtures;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
@@ -58,8 +60,65 @@ public class OkHttpResponseHandlerTest {
 
         assertEquals(response.bodySize, largeBody.length());
         assertTrue(response.body.startsWith("0123456789"), response.body);
-        assertTrue(response.body.length() < largeBody.length() / 10, "Preview should not retain the full body");
-        assertTrue(response.body.contains("truncated") || response.body.contains("截断"), response.body);
+        assertEquals(response.body, largeBody.substring(0, 128), "Preview must stay a clean prefix for assertions");
+        assertTrue(response.bodyPreviewTruncated);
+    }
+
+    @Test
+    public void shouldNotFlagPreviewTruncationWhenBodyFitsLimit() throws Exception {
+        HttpResponse response = new HttpResponse();
+
+        OkHttpResponseHandler.handleResponse(
+                responseWithBody("{\"ok\":true}"),
+                response,
+                null,
+                PreparedRequest.ResponseBodyMode.PREVIEW,
+                128
+        );
+
+        assertEquals(response.body, "{\"ok\":true}");
+        assertFalse(response.bodyPreviewTruncated);
+    }
+
+    @Test
+    public void previewModeShouldHonourMaxDownloadSize() {
+        String largeBody = "x".repeat(4096);
+        HttpRuntimeSettings settings = new HttpRuntimeSettings() {
+            @Override
+            public int getMaxDownloadSize() {
+                return 1024;
+            }
+        };
+
+        HttpResponse streamed = HttpRuntimeSettingsProvider.callWithThreadOverride(settings, () -> {
+            HttpResponse response = new HttpResponse();
+            try {
+                OkHttpResponseHandler.handleResponse(responseWithBody(largeBody), response, null,
+                        PreparedRequest.ResponseBodyMode.PREVIEW, 128);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+            return response;
+        });
+        HttpResponse declared = HttpRuntimeSettingsProvider.callWithThreadOverride(settings, () -> {
+            HttpResponse response = new HttpResponse();
+            try {
+                OkHttpResponseHandler.handleResponse(
+                        responseWithBody(largeBody).newBuilder()
+                                .header("Content-Length", String.valueOf(largeBody.length()))
+                                .build(),
+                        response, null, PreparedRequest.ResponseBodyMode.PREVIEW, 128);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+            return response;
+        });
+
+        for (HttpResponse response : List.of(streamed, declared)) {
+            assertEquals(response.bodySize, 0L);
+            assertFalse(response.body.startsWith("xxx"), response.body);
+            assertFalse(response.bodyPreviewTruncated);
+        }
     }
 
     @Test

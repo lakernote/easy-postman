@@ -16,7 +16,8 @@ record PerformanceResponseCapturePlan(PreparedRequest.ResponseBodyMode httpRespo
                                       boolean postScriptNeedsResponseBody,
                                       boolean retainStreamResponseBody,
                                       boolean retainWebSocketReadPayloads,
-                                      boolean trackStreamResponseBodySize) {
+                                      boolean trackStreamResponseBodySize,
+                                      boolean evaluatesResponseBody) {
 
     static PerformanceResponseCapturePlan resolve(boolean efficientMode,
                                                   PerformanceRequestSampler requestSampler,
@@ -49,7 +50,8 @@ record PerformanceResponseCapturePlan(PreparedRequest.ResponseBodyMode httpRespo
                 postScriptNeedsResponseBody,
                 retainStreamResponseBody,
                 retainWebSocketReadPayloads,
-                trackStreamResponseBodySize
+                trackStreamResponseBodySize,
+                assertionNeedsResponseBody || extractorNeedsResponseBody || postScriptNeedsResponseBody
         );
     }
 
@@ -58,7 +60,9 @@ record PerformanceResponseCapturePlan(PreparedRequest.ResponseBodyMode httpRespo
                                                                         List<PerformanceExtractorElement> extractorElements,
                                                                         String postscript) {
         if (!efficientMode) {
-            return PreparedRequest.ResponseBodyMode.FULL;
+            // Result rows keep the body for inspection. PREVIEW reads in memory (no per-request temp files);
+            // the executor bounds what is retained after assertions/extractors have seen the body.
+            return PreparedRequest.ResponseBodyMode.PREVIEW;
         }
         boolean requiresResponseBody = PerformanceAssertionRunner.requiresResponseBodyElements(assertionElements)
                 || PerformanceExtractorRunner.requiresResponseBodyElements(extractorElements)

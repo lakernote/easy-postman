@@ -155,6 +155,11 @@ final class PerformanceRunControlSupport {
         } else if (error != null && error.getCause() != null && error.getCause().getMessage() != null) {
             detail = error.getCause().getMessage();
         }
+        if (error != null && error.isRecoverable()) {
+            String warning = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_ITERATION_FAILED_CONTINUING, detail);
+            SwingUtilities.invokeLater(() -> NotificationCenter.showWarning(warning));
+            return;
+        }
         String message = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_EXECUTION_INTERRUPTED, detail);
         SwingUtilities.invokeLater(() -> NotificationCenter.showError(message));
     }

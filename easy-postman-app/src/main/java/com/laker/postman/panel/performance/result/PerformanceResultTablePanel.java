@@ -10,6 +10,7 @@ import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.performance.model.PerformanceInternalHeaders;
 import com.laker.postman.performance.model.PerformanceProtocolLabels;
 import com.laker.postman.performance.model.ResultNodeInfo;
+import com.laker.postman.performance.result.PerformanceResultMemoryBudget;
 import com.laker.postman.service.render.HttpHtmlRenderer;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.I18nUtil;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 性能测试结果表
@@ -50,6 +52,8 @@ public class PerformanceResultTablePanel extends JPanel {
 
     private final Queue<PendingResult> pendingQueue = new ConcurrentLinkedQueue<>();
     private final AtomicInteger pendingResultCount = new AtomicInteger(0);
+    private final AtomicLong pendingResultBytes = new AtomicLong(0L);
+    private final long retentionBudgetBytes = PerformanceResultMemoryBudget.defaultBudgetBytes();
 
     private static final int BATCH_SIZE = 2000;
 
@@ -76,6 +80,7 @@ public class PerformanceResultTablePanel extends JPanel {
 
         while ((pending = pendingQueue.poll()) != null) {
             pendingResultCount.decrementAndGet();
+            pendingResultBytes.addAndGet(-pending.estimatedBytes());
             batch.add(pending);
             if (batch.size() >= BATCH_SIZE) break;
         }
@@ -101,6 +106,7 @@ public class PerformanceResultTablePanel extends JPanel {
         // 一次性刷新所有待处理的结果
         while ((pending = pendingQueue.poll()) != null) {
             pendingResultCount.decrementAndGet();
+            pendingResultBytes.addAndGet(-pending.estimatedBytes());
             batch.add(pending);
         }
 
@@ -123,7 +129,7 @@ public class PerformanceResultTablePanel extends JPanel {
         searchPanel.setOpaque(false);
         searchPanel.add(searchField, BorderLayout.CENTER);
 
-        tableModel = new ResultTableModel();
+        tableModel = new ResultTableModel(retentionBudgetBytes);
         table = new JTable(tableModel);
         table.setRowHeight(24);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -299,14 +305,17 @@ public class PerformanceResultTablePanel extends JPanel {
         int rowLimit = compactRetention
                 ? COMPACT_RESULT_ROW_LIMIT
                 : SettingManager.getPerformanceResultRowLimit();
-        pendingQueue.offer(new PendingResult(info, rowLimit));
+        long estimatedBytes = PerformanceResultMemoryBudget.estimateBytes(info);
+        pendingQueue.offer(new PendingResult(info, rowLimit, estimatedBytes));
         pendingResultCount.incrementAndGet();
+        pendingResultBytes.addAndGet(estimatedBytes);
         trimPendingQueueForRetention(rowLimit);
     }
 
     public void clearResults() {
         pendingQueue.clear();
         pendingResultCount.set(0);
+        pendingResultBytes.set(0L);
         table.clearSelection();
         tableModel.clear();
         clearDetailTabs();
@@ -314,13 +323,16 @@ public class PerformanceResultTablePanel extends JPanel {
 
     private void trimPendingQueueForRetention(int rowLimit) {
         int effectiveLimit = Math.max(1, rowLimit);
-        while (pendingResultCount.get() > effectiveLimit) {
+        while (pendingResultCount.get() > effectiveLimit
+                || (pendingResultCount.get() > 1 && pendingResultBytes.get() > retentionBudgetBytes)) {
             PendingResult removed = pendingQueue.poll();
             if (removed == null) {
                 pendingResultCount.set(0);
+                pendingResultBytes.set(0L);
                 return;
             }
             pendingResultCount.decrementAndGet();
+            pendingResultBytes.addAndGet(-removed.estimatedBytes());
         }
     }
 
@@ -484,7 +496,7 @@ public class PerformanceResultTablePanel extends JPanel {
     }
 
     // TableModel - 增量刷新优化
-    private record PendingResult(ResultNodeInfo info, int rowLimit) {
+    record PendingResult(ResultNodeInfo info, int rowLimit, long estimatedBytes) {
     }
 
     static class ResultTableModel extends AbstractTableModel {
@@ -496,11 +508,26 @@ public class PerformanceResultTablePanel extends JPanel {
         private static final int COL_ASSERTION = 4;
 
         private final List<ResultNodeInfo> dataList = new ArrayList<>(1024);
+        private final List<Long> rowBytes = new ArrayList<>(1024);
+        private final long retentionBudgetBytes;
+        private long retainedBytes = 0L;
         private boolean dirty = false;
         private boolean fullRefreshRequired = false;
 
         // 追踪新增行的起始位置，用于增量刷新
         private int firstNewRow = -1;
+
+        ResultTableModel() {
+            this(PerformanceResultMemoryBudget.defaultBudgetBytes());
+        }
+
+        ResultTableModel(long retentionBudgetBytes) {
+            this.retentionBudgetBytes = Math.max(1L, retentionBudgetBytes);
+        }
+
+        long retainedBytes() {
+            return retainedBytes;
+        }
 
         @Override
         public int getRowCount() {
@@ -587,6 +614,8 @@ public class PerformanceResultTablePanel extends JPanel {
 
             for (PendingResult pending : batch) {
                 dataList.add(pending.info());
+                rowBytes.add(pending.estimatedBytes());
+                retainedBytes += pending.estimatedBytes();
                 trimRowsForRetention(pending.rowLimit());
             }
             dirty = true;
@@ -613,6 +642,8 @@ public class PerformanceResultTablePanel extends JPanel {
 
         void clear() {
             dataList.clear();
+            rowBytes.clear();
+            retainedBytes = 0L;
             dirty = false;
             fullRefreshRequired = false;
             firstNewRow = -1; // 重置
@@ -621,9 +652,20 @@ public class PerformanceResultTablePanel extends JPanel {
 
         private void trimRowsForRetention(int rowLimit) {
             int effectiveLimit = Math.max(1, rowLimit);
-            int overflow = dataList.size() - effectiveLimit;
+            int overflow = Math.max(0, dataList.size() - effectiveLimit);
+            long bytesAfterRowTrim = retainedBytes;
+            for (int i = 0; i < overflow; i++) {
+                bytesAfterRowTrim -= rowBytes.get(i);
+            }
+            // Evict the oldest rows by bytes too, always keeping the newest row visible.
+            while (bytesAfterRowTrim > retentionBudgetBytes && overflow < dataList.size() - 1) {
+                bytesAfterRowTrim -= rowBytes.get(overflow);
+                overflow++;
+            }
             if (overflow > 0) {
                 dataList.subList(0, overflow).clear();
+                rowBytes.subList(0, overflow).clear();
+                retainedBytes = bytesAfterRowTrim;
                 fullRefreshRequired = true;
                 firstNewRow = -1;
             }

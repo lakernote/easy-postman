@@ -203,6 +203,13 @@ public class OkHttpResponseHandler {
             return;
         }
 
+        int maxDownloadSize = getMaxDownloadSize();
+        if (maxDownloadSize > 0 && parseContentLength(okResponse) > maxDownloadSize) {
+            body.close();
+            markLightweightBodyTooLarge(response, maxDownloadSize);
+            return;
+        }
+
         int limit = Math.max(0, previewLimitBytes);
         boolean keepPreview = bodyMode == PreparedRequest.ResponseBodyMode.PREVIEW
                 && limit > 0
@@ -219,11 +226,16 @@ public class OkHttpResponseHandler {
                     preview.write(buffer, 0, allowed);
                 }
                 totalBytes += len;
+                if (maxDownloadSize > 0 && totalBytes > maxDownloadSize) {
+                    markLightweightBodyTooLarge(response, maxDownloadSize);
+                    return;
+                }
             }
         } catch (IOException e) {
             if (isIncompleteResponseBodyError(e)) {
                 log.error("Failed to read complete response body preview: {}", e.getMessage());
                 response.body = I18nUtil.getMessage(MessageKeys.RESPONSE_INCOMPLETE, e.getMessage());
+                response.bodyIncomplete = true;
                 response.bodySize = totalBytes;
                 response.filePath = null;
                 return;
@@ -244,13 +256,14 @@ public class OkHttpResponseHandler {
 
         Charset charset = resolveCharset(body);
         response.body = new String(preview.toByteArray(), charset);
-        if (totalBytes > preview.size()) {
-            response.body += I18nUtil.getMessage(
-                    MessageKeys.RESPONSE_BODY_TRUNCATED_PERFORMANCE,
-                    totalBytes,
-                    preview.size()
-            );
-        }
+        // Keep the body a clean prefix: callers evaluate assertions/extractors on it before deciding how to display it.
+        response.bodyPreviewTruncated = totalBytes > preview.size();
+    }
+
+    private static void markLightweightBodyTooLarge(HttpResponse response, int maxDownloadSize) {
+        response.body = I18nUtil.getMessage(MessageKeys.TEXT_TOO_LARGE_BODY, maxDownloadSize / 1024 / 1024);
+        response.bodySize = 0;
+        response.filePath = null;
     }
 
     private static Charset resolveCharset(ResponseBody body) {
@@ -504,6 +517,7 @@ public class OkHttpResponseHandler {
                 // 处理下载过程中连接中断的情况
                 log.error("Failed to download complete binary response: {}", e.getMessage());
                 response.body = I18nUtil.getMessage(MessageKeys.RESPONSE_INCOMPLETE, e.getMessage());
+                response.bodyIncomplete = true;
                 response.bodySize = 0;
                 response.filePath = null;
             }
@@ -596,6 +610,7 @@ public class OkHttpResponseHandler {
                 if (isIncompleteResponseBodyError(e)) {
                     log.error("Failed to read complete response body: {}", e.getMessage());
                     response.body = I18nUtil.getMessage(MessageKeys.RESPONSE_INCOMPLETE, e.getMessage());
+                    response.bodyIncomplete = true;
                     response.bodySize = 0;
                     response.filePath = null;
                     return;

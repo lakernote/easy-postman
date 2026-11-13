@@ -12,6 +12,7 @@ import com.laker.postman.http.runtime.transport.DefaultHttpTransport;
 import com.laker.postman.http.runtime.transport.HttpExchangeOptions;
 import com.laker.postman.http.runtime.transport.HttpTransport;
 import com.laker.postman.http.request.PreparedRequestFinalizer;
+import lombok.extern.slf4j.Slf4j;
 import org.graalvm.polyglot.Value;
 
 import java.util.ArrayList;
@@ -24,7 +25,12 @@ import java.util.Map;
  * 脚本请求不属于当前 Collection 节点，因此没有继承配置；但它仍必须复用发送前收尾逻辑，
  * 确保变量替换、URL 编码和请求体处理规则与普通请求保持一致。
  */
+@Slf4j
 public final class ScriptSendRequestExecutor {
+    // Scripts only read the body as text/JSON, so keep it in memory; FULL mode would spill large bodies to temp files
+    // that nobody deletes (fatal when a performance run calls pm.sendRequest every iteration).
+    static final int SCRIPT_RESPONSE_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+
     private final HttpTransport httpTransport;
 
     public ScriptSendRequestExecutor() {
@@ -43,8 +49,14 @@ public final class ScriptSendRequestExecutor {
         PreparedRequest preparedRequest = buildPreparedRequest(requestOptions);
         validate(preparedRequest);
         PreparedRequestFinalizer.finalizeForSend(preparedRequest);
+        preparedRequest.responseBodyMode = PreparedRequest.ResponseBodyMode.PREVIEW;
+        preparedRequest.responseBodyPreviewLimitBytes = SCRIPT_RESPONSE_BODY_LIMIT_BYTES;
 
         HttpResponse httpResponse = httpTransport.execute(preparedRequest, HttpExchangeOptions.defaults());
+        if (httpResponse != null && httpResponse.bodyPreviewTruncated) {
+            log.warn("pm.sendRequest response body truncated to {} bytes (actual {} bytes): {}",
+                    SCRIPT_RESPONSE_BODY_LIMIT_BYTES, httpResponse.bodySize, preparedRequest.url);
+        }
         ResponseAssertion responseWrapper = new ResponseAssertion(httpResponse);
         executeSuccessCallback(callback, responseWrapper);
     }

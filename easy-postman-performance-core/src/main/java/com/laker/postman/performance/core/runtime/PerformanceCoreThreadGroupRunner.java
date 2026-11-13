@@ -24,6 +24,10 @@ import java.util.function.Supplier;
 @Slf4j
 public final class PerformanceCoreThreadGroupRunner<C> {
 
+    private static final long SPIKE_ADJUST_INTERVAL_MS = 1_000L;
+    private static final long ITERATION_FAILURE_BACKOFF_MS = 100L;
+    private static final long ITERATION_FAILURE_LOG_INTERVAL_MS = 5_000L;
+
     @FunctionalInterface
     public interface IterationContextFactory<C> {
         C create(PerformanceThreadGroupPlan groupPlan, int iterationCount);
@@ -43,6 +47,9 @@ public final class PerformanceCoreThreadGroupRunner<C> {
     private final Supplier<PerformanceCoreResultSink> resultSinkSupplier;
     private final AtomicLong progressSequence = new AtomicLong(0L);
     private final AtomicBoolean drainTimedOut = new AtomicBoolean(false);
+    private final AtomicLong lastIterationFailureLogTime = new AtomicLong(0L);
+    private final AtomicLong suppressedIterationFailures = new AtomicLong(0L);
+    private final AtomicBoolean iterationFailureReported = new AtomicBoolean(false);
 
     public PerformanceCoreThreadGroupRunner(BooleanSupplier runningSupplier,
                                             LongSupplier startTimeSupplier,
@@ -65,6 +72,7 @@ public final class PerformanceCoreThreadGroupRunner<C> {
 
     public void run(PerformanceTestPlan plan, int totalThreads) {
         drainTimedOut.set(false);
+        resetIterationFailureState();
         virtualUsers.startAcceptingSamples();
         if (!runningSupplier.getAsBoolean() || plan == null) {
             return;
@@ -323,7 +331,6 @@ public final class PerformanceCoreThreadGroupRunner<C> {
                 return;
             }
 
-            long now = System.currentTimeMillis();
             int targetThreads;
 
             if (adjustedRampUpTime > 0 && elapsedSeconds < adjustedRampUpTime) {
@@ -341,14 +348,6 @@ public final class PerformanceCoreThreadGroupRunner<C> {
                         : (double) (elapsedSeconds - adjustedRampUpTime - adjustedHoldTime) / adjustedRampDownTime;
                 targetThreads = maxThreads - (int) (progress * (maxThreads - minThreads));
                 targetThreads = Math.max(targetThreads, minThreads);
-
-                int threadsToRemove = activeWorkerThreads.get() - targetThreads;
-                if (threadsToRemove > 0) {
-                    threadEndTimes.keySet().stream()
-                            .filter(t -> t.isAlive() && isOpenEndedWorker(threadEndTimes, t))
-                            .limit(threadsToRemove)
-                            .forEach(t -> threadEndTimes.put(t, now + 500));
-                }
                 adjustSpikeThreadCount(groupPlan, tg, activeWorkerThreads, targetThreads, totalTime, progressUpdater, totalThreads,
                         groupVirtualUserCounter, threadEndTimes);
             }
@@ -487,7 +486,12 @@ public final class PerformanceCoreThreadGroupRunner<C> {
                                        int totalThreads,
                                        AtomicInteger groupVirtualUserCounter,
                                        ConcurrentHashMap<Thread, Long> threadEndTimes) {
-        int current = activeWorkerThreads.get();
+        // Workers already scheduled to stop are still alive until their current iteration ends; counting them
+        // would make every scheduler tick retire another batch and undershoot the target concurrency.
+        List<Thread> openEndedWorkers = threadEndTimes.keySet().stream()
+                .filter(t -> t.isAlive() && isOpenEndedWorker(threadEndTimes, t))
+                .toList();
+        int current = openEndedWorkers.size();
 
         if (current < targetThreads) {
             int threadsToAdd = targetThreads - current;
@@ -511,29 +515,10 @@ public final class PerformanceCoreThreadGroupRunner<C> {
         } else if (current > targetThreads) {
             int threadsToRemove = current - targetThreads;
             long now = System.currentTimeMillis();
-            List<Thread> availableThreads = threadEndTimes.keySet().stream()
-                    .filter(t -> t.isAlive() && isOpenEndedWorker(threadEndTimes, t))
-                    .limit(threadsToRemove)
-                    .toList();
-
-            if (!availableThreads.isEmpty()) {
-                SpikePhaseDurations phases = calculateSpikePhaseDurations(
-                        tg.spikeRampUpTime,
-                        tg.spikeHoldTime,
-                        tg.spikeRampDownTime,
-                        totalTime
-                );
-                int adjustedRampDownTime = Math.max(phases.rampDownSeconds(), 1);
-
-                long elapsedSeconds = (now - startTimeSupplier.getAsLong()) / 1000;
-                long rampDownStartTime = (long) phases.rampUpSeconds() + phases.holdSeconds();
-                long timeLeftInRampDown = Math.max(1, adjustedRampDownTime - (elapsedSeconds - rampDownStartTime));
-
-                for (int i = 0; i < availableThreads.size(); i++) {
-                    Thread thread = availableThreads.get(i);
-                    long delayMs = now + (long) (i + 1) * timeLeftInRampDown * 1000 / (availableThreads.size() + 1);
-                    threadEndTimes.put(thread, delayMs);
-                }
+            // The target is recomputed every second, so retire this tick's surplus within the next second.
+            for (int i = 0; i < threadsToRemove; i++) {
+                long endTime = now + (long) (i + 1) * SPIKE_ADJUST_INTERVAL_MS / (threadsToRemove + 1);
+                threadEndTimes.put(openEndedWorkers.get(i), endTime);
             }
         }
     }
@@ -756,8 +741,49 @@ public final class PerformanceCoreThreadGroupRunner<C> {
     }
 
     private void runTaskIteration(PerformanceThreadGroupPlan groupPlan, int iterationCount) {
-        C iterationContext = iterationContextFactory.create(groupPlan, iterationCount);
-        iterationExecutor.executeIteration(groupPlan, iterationContext);
+        try {
+            C iterationContext = iterationContextFactory.create(groupPlan, iterationCount);
+            iterationExecutor.executeIteration(groupPlan, iterationContext);
+        } catch (RuntimeException exception) {
+            // One broken iteration must not silently retire the virtual user and shrink the configured load.
+            handleIterationFailure(exception);
+        }
+    }
+
+    private void resetIterationFailureState() {
+        lastIterationFailureLogTime.set(0L);
+        suppressedIterationFailures.set(0L);
+        iterationFailureReported.set(false);
+    }
+
+    private void handleIterationFailure(RuntimeException exception) {
+        if (runningSupplier.getAsBoolean() && iterationFailureReported.compareAndSet(false, true)) {
+            // Sampler failures are already recorded as failed samples by the host; anything reaching here means the
+            // iteration could not run at all, so surface it once per run instead of letting the run end as SUCCESS.
+            publishError(PerformanceRunError.builder()
+                    .message(exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage())
+                    .cause(exception)
+                    .recoverable(true)
+                    .build());
+        }
+        long now = System.currentTimeMillis();
+        long lastLogTime = lastIterationFailureLogTime.get();
+        if (now - lastLogTime >= ITERATION_FAILURE_LOG_INTERVAL_MS
+                && lastIterationFailureLogTime.compareAndSet(lastLogTime, now)) {
+            log.warn("压测迭代执行异常，虚拟用户将继续执行（期间另有 {} 次异常被抑制）",
+                    suppressedIterationFailures.getAndSet(0L), exception);
+        } else {
+            suppressedIterationFailures.incrementAndGet();
+        }
+        if (!runningSupplier.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+            return;
+        }
+        try {
+            // Back off so an iteration that fails immediately does not spin a CPU core.
+            TimeUnit.MILLISECONDS.sleep(ITERATION_FAILURE_BACKOFF_MS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void runTask(PerformanceThreadGroupPlan groupPlan, int loops) {

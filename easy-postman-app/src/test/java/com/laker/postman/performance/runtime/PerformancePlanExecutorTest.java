@@ -318,6 +318,41 @@ public class PerformancePlanExecutorTest {
         return newExecutor(running::get, events, webSocketByName, timerSleeper);
     }
 
+    @Test
+    public void samplerRuntimeExceptionShouldBeRecordedAsFailedSample() {
+        PerformanceTestPlanNode groupNode = threadGroupNode();
+        groupNode.add(requestNode("broken request", RequestItemProtocolEnum.HTTP));
+        List<com.laker.postman.performance.core.model.PerformanceSampleRecord> records = new ArrayList<>();
+        PerformanceRequestExecutor requestExecutor = new PerformanceRequestExecutor(
+                () -> true,
+                throwable -> false,
+                ConcurrentHashMap.newKeySet(),
+                ConcurrentHashMap.newKeySet()
+        ) {
+            @Override
+            public PerformanceRequestExecutionResult execute(PerformanceRequestSampler requestSampler,
+                                                             ExecutionVariableContext iterationContext) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        PerformanceSamplerExecutor samplerExecutor = new PerformanceSamplerExecutor(
+                () -> true,
+                () -> false,
+                requestExecutor,
+                new PerformanceResultCollector(List.of(event -> records.add(event.sampleRecord())))
+        );
+
+        new PerformancePlanExecutor(() -> true, samplerExecutor, delayMs -> {
+        }).executeIteration(compile(groupNode).getThreadGroups().get(0), new ExecutionVariableContext());
+
+        assertEquals(records.size(), 1);
+        org.testng.Assert.assertTrue(records.get(0).isExecutionFailed());
+        org.testng.Assert.assertFalse(records.get(0).isSuccessful());
+        org.testng.Assert.assertFalse(records.get(0).isInterrupted());
+        org.testng.Assert.assertEquals(records.get(0).getApiName(), "broken request");
+        org.testng.Assert.assertTrue(records.get(0).getErrorMsg().contains("boom"), records.get(0).getErrorMsg());
+    }
+
     private static PerformancePlanExecutor newExecutor(java.util.function.BooleanSupplier running,
                                                        List<String> events,
                                                        boolean webSocketByName,

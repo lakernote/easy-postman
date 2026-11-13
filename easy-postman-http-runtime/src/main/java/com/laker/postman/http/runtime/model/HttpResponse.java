@@ -30,6 +30,14 @@ public class HttpResponse {
      * 文件响应的内容未被保留（如从只保存元信息的示例中恢复），此时只能展示文件信息，无法下载。
      */
     public transient boolean fileContentOmitted;
+    /**
+     * 响应头已收到，但读取响应体时连接中断，{@link #body} 只是错误提示而非真实内容。
+     */
+    public transient boolean bodyIncomplete;
+    /**
+     * PREVIEW 模式下响应体超过读取上限，{@link #body} 只保留了前缀（未追加任何提示文本）。
+     */
+    public transient boolean bodyPreviewTruncated;
     public int code; // 添加响应状态码字段
     public String threadName; // 添加线程名称字段
     public String filePath; // 临时文件下载路径字段

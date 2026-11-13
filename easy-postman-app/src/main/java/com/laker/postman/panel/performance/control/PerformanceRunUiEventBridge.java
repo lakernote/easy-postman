@@ -5,6 +5,7 @@ import com.laker.postman.performance.core.runtime.PerformanceRunListener;
 import com.laker.postman.performance.core.runtime.PerformanceRunProgress;
 
 
+import com.laker.postman.common.component.notification.NotificationCenter;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,11 @@ public final class PerformanceRunUiEventBridge implements PerformanceRunListener
             return;
         }
         String detail = resolveDetail(error);
+        if (error.isRecoverable()) {
+            String warning = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_ITERATION_FAILED_CONTINUING, detail);
+            SwingUtilities.invokeLater(() -> NotificationCenter.showWarning(warning));
+            return;
+        }
         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                 parentComponent,
                 I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_EXECUTION_INTERRUPTED, detail),

@@ -66,14 +66,14 @@ public class PerformanceRequestExecutorTest {
     }
 
     @Test
-    public void shouldKeepFullResponseBodyOutsideEfficientMode() {
+    public void shouldKeepBoundedResponseBodyPreviewOutsideEfficientMode() {
         PreparedRequest.ResponseBodyMode mode = PerformanceRequestExecutor.resolveHttpResponseBodyModeForAssertionElements(
                 false,
                 List.of(),
                 ""
         );
 
-        assertEquals(mode, PreparedRequest.ResponseBodyMode.FULL);
+        assertEquals(mode, PreparedRequest.ResponseBodyMode.PREVIEW);
     }
 
     @Test
@@ -606,6 +606,70 @@ public class PerformanceRequestExecutorTest {
             assertEquals(result.response.body, "");
             assertTrue(result.response.bodySize > 0);
         }
+    }
+
+    @Test
+    public void postScriptShouldParseFullJsonBodyBeforeResultPreviewIsTrimmed() throws Exception {
+        String json = "{\"pad\":\"" + "x".repeat(8 * 1024) + "\",\"tail\":\"end\"}";
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody(json));
+            server.start();
+
+            HttpRequestItem item = new HttpRequestItem();
+            item.setId("large-json");
+            item.setName("Large Json");
+            item.setProtocol(RequestItemProtocolEnum.HTTP);
+            item.setMethod("GET");
+            item.setUrl(server.url("/large").toString());
+            item.setPostscript("""
+                    pm.test('tail', function () {
+                        pm.expect(pm.response.json().tail).to.eql('end');
+                    });
+                    """);
+
+            PerformanceRequestExecutionResult result = new PerformanceRequestExecutor(
+                    () -> true,
+                    throwable -> false,
+                    ConcurrentHashMap.newKeySet(),
+                    ConcurrentHashMap.newKeySet(),
+                    PerformanceExecutionConfig.fixed(false, 1, false)
+            ).execute(
+                    new PerformanceRequestSampler(item.getName(), item, null, List.of()),
+                    new ExecutionVariableContext()
+            );
+
+            assertFalse(result.executionFailed, result.errorMsg);
+            assertEquals(result.testResults.size(), 1);
+            assertTrue(result.testResults.get(0).passed, result.testResults.get(0).message);
+            assertTrue(result.response.bodyPreviewTruncated);
+            assertTrue(result.response.body.startsWith(json.substring(0, 1024)), result.response.body);
+            assertTrue(result.response.body.length() < json.length());
+            assertEquals(result.response.bodySize, json.length());
+        }
+    }
+
+    @Test
+    public void retainResponseBodyPreviewShouldKeepSmallBodiesUntouched() {
+        com.laker.postman.http.runtime.model.HttpResponse response = new com.laker.postman.http.runtime.model.HttpResponse();
+        response.body = "{\"ok\":true}";
+        response.bodySize = response.body.length();
+
+        PerformanceRequestExecutor.retainResponseBodyPreview(response, 1024);
+
+        assertEquals(response.body, "{\"ok\":true}");
+        assertFalse(response.bodyPreviewTruncated);
+    }
+
+    @Test
+    public void bodyReadLimitShouldCoverEvaluationOnlyWhenBodyIsEvaluated() {
+        PerformanceResponseCapturePlan evaluated = PerformanceResponseCapturePlan.resolve(
+                false, null, false, false, "pm.response.json()");
+        PerformanceResponseCapturePlan displayOnly = PerformanceResponseCapturePlan.resolve(
+                false, null, false, false, "");
+
+        assertEquals(PerformanceRequestExecutor.resolveResponseBodyReadLimitBytes(evaluated, 1024),
+                PerformanceRequestExecutor.MAX_EVALUATED_RESPONSE_BODY_BYTES);
+        assertEquals(PerformanceRequestExecutor.resolveResponseBodyReadLimitBytes(displayOnly, 1024), 1024);
     }
 
     private static PerformanceAssertionElement assertionElement(String type) {

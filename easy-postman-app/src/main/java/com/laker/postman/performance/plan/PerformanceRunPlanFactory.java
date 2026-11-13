@@ -38,6 +38,7 @@ public class PerformanceRunPlanFactory {
                         .httpKeepAliveSeconds(SettingManager.getPerformanceKeepAliveSeconds())
                         .httpMaxRequests(SettingManager.getPerformanceMaxRequests())
                         .httpMaxRequestsPerHost(SettingManager.getPerformanceMaxRequestsPerHost())
+                        .responseBodyPreviewLimitKb(SettingManager.getPerformanceResponseBodyPreviewLimitKb())
                         .build())
                 .testPlan(coreDocument)
                 .assets(PerformanceRunPlanAssetScanner.scan(coreDocument))

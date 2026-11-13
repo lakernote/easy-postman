@@ -29,6 +29,8 @@ import java.util.function.Predicate;
 
 @Slf4j
 public class PerformanceRequestExecutor {
+    // Upper bound of the in-memory body that assertions/extractors/post-scripts may evaluate per request.
+    static final int MAX_EVALUATED_RESPONSE_BODY_BYTES = 8 * 1024 * 1024;
 
     private final BooleanSupplier runningSupplier;
     private final Predicate<Throwable> cancelledChecker;
@@ -217,8 +219,9 @@ public class PerformanceRequestExecutor {
                 );
                 if (!transportSseRequest && !transportWebSocketRequest) {
                     req.responseBodyMode = capturePlan.httpResponseBodyMode();
-                    req.responseBodyPreviewLimitBytes = resolveResponseBodyPreviewLimitBytes(
-                            executionConfig.responseBodyPreviewLimitKb()
+                    req.responseBodyPreviewLimitBytes = resolveResponseBodyReadLimitBytes(
+                            capturePlan,
+                            executionConfig.responseBodyPreviewLimitBytes()
                     );
                 }
                 PerformanceResponseCapturePlan transportCapturePlan = capturePlan;
@@ -231,6 +234,19 @@ public class PerformanceRequestExecutor {
                 errorMsg = CharSequenceUtil.blankToDefault(protocolResult.errorMsg(), errorMsg);
                 executionFailed = protocolResult.executionFailed();
                 interrupted = protocolResult.interrupted();
+                if (resp != null && resp.bodyIncomplete && !interrupted) {
+                    // Headers arrived but the body was cut off; the status code alone must not count as success.
+                    executionFailed = true;
+                    errorMsg = CharSequenceUtil.blankToDefault(errorMsg, resp.body);
+                } else if (resp != null && resp.bodyPreviewTruncated && capturePlan.evaluatesResponseBody() && !interrupted) {
+                    // Assertions/extractors would judge a partial body; report it instead of a misleading verdict.
+                    executionFailed = true;
+                    errorMsg = CharSequenceUtil.blankToDefault(errorMsg, I18nUtil.getMessage(
+                            MessageKeys.PERFORMANCE_MSG_RESPONSE_BODY_TOO_LARGE_TO_EVALUATE,
+                            resp.bodySize,
+                            req.responseBodyPreviewLimitBytes
+                    ));
+                }
                 if (!protocolResult.testResults().isEmpty()) {
                     testResults.addAll(protocolResult.testResults());
                 }
@@ -264,6 +280,9 @@ public class PerformanceRequestExecutor {
             );
             errorMsg = postProcessResult.errorMsg();
             executionFailed = postProcessResult.executionFailed();
+            if (!sseRequest && !webSocketRequest) {
+                retainResponseBodyPreview(resp, executionConfig.responseBodyPreviewLimitBytes());
+            }
         } else {
             costMs = requestStopwatch.elapsedMs();
         }
@@ -291,6 +310,39 @@ public class PerformanceRequestExecutor {
                 efficientMode,
                 assertionNodes,
                 postscript
+        );
+    }
+
+    static int resolveResponseBodyReadLimitBytes(PerformanceResponseCapturePlan capturePlan, int previewLimitBytes) {
+        if (capturePlan != null && capturePlan.evaluatesResponseBody()) {
+            return Math.max(previewLimitBytes, MAX_EVALUATED_RESPONSE_BODY_BYTES);
+        }
+        return previewLimitBytes;
+    }
+
+    /**
+     * Shrinks the evaluated body to the retained preview once assertions, extractors and post-scripts are done,
+     * and only then appends the human-readable truncation notice.
+     */
+    static void retainResponseBodyPreview(HttpResponse resp, int previewLimitBytes) {
+        if (resp == null || resp.body == null || resp.bodyIncomplete
+                || resp.filePath != null || resp.rawBodyBytes != null) {
+            return;
+        }
+        String retained = resp.body;
+        // Worst case UTF-8 is 3 bytes per UTF-16 char, so shorter bodies never need scanning.
+        if ((long) resp.body.length() * 3 > previewLimitBytes) {
+            retained = WebSocketReceivedMessageBuffer.retainUtf8Prefix(resp.body, previewLimitBytes);
+        }
+        boolean truncated = resp.bodyPreviewTruncated || retained.length() < resp.body.length();
+        if (!truncated) {
+            return;
+        }
+        resp.bodyPreviewTruncated = true;
+        resp.body = retained + I18nUtil.getMessage(
+                MessageKeys.RESPONSE_BODY_TRUNCATED_PERFORMANCE,
+                resp.bodySize,
+                previewLimitBytes
         );
     }
 

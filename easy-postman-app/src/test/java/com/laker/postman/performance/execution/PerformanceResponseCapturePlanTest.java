@@ -23,7 +23,7 @@ import static org.testng.Assert.assertTrue;
 public class PerformanceResponseCapturePlanTest {
 
     @Test
-    public void shouldKeepHttpFullBodyOutsideEfficientMode() {
+    public void shouldKeepBoundedHttpBodyPreviewOutsideEfficientMode() {
         PerformanceResponseCapturePlan plan = PerformanceResponseCapturePlan.resolve(
                 false,
                 sampler(List.of()),
@@ -32,7 +32,7 @@ public class PerformanceResponseCapturePlanTest {
                 ""
         );
 
-        assertEquals(plan.httpResponseBodyMode(), PreparedRequest.ResponseBodyMode.FULL);
+        assertEquals(plan.httpResponseBodyMode(), PreparedRequest.ResponseBodyMode.PREVIEW);
     }
 
     @Test

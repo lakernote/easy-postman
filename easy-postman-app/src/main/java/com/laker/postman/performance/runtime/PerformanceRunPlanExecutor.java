@@ -128,7 +128,10 @@ public class PerformanceRunPlanExecutor {
         PerformanceResultSink resultSink = new PerformanceResultSink() {
             @Override
             public void onError(PerformanceRunError error) {
-                errorRef.set(error);
+                if (error != null) {
+                    errorRef.accumulateAndGet(error, (current, next) ->
+                            current == null || (current.isRecoverable() && !next.isRecoverable()) ? next : current);
+                }
             }
 
             @Override
@@ -274,7 +277,7 @@ public class PerformanceRunPlanExecutor {
         PerformanceRunSettings safeSettings = settings == null ? PerformanceRunSettings.defaults() : settings;
         return PerformanceExecutionConfig.fixed(
                 safeSettings.isEfficientMode(),
-                PerformanceExecutionConfig.DEFAULT_RESPONSE_BODY_PREVIEW_LIMIT_KB,
+                safeSettings.getResponseBodyPreviewLimitKb(),
                 false,
                 output -> {
                     if (scriptOutput != null && output != null && !output.isBlank()) {

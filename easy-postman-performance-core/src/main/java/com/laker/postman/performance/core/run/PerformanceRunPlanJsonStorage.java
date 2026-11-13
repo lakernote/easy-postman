@@ -113,6 +113,7 @@ public class PerformanceRunPlanJsonStorage {
         json.put("httpKeepAliveSeconds", safeSettings.getHttpKeepAliveSeconds());
         json.put("httpMaxRequests", safeSettings.getHttpMaxRequests());
         json.put("httpMaxRequestsPerHost", safeSettings.getHttpMaxRequestsPerHost());
+        json.put("responseBodyPreviewLimitKb", safeSettings.getResponseBodyPreviewLimitKb());
         return json;
     }
 
@@ -160,6 +161,8 @@ public class PerformanceRunPlanJsonStorage {
                         PerformanceRunSettings.DEFAULT_HTTP_MAX_REQUESTS))
                 .httpMaxRequestsPerHost(intValue(json, "httpMaxRequestsPerHost",
                         PerformanceRunSettings.DEFAULT_HTTP_MAX_REQUESTS_PER_HOST))
+                .responseBodyPreviewLimitKb(intValue(json, "responseBodyPreviewLimitKb",
+                        PerformanceRunSettings.DEFAULT_RESPONSE_BODY_PREVIEW_LIMIT_KB))
                 .build();
     }
 

@@ -248,6 +248,118 @@ public class PerformanceCoreThreadGroupRunnerTest {
         }
     }
 
+    @Test(timeOut = 3000)
+    public void adjustSpikeThreadCountShouldNotRetireWorkersAlreadyScheduledToStop() throws Exception {
+        PerformanceCoreThreadGroupRunner<String> runner = new PerformanceCoreThreadGroupRunner<>(
+                () -> true,
+                System::currentTimeMillis,
+                () -> {
+                },
+                new PerformanceVirtualUserCoordinator(),
+                (groupPlan, iterationCount) -> "ctx",
+                (groupPlan, iterationContext) -> {
+                },
+                noopSink()
+        );
+        CountDownLatch release = new CountDownLatch(1);
+        ConcurrentHashMap<Thread, Long> threadEndTimes = new ConcurrentHashMap<>();
+        List<Thread> workers = new CopyOnWriteArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            Thread worker = new Thread(() -> {
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            worker.start();
+            workers.add(worker);
+            threadEndTimes.put(worker, Long.MAX_VALUE);
+        }
+        AtomicInteger activeWorkers = new AtomicInteger(workers.size());
+        ThreadGroupData threadGroupData = new ThreadGroupData();
+        BiConsumer<Integer, Integer> noProgress = (active, total) -> {
+        };
+
+        try {
+            runner.adjustSpikeThreadCount(null, threadGroupData, activeWorkers, 8, 60, noProgress, 10, threadEndTimes);
+            assertEquals(scheduledToStop(threadEndTimes), 2);
+
+            // Retiring workers are still alive; the same target must not retire another batch.
+            runner.adjustSpikeThreadCount(null, threadGroupData, activeWorkers, 8, 60, noProgress, 10, threadEndTimes);
+            assertEquals(scheduledToStop(threadEndTimes), 2);
+
+            runner.adjustSpikeThreadCount(null, threadGroupData, activeWorkers, 5, 60, noProgress, 10, threadEndTimes);
+            assertEquals(scheduledToStop(threadEndTimes), 5);
+            assertTrue(threadEndTimes.values().stream()
+                    .filter(endTime -> endTime != Long.MAX_VALUE)
+                    .allMatch(endTime -> endTime <= System.currentTimeMillis() + 1_000L));
+        } finally {
+            release.countDown();
+            for (Thread worker : workers) {
+                worker.join(1_000);
+            }
+        }
+    }
+
+    @Test(timeOut = 3000)
+    public void iterationFailureShouldNotRetireVirtualUser() {
+        AtomicInteger iterations = new AtomicInteger();
+        PerformanceCoreThreadGroupRunner<String> runner = new PerformanceCoreThreadGroupRunner<>(
+                () -> true,
+                System::currentTimeMillis,
+                () -> {
+                },
+                new PerformanceVirtualUserCoordinator(),
+                (groupPlan, iterationCount) -> "ctx",
+                (groupPlan, iterationContext) -> {
+                    if (iterations.incrementAndGet() == 1) {
+                        throw new IllegalStateException("broken iteration");
+                    }
+                },
+                noopSink()
+        );
+
+        runner.run(new PerformanceTestPlan(List.of(fixedGroup("group", 3))), 1);
+
+        assertEquals(iterations.get(), 3);
+    }
+
+    @Test
+    public void iterationFailuresShouldBeReportedOncePerRun() {
+        List<PerformanceRunError> errors = new java.util.concurrent.CopyOnWriteArrayList<>();
+        PerformanceCoreResultSink sink = new PerformanceCoreResultSink() {
+            @Override
+            public void onError(PerformanceRunError error) {
+                errors.add(error);
+            }
+        };
+        PerformanceCoreThreadGroupRunner<String> runner = new PerformanceCoreThreadGroupRunner<>(
+                () -> true,
+                System::currentTimeMillis,
+                () -> {
+                },
+                new PerformanceVirtualUserCoordinator(),
+                (groupPlan, iterationCount) -> "ctx",
+                (groupPlan, iterationContext) -> {
+                    throw new IllegalStateException("broken iteration");
+                },
+                () -> sink
+        );
+
+        runner.run(new PerformanceTestPlan(List.of(fixedGroup("group", 3))), 1);
+        assertEquals(errors.size(), 1);
+        assertEquals(errors.get(0).getMessage(), "broken iteration");
+        assertTrue(errors.get(0).isRecoverable());
+
+        runner.run(new PerformanceTestPlan(List.of(fixedGroup("group", 2))), 1);
+        assertEquals(errors.size(), 2);
+    }
+
+    private static long scheduledToStop(ConcurrentHashMap<Thread, Long> threadEndTimes) {
+        return threadEndTimes.values().stream().filter(endTime -> endTime != Long.MAX_VALUE).count();
+    }
+
     @Test
     public void spikePhaseDurationsShouldKeepPositiveConfiguredPhasesWhenPossible() {
         PerformanceCoreThreadGroupRunner.SpikePhaseDurations phases =

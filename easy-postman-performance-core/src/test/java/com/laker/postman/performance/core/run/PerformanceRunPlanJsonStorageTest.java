@@ -39,6 +39,7 @@ public class PerformanceRunPlanJsonStorageTest {
                         .httpKeepAliveSeconds(34L)
                         .httpMaxRequests(123)
                         .httpMaxRequestsPerHost(45)
+                        .responseBodyPreviewLimitKb(256)
                         .build())
                 .testPlan(document)
                 .assets(PerformanceRunPlanAssetScanner.scan(document))
@@ -68,6 +69,7 @@ public class PerformanceRunPlanJsonStorageTest {
         assertEquals(loaded.getEnvironment().getVariables().get(0).getKey(), "baseUrl");
         assertEquals(loaded.getGlobals().getVariables().get(0).getValue(), "abc123");
         assertFalse(loaded.getSettings().isEfficientMode());
+        assertEquals(loaded.getSettings().getResponseBodyPreviewLimitKb(), 256);
         assertEquals(loaded.getSettings().getHttpMaxIdleConnections(), 12);
         assertEquals(loaded.getSettings().getHttpKeepAliveSeconds(), 34L);
         assertEquals(loaded.getSettings().getHttpMaxRequests(), 123);
@@ -100,6 +102,8 @@ public class PerformanceRunPlanJsonStorageTest {
 
         assertEquals(loaded.getTestPlan().getRoot().getName(), "run plan");
         assertEquals(loaded.getAssets().size(), 2);
+        assertEquals(loaded.getSettings().getResponseBodyPreviewLimitKb(),
+                PerformanceRunSettings.DEFAULT_RESPONSE_BODY_PREVIEW_LIMIT_KB);
     }
 
     private static PerformanceCorePlanDocument runDocument() {

@@ -16,6 +16,8 @@ import com.laker.postman.performance.core.worker.PerformanceWorkerResultDetail;
 import com.laker.postman.performance.core.worker.PerformanceWorkerResultDetail.DetailRequest;
 import com.laker.postman.performance.core.worker.PerformanceWorkerResultDetail.DetailResponse;
 import com.laker.postman.performance.core.worker.PerformanceWorkerResultDetail.DetailTestResult;
+import com.laker.postman.performance.result.PerformanceResultMemoryBudget;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 
 import java.util.ArrayDeque;
@@ -25,13 +27,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.IntSupplier;
 
-@RequiredArgsConstructor
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public final class PerformanceRunDetailCollector implements PerformanceResultListener {
     private static final int COMPACT_DETAIL_ROW_LIMIT = 1_000;
 
     private final IntSupplier slowRequestThresholdSupplier;
     private final IntSupplier resultRowLimitSupplier;
-    private final ArrayDeque<PerformanceWorkerResultDetail> details = new ArrayDeque<>();
+    private final ArrayDeque<RetainedDetail> details = new ArrayDeque<>();
+    private final long retentionBudgetBytes;
+    private long retainedBytes;
+
+    public PerformanceRunDetailCollector(IntSupplier slowRequestThresholdSupplier, IntSupplier resultRowLimitSupplier) {
+        this(slowRequestThresholdSupplier, resultRowLimitSupplier, PerformanceResultMemoryBudget.defaultBudgetBytes());
+    }
 
     @Override
     public void onSample(PerformanceSampleEvent event) {
@@ -56,17 +64,21 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
         int rowLimit = event.isEfficientMode()
                 ? COMPACT_DETAIL_ROW_LIMIT
                 : Math.max(1, resultRowLimitSupplier == null ? COMPACT_DETAIL_ROW_LIMIT : resultRowLimitSupplier.getAsInt());
+        long estimatedBytes = PerformanceResultMemoryBudget.estimateBytes(displayInfo);
+        PerformanceWorkerResultDetail detail = toDetail(displayInfo, sampleResult);
         synchronized (details) {
-            details.addLast(toDetail(displayInfo, sampleResult));
-            while (details.size() > rowLimit) {
-                details.removeFirst();
+            details.addLast(new RetainedDetail(detail, estimatedBytes));
+            retainedBytes += estimatedBytes;
+            while (details.size() > rowLimit
+                    || (details.size() > 1 && retainedBytes > retentionBudgetBytes)) {
+                retainedBytes -= details.removeFirst().estimatedBytes();
             }
         }
     }
 
     public List<PerformanceWorkerResultDetail> snapshot() {
         synchronized (details) {
-            return List.copyOf(details);
+            return details.stream().map(RetainedDetail::detail).toList();
         }
     }
 
@@ -170,5 +182,8 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
                         .message(test.message)
                         .build())
                 .toList();
+    }
+
+    private record RetainedDetail(PerformanceWorkerResultDetail detail, long estimatedBytes) {
     }
 }

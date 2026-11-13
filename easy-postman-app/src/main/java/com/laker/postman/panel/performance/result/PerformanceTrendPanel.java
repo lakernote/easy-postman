@@ -76,6 +76,7 @@ public class PerformanceTrendPanel extends UiSingletonPanel implements Performan
     private final TimeSeries httpVirtualUsersSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_VIRTUAL_USERS));
     private final TimeSeries httpRpsSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_QPS));
     private final TimeSeries httpAvgResponseSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_RESPONSE_TIME_MS));
+    private final TimeSeries httpMaxResponseSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_MAX_RESPONSE_TIME_MS));
     private final TimeSeries httpErrorRateSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_ERROR_RATE_PERCENT));
 
     private final TimeSeries wsActiveSeries = new TimeSeries(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_ACTIVE_WS));
@@ -146,6 +147,7 @@ public class PerformanceTrendPanel extends UiSingletonPanel implements Performan
                 new SeriesSpec(httpVirtualUsersSeries, PerformanceTrendTheme.threadsLine(), true, AxisFormat.INTEGER),
                 new SeriesSpec(httpRpsSeries, PerformanceTrendTheme.qpsLine(), true, AxisFormat.DECIMAL),
                 new SeriesSpec(httpAvgResponseSeries, PerformanceTrendTheme.responseTimeLine(), true, AxisFormat.DECIMAL),
+                new SeriesSpec(httpMaxResponseSeries, PerformanceTrendTheme.durationLine(), true, AxisFormat.DECIMAL),
                 new SeriesSpec(httpErrorRateSeries, PerformanceTrendTheme.errorRateLine(), true, AxisFormat.DECIMAL)
         );
     }
@@ -355,9 +357,7 @@ public class PerformanceTrendPanel extends UiSingletonPanel implements Performan
         rangeAxis.setLabelFont(FontsUtil.getDefaultFont(Font.PLAIN));
         rangeAxis.setTickLabelPaint(PerformanceTrendTheme.text());
         rangeAxis.setLabelPaint(PerformanceTrendTheme.text());
-        rangeAxis.setAutoRangeMinimumSize(1.0);
-        rangeAxis.setUpperMargin(0.2);
-        rangeAxis.setAutoRangeIncludesZero(true);
+        PerformanceTrendAxisConfigurer.configureMetricAxis(rangeAxis);
         if (axisFormat == AxisFormat.INTEGER) {
             PerformanceTrendAxisConfigurer.configureIntegerAxis(rangeAxis);
         }
@@ -528,7 +528,7 @@ public class PerformanceTrendPanel extends UiSingletonPanel implements Performan
 
     private TimeSeries[] allSeries() {
         return new TimeSeries[]{
-                httpVirtualUsersSeries, httpRpsSeries, httpAvgResponseSeries, httpErrorRateSeries,
+                httpVirtualUsersSeries, httpRpsSeries, httpAvgResponseSeries, httpMaxResponseSeries, httpErrorRateSeries,
                 wsActiveSeries, wsSentRateSeries, wsReceivedRateSeries, wsFirstMessageLatencySeries,
                 wsSessionDurationSeries, wsErrorRateSeries,
                 sseActiveSeries, sseEventRateSeries, sseMatchedRateSeries, sseFirstEventLatencySeries,
@@ -548,6 +548,7 @@ public class PerformanceTrendPanel extends UiSingletonPanel implements Performan
                 snapshot.activeUsers(), suppressLeadingIdleActiveCounts));
         httpRpsSeries.addOrUpdate(period, PerformanceTrendSeriesValue.sampleMetric(snapshot.http().sampleRate()));
         httpAvgResponseSeries.addOrUpdate(period, PerformanceTrendSeriesValue.sampleMetric(snapshot.http().avgDurationMs()));
+        httpMaxResponseSeries.addOrUpdate(period, PerformanceTrendSeriesValue.sampleMetric(snapshot.http().maxDurationMs()));
         httpErrorRateSeries.addOrUpdate(period, PerformanceTrendSeriesValue.sampleMetric(snapshot.http().failurePercent()));
 
         wsActiveSeries.addOrUpdate(period, PerformanceTrendSeriesValue.activeCount(

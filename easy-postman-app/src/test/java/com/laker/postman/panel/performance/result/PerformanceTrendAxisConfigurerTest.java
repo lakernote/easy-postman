@@ -15,6 +15,25 @@ import static org.testng.Assert.assertTrue;
 public class PerformanceTrendAxisConfigurerTest {
 
     @Test
+    public void metricAxisShouldNotShowNegativeValuesForAllZeroSeries() {
+        org.jfree.data.time.TimeSeries series = new org.jfree.data.time.TimeSeries("error rate");
+        series.add(new org.jfree.data.time.Second(new Date(1_000L)), 0.0);
+        series.add(new org.jfree.data.time.Second(new Date(2_000L)), 0.0);
+        NumberAxis axis = new NumberAxis("错误率");
+        PerformanceTrendAxisConfigurer.configureMetricAxis(axis);
+        org.jfree.chart.plot.XYPlot plot = new org.jfree.chart.plot.XYPlot(
+                new org.jfree.data.time.TimeSeriesCollection(series),
+                new DateAxis("时间"),
+                axis,
+                new org.jfree.chart.renderer.xy.XYLineAndShapeRenderer()
+        );
+
+        assertNotNull(plot);
+        assertEquals(axis.getRange().getLowerBound(), 0.0);
+        assertTrue(axis.getRange().getUpperBound() >= 1.0);
+    }
+
+    @Test
     public void integerAxisShouldUseIntegerTickUnitsToAvoidDuplicateRoundedLabels() {
         NumberAxis axis = new NumberAxis("虚拟用户数");
 

@@ -122,7 +122,24 @@ public record PerformanceTrendSnapshot(
             double sentRate,
             double receivedRate,
             double matchedRate,
-            double avgFirstMessageLatencyMs
+            double avgFirstMessageLatencyMs,
+            /* 窗口内最大响应时间，用于暴露被平均值掩盖的慢请求；未知为 NaN。 */
+            double maxDurationMs
     ) {
+        public ProtocolWindowMetrics(int samples,
+                                     int failures,
+                                     double failurePercent,
+                                     double sampleRate,
+                                     double avgDurationMs,
+                                     int sentMessages,
+                                     int receivedMessages,
+                                     int matchedMessages,
+                                     double sentRate,
+                                     double receivedRate,
+                                     double matchedRate,
+                                     double avgFirstMessageLatencyMs) {
+            this(samples, failures, failurePercent, sampleRate, avgDurationMs, sentMessages, receivedMessages,
+                    matchedMessages, sentRate, receivedRate, matchedRate, avgFirstMessageLatencyMs, Double.NaN);
+        }
     }
 }

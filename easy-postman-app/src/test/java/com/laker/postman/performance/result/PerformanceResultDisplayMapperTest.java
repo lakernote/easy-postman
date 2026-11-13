@@ -70,6 +70,51 @@ public class PerformanceResultDisplayMapperTest {
     }
 
     @Test
+    public void shouldKeepJmeterStyleTimingAfterDroppingEventInfo() {
+        PreparedRequest request = new PreparedRequest();
+        request.collectEventInfo = false;
+
+        HttpEventInfo eventInfo = new HttpEventInfo();
+        eventInfo.setQueueStart(10_000L);
+        eventInfo.setCallStart(10_005L);
+        eventInfo.setRequestHeadersStart(30_000L);
+        eventInfo.setResponseHeadersStart(30_450L);
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.costMs = 20_500L;
+        response.httpEventInfo = eventInfo;
+
+        PerformanceRequestExecutionResult executionResult = new PerformanceRequestExecutionResult(
+                "api-1", "slow", request, response, null, null, false, false, false, 9_000L, 0L);
+
+        ResultNodeInfo info = PerformanceResultDisplayMapper.toDisplayNodeInfo(
+                PerformanceSampleResult.fromExecutionResult(executionResult), true);
+
+        assertNull(response.httpEventInfo);
+        assertEquals(info.timing.startTimeMs(), 10_000L);
+        assertEquals(info.timing.connectMs(), 20_000L);
+        assertEquals(info.timing.latencyMs(), 20_450L);
+    }
+
+    @Test
+    public void shouldFallBackToSampleStartWhenEventTimingIsUnavailable() {
+        PreparedRequest request = new PreparedRequest();
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.costMs = 50L;
+
+        PerformanceRequestExecutionResult executionResult = new PerformanceRequestExecutionResult(
+                "api-1", "fast", request, response, null, null, false, false, false, 9_000L, 0L);
+
+        ResultNodeInfo info = PerformanceResultDisplayMapper.toDisplayNodeInfo(
+                PerformanceSampleResult.fromExecutionResult(executionResult));
+
+        assertEquals(info.timing.latencyMs(), -1L);
+        assertEquals(info.timing.connectMs(), -1L);
+        assertTrue(info.timing.startTimeMs() > 0);
+    }
+
+    @Test
     public void shouldHideInternalStreamHeadersAndPromoteStreamErrorForDisplay() {
         PreparedRequest request = new PreparedRequest();
         request.collectEventInfo = false;

@@ -77,4 +77,31 @@ public class PerformanceWorkerResultDetailDisplayMapperTest {
         assertEquals(row.resp.detectedFileExtension, ".xlsx");
         assertTrue(row.resp.fileContentOmitted);
     }
+
+    @Test
+    public void shouldMapRemoteTimingAndInferStartTimeForLegacyWorkers() {
+        ResultNodeInfo current = PerformanceWorkerResultDetailDisplayMapper.toResultNodeInfo(
+                PerformanceWorkerResultDetail.builder()
+                        .name("slow")
+                        .startTimeMs(5_000L)
+                        .latencyMs(450L)
+                        .connectMs(400L)
+                        .build());
+        assertEquals(current.timing.startTimeMs(), 5_000L);
+        assertEquals(current.timing.latencyMs(), 450L);
+        assertEquals(current.timing.connectMs(), 400L);
+
+        ResultNodeInfo legacy = PerformanceWorkerResultDetailDisplayMapper.toResultNodeInfo(
+                PerformanceWorkerResultDetail.builder()
+                        .name("old")
+                        .response(PerformanceWorkerResultDetail.DetailResponse.builder()
+                                .code(200)
+                                .costMs(300L)
+                                .endTimeMs(9_300L)
+                                .build())
+                        .build());
+        assertEquals(legacy.timing.startTimeMs(), 9_000L);
+        assertEquals(legacy.timing.latencyMs(), -1L);
+        assertEquals(legacy.timing.connectMs(), -1L);
+    }
 }

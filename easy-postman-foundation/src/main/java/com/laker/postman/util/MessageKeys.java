@@ -1238,6 +1238,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_TREND_LATENCY_DURATION_MS = "performance.trend.latency_duration_ms";
     public static final String PERFORMANCE_TREND_SESSION_DURATION_MS = "performance.trend.session_duration_ms";
     public static final String PERFORMANCE_TREND_STREAM_DURATION_MS = "performance.trend.stream_duration_ms";
+    public static final String PERFORMANCE_TREND_MAX_RESPONSE_TIME_MS = "performance.trend.max_response_time_ms";
 
     // ============ 性能结果树相关 ============
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_PROTOCOL = "performance.result_tree.column.protocol";
@@ -1245,6 +1246,9 @@ public final class MessageKeys {
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_STATUS = "performance.result_tree.column.status";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_COST = "performance.result_tree.column.cost";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_ASSERTION = "performance.result_tree.column.assertion";
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_START_TIME = "performance.result_tree.column.start_time";
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_LATENCY = "performance.result_tree.column.latency";
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_CONNECT = "performance.result_tree.column.connect";
     public static final String PERFORMANCE_RESULT_TREE_SEARCH_PLACEHOLDER = "performance.result_tree.search_placeholder";
 
     // ============ 历史记录相关 ============

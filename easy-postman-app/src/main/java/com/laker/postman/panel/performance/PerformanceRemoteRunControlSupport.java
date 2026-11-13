@@ -746,6 +746,7 @@ final class PerformanceRemoteRunControlSupport {
         int durationWeight = 0;
         double firstLatencyTotal = 0;
         int firstLatencyWeight = 0;
+        double maxDuration = Double.NaN;
 
         for (PerformanceTrendSnapshot snapshot : snapshots) {
             if (snapshot == null) {
@@ -764,6 +765,9 @@ final class PerformanceRemoteRunControlSupport {
             sentRate += finite(metrics.sentRate());
             receivedRate += finite(metrics.receivedRate());
             matchedRate += finite(metrics.matchedRate());
+            if (Double.isFinite(metrics.maxDurationMs())) {
+                maxDuration = Double.isNaN(maxDuration) ? metrics.maxDurationMs() : Math.max(maxDuration, metrics.maxDurationMs());
+            }
             int weight = Math.max(0, metrics.samples());
             if (Double.isFinite(metrics.avgDurationMs())) {
                 int resolvedWeight = weight == 0 ? 1 : weight;
@@ -789,7 +793,8 @@ final class PerformanceRemoteRunControlSupport {
                 sentRate,
                 receivedRate,
                 matchedRate,
-                firstLatencyWeight == 0 ? Double.NaN : firstLatencyTotal / firstLatencyWeight
+                firstLatencyWeight == 0 ? Double.NaN : firstLatencyTotal / firstLatencyWeight,
+                maxDuration
         );
     }
 

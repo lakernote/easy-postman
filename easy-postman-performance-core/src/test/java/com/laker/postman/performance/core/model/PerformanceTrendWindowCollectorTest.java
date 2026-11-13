@@ -35,7 +35,10 @@ public class PerformanceTrendWindowCollectorTest {
         assertEquals(first.http().failures(), 1);
         assertEquals(first.http().sampleRate(), 2.0);
         assertEquals(first.http().avgDurationMs(), 200.0);
+        assertEquals(first.http().maxDurationMs(), 300.0);
+        assertEquals(first.overview().maxDurationMs(), 300.0);
         assertEquals(second.http().samples(), 0);
+        assertTrue(Double.isNaN(second.http().maxDurationMs()));
         assertEquals(second.http().sampleRate(), 0.0);
         assertTrue(Double.isNaN(second.http().failurePercent()));
         assertTrue(Double.isNaN(second.http().avgDurationMs()));

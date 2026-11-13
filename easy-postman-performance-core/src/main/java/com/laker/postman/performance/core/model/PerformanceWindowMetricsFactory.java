@@ -56,8 +56,17 @@ final class PerformanceWindowMetricsFactory {
                 sentRate,
                 receivedRate,
                 matchedRate,
-                avgFirstMessageLatency
+                avgFirstMessageLatency,
+                maxDuration(stats, protocol)
         );
+    }
+
+    // 流式协议的耗时是会话时长，最大值没有诊断意义。
+    private double maxDuration(PerformanceSampleMeterSnapshot stats, PerformanceProtocol protocol) {
+        if (protocol == PerformanceProtocol.WEBSOCKET || protocol == PerformanceProtocol.SSE) {
+            return Double.NaN;
+        }
+        return stats.durationStats().max();
     }
 
     private double stepRate(long count, long stepIntervalMs) {

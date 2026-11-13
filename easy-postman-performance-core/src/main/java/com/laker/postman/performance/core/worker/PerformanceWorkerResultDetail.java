@@ -16,6 +16,15 @@ public class PerformanceWorkerResultDetail {
     int costMs;
     boolean executionFailed;
     boolean cancelled;
+    /** 请求开始时间（epoch ms），未知为 -1。 */
+    @Builder.Default
+    long startTimeMs = -1L;
+    /** 首字节耗时（ms），未知为 -1。 */
+    @Builder.Default
+    long latencyMs = -1L;
+    /** 连接耗时（含排队/DNS/TCP/TLS，ms），未知为 -1。 */
+    @Builder.Default
+    long connectMs = -1L;
     DetailRequest request;
     DetailResponse response;
     List<DetailTestResult> testResults;

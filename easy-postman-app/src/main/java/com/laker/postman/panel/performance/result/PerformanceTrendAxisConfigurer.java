@@ -5,6 +5,7 @@ import org.jfree.chart.axis.DateAxis;
 import org.jfree.chart.axis.DateTickUnit;
 import org.jfree.chart.axis.DateTickUnitType;
 import org.jfree.chart.axis.NumberAxis;
+import org.jfree.data.RangeType;
 
 import java.text.SimpleDateFormat;
 import java.text.NumberFormat;
@@ -40,6 +41,17 @@ class PerformanceTrendAxisConfigurer {
             new TimeTickUnitSpec(DateTickUnitType.HOUR, 12, 12 * HOUR_MS),
             new TimeTickUnitSpec(DateTickUnitType.DAY, 1, DAY_MS)
     };
+
+    void configureMetricAxis(NumberAxis axis) {
+        if (axis == null) {
+            return;
+        }
+        axis.setAutoRangeMinimumSize(1.0);
+        axis.setUpperMargin(0.2);
+        axis.setAutoRangeIncludesZero(true);
+        // 趋势指标都不为负；否则全 0 序列会以 0 为中心显示成 -0.4..0.4。
+        axis.setRangeType(RangeType.POSITIVE);
+    }
 
     void configureIntegerAxis(NumberAxis axis) {
         if (axis == null) {

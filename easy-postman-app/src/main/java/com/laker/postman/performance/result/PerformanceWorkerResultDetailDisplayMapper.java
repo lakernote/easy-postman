@@ -5,6 +5,7 @@ import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.script.model.TestResult;
 import com.laker.postman.performance.model.ResultNodeInfo;
+import com.laker.postman.performance.model.ResultTiming;
 import com.laker.postman.performance.core.model.PerformanceProtocol;
 import com.laker.postman.performance.core.worker.PerformanceWorkerResultDetail;
 import com.laker.postman.performance.core.worker.PerformanceWorkerResultDetail.DetailRequest;
@@ -32,8 +33,17 @@ public class PerformanceWorkerResultDetailDisplayMapper {
                 toTests(detail.getTestResults()),
                 detail.isExecutionFailed(),
                 detail.isCancelled(),
-                toProtocol(detail.getProtocol())
+                toProtocol(detail.getProtocol()),
+                ResultTiming.of(resolveStartTimeMs(detail, response), detail.getLatencyMs(), detail.getConnectMs())
         );
+    }
+
+    // 旧 worker 不传开始时间，用结束时间减耗时推算。
+    private long resolveStartTimeMs(PerformanceWorkerResultDetail detail, HttpResponse response) {
+        if (detail.getStartTimeMs() > 0) {
+            return detail.getStartTimeMs();
+        }
+        return response.endTime > 0 ? response.endTime - Math.max(0L, response.costMs) : ResultTiming.UNKNOWN;
     }
 
     private PreparedRequest toRequest(DetailRequest source) {

@@ -55,6 +55,11 @@ public class ResultNodeInfo {
     public final boolean executionFailed;
     public final boolean cancelled;
 
+    /**
+     * 开始时间、首字节、连接耗时，构造时从响应事件提取，避免展示精简后丢失。
+     */
+    public final ResultTiming timing;
+
     public ResultNodeInfo(
             String name,
             String errorMsg,
@@ -85,6 +90,20 @@ public class ResultNodeInfo {
             boolean executionFailed,
             boolean cancelled,
             PerformanceProtocol protocol) {
+        this(name, errorMsg, req, resp, testResults, executionFailed, cancelled, protocol,
+                ResultTiming.fromResponse(resp, 0L));
+    }
+
+    public ResultNodeInfo(
+            String name,
+            String errorMsg,
+            PreparedRequest req,
+            HttpResponse resp,
+            List<TestResult> testResults,
+            boolean executionFailed,
+            boolean cancelled,
+            PerformanceProtocol protocol,
+            ResultTiming timing) {
         this.name = name;
         this.errorMsg = errorMsg;
         this.req = req;
@@ -93,6 +112,7 @@ public class ResultNodeInfo {
         this.executionFailed = executionFailed;
         this.cancelled = cancelled;
         this.protocol = protocol == null ? PerformanceProtocol.HTTP : protocol;
+        this.timing = timing == null ? ResultTiming.EMPTY : timing;
 
         // ✅ 统一在这里算 ms（不依赖 costNs）
         this.costMs = resp != null ? (int) resp.costMs : 0;

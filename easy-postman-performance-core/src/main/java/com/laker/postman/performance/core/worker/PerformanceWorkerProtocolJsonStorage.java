@@ -205,6 +205,9 @@ public class PerformanceWorkerProtocolJsonStorage {
         json.put("costMs", safeDetail.getCostMs());
         json.put("executionFailed", safeDetail.isExecutionFailed());
         json.put("cancelled", safeDetail.isCancelled());
+        json.put("startTimeMs", safeDetail.getStartTimeMs());
+        json.put("latencyMs", safeDetail.getLatencyMs());
+        json.put("connectMs", safeDetail.getConnectMs());
         json.put("request", requestToMap(safeDetail.getRequest()));
         json.put("response", responseToMap(safeDetail.getResponse()));
         json.put("testResults", testsToList(safeDetail.getTestResults()));
@@ -269,6 +272,9 @@ public class PerformanceWorkerProtocolJsonStorage {
                     .costMs(intValue(json, "costMs", 0))
                     .executionFailed(booleanValue(json, "executionFailed", false))
                     .cancelled(booleanValue(json, "cancelled", false))
+                    .startTimeMs(longValue(json, "startTimeMs", -1L))
+                    .latencyMs(longValue(json, "latencyMs", -1L))
+                    .connectMs(longValue(json, "connectMs", -1L))
                     .request(readRequest(objectMap(json.get("request"))))
                     .response(readResponse(objectMap(json.get("response"))))
                     .testResults(readTests(listValue(json.get("testResults"))))
@@ -365,6 +371,7 @@ public class PerformanceWorkerProtocolJsonStorage {
         json.put("receivedRate", finiteOrNull(metrics.receivedRate()));
         json.put("matchedRate", finiteOrNull(metrics.matchedRate()));
         json.put("avgFirstMessageLatencyMs", finiteOrNull(metrics.avgFirstMessageLatencyMs()));
+        json.put("maxDurationMs", finiteOrNull(metrics.maxDurationMs()));
         return json;
     }
 
@@ -399,7 +406,8 @@ public class PerformanceWorkerProtocolJsonStorage {
                 doubleValue(json, "sentRate", Double.NaN),
                 doubleValue(json, "receivedRate", Double.NaN),
                 doubleValue(json, "matchedRate", Double.NaN),
-                doubleValue(json, "avgFirstMessageLatencyMs", Double.NaN)
+                doubleValue(json, "avgFirstMessageLatencyMs", Double.NaN),
+                doubleValue(json, "maxDurationMs", Double.NaN)
         );
     }
 

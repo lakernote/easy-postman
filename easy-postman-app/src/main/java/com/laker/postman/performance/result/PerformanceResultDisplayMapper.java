@@ -8,6 +8,7 @@ import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.performance.model.PerformanceInternalHeaders;
 import com.laker.postman.performance.model.PerformanceSampleResult;
 import com.laker.postman.performance.model.ResultNodeInfo;
+import com.laker.postman.performance.model.ResultTiming;
 import lombok.experimental.UtilityClass;
 
 import java.util.List;
@@ -30,6 +31,8 @@ public class PerformanceResultDisplayMapper {
         }
         String displayErrorMsg = resolveDisplayErrorMsg(sampleResult);
         HttpResponse displayResponse = responseForDisplay(sampleResult, displayErrorMsg);
+        // 精简模式会丢弃 httpEventInfo，先提取结果表需要的计时。
+        ResultTiming timing = ResultTiming.fromResponse(displayResponse, sampleResult.getStartTimeMs());
         simplifyForDisplay(sampleResult, displayResponse, compactMode, displayErrorMsg);
         return new ResultNodeInfo(
                 sampleResult.getApiName(),
@@ -39,7 +42,8 @@ public class PerformanceResultDisplayMapper {
                 sampleResult.getTestResults(),
                 sampleResult.isExecutionFailed(),
                 sampleResult.isInterrupted(),
-                sampleResult.getProtocol()
+                sampleResult.getProtocol(),
+                timing
         );
     }
 

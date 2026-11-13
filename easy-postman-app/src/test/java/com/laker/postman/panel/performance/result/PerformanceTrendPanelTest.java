@@ -69,7 +69,7 @@ public class PerformanceTrendPanelTest extends AbstractSwingUiTest {
         assertEquals(findAll(panel, SegmentedButtonGroupPanel.class).size(), 2);
         assertTrue(separateButton.isSelected());
         assertFalse(combinedButton.isSelected());
-        assertEquals(countVisibleCharts(panel), 4);
+        assertEquals(countVisibleCharts(panel), 5);
         assertTrue(hasCheckBox(
                 panel,
                 I18nUtil.getMessage(MessageKeys.PERFORMANCE_TREND_VIRTUAL_USERS)
@@ -262,6 +262,24 @@ public class PerformanceTrendPanelTest extends AbstractSwingUiTest {
         panel.addOrUpdate(new Millisecond(new Date(base + 1_000)), snapshotWithHttpResponse(Double.NaN));
 
         assertEquals(series.getValue(0).doubleValue(), 69.0);
+        assertNull(series.getValue(1));
+    }
+
+    @Test
+    public void shouldPlotHttpWindowMaxResponseTimeAndLeaveGapWhenUnknown() throws Exception {
+        PerformanceTrendPanel panel = UiSingletonFactory.getInstance(PerformanceTrendPanel.class);
+        panel.clearTrendDataset();
+        TimeSeries series = getTimeSeries(panel, "httpMaxResponseSeries");
+        long base = System.currentTimeMillis();
+        PerformanceTrendSnapshot.ProtocolWindowMetrics empty = emptyMetrics();
+        PerformanceTrendSnapshot.ProtocolWindowMetrics slowWindow = new PerformanceTrendSnapshot.ProtocolWindowMetrics(
+                100, 0, 0, 100, 450.0, 0, 0, 0, 0, 0, 0, Double.NaN, 37_570.0
+        );
+
+        panel.addOrUpdate(new Millisecond(new Date(base)), new PerformanceTrendSnapshot(1, 0, 0, empty, slowWindow, empty, empty));
+        panel.addOrUpdate(new Millisecond(new Date(base + 1_000)), snapshotWithHttpResponse(Double.NaN));
+
+        assertEquals(series.getValue(0).doubleValue(), 37_570.0);
         assertNull(series.getValue(1));
     }
 
@@ -505,6 +523,7 @@ public class PerformanceTrendPanelTest extends AbstractSwingUiTest {
                 "httpVirtualUsersSeries",
                 "httpRpsSeries",
                 "httpAvgResponseSeries",
+                "httpMaxResponseSeries",
                 "httpErrorRateSeries",
                 "wsActiveSeries",
                 "wsSentRateSeries",
@@ -630,7 +649,7 @@ public class PerformanceTrendPanelTest extends AbstractSwingUiTest {
                 3, 0, 0, 3.0, 50.0, 1, 2, 1, 1.0, 2.0, 1.0, 30.0
         );
         PerformanceTrendSnapshot.ProtocolWindowMetrics http = new PerformanceTrendSnapshot.ProtocolWindowMetrics(
-                1, 0, 0, 1.0, 50.0, 0, 0, 0, 0, 0, 0, Double.NaN
+                1, 0, 0, 1.0, 50.0, 0, 0, 0, 0, 0, 0, Double.NaN, 50.0
         );
         PerformanceTrendSnapshot.ProtocolWindowMetrics ws = new PerformanceTrendSnapshot.ProtocolWindowMetrics(
                 1, 0, 0, 1.0, 60.0, 1, 1, 1, 1.0, 1.0, 1.0, 20.0

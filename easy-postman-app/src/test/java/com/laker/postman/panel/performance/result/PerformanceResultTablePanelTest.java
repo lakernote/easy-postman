@@ -3,6 +3,7 @@ package com.laker.postman.panel.performance.result;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.performance.model.ResultNodeInfo;
+import com.laker.postman.performance.model.ResultTiming;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.test.AbstractSwingUiTest;
 import org.testng.annotations.Test;
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 public class PerformanceResultTablePanelTest extends AbstractSwingUiTest {
 
@@ -40,6 +42,45 @@ public class PerformanceResultTablePanelTest extends AbstractSwingUiTest {
                 SwingUtilities.invokeAndWait(panel::dispose);
             }
         }
+    }
+
+    @Test
+    public void tableShouldRenderJmeterStyleTimingColumns() throws Exception {
+        AtomicReference<PerformanceResultTablePanel> panelRef = new AtomicReference<>();
+        AtomicReference<List<String>> renderedTexts = new AtomicReference<>();
+
+        SwingUtilities.invokeAndWait(() -> {
+            PerformanceResultTablePanel panel = new PerformanceResultTablePanel();
+            panelRef.set(panel);
+            HttpResponse response = new HttpResponse();
+            response.code = 200;
+            response.costMs = 20_500L;
+            panel.addResult(new ResultNodeInfo("slow", null, new PreparedRequest(), response, List.of(), false, false,
+                    null, ResultTiming.of(1_700_000_000_123L, 20_450L, ResultTiming.UNKNOWN)));
+            panel.flushPendingResults();
+            JTable table = findTable(panel);
+            renderedTexts.set(List.of(
+                    renderedText(table, PerformanceResultTablePanel.ResultTableModel.COL_START_TIME),
+                    renderedText(table, PerformanceResultTablePanel.ResultTableModel.COL_LATENCY),
+                    renderedText(table, PerformanceResultTablePanel.ResultTableModel.COL_CONNECT)
+            ));
+        });
+
+        try {
+            assertTrue(renderedTexts.get().get(0).matches("\\d{2}:\\d{2}:\\d{2}\\.123"), renderedTexts.get().get(0));
+            assertEquals(renderedTexts.get().get(1), "20450");
+            assertEquals(renderedTexts.get().get(2), "—");
+        } finally {
+            PerformanceResultTablePanel panel = panelRef.get();
+            if (panel != null) {
+                SwingUtilities.invokeAndWait(panel::dispose);
+            }
+        }
+    }
+
+    private static String renderedText(JTable table, int column) {
+        JLabel label = (JLabel) table.prepareRenderer(table.getCellRenderer(0, column), 0, column);
+        return label.getText();
     }
 
     @Test

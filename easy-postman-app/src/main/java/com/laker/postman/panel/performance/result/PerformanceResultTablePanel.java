@@ -23,8 +23,12 @@ import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -138,7 +142,10 @@ public class PerformanceResultTablePanel extends JPanel {
         table.setFocusable(false);
         table.setGridColor(PerformanceTheme.resultGridColor());
         // 设置自定义渲染器
-        table.setDefaultRenderer(Object.class, new ResultRowRenderer());
+        ResultRowRenderer rowRenderer = new ResultRowRenderer();
+        table.setDefaultRenderer(Object.class, rowRenderer);
+        // 数值列也走同一渲染器，否则 JTable 默认 NumberRenderer 会绕过格式化和配色。
+        table.setDefaultRenderer(Number.class, rowRenderer);
 
         // 配置 TableRowSorter
         rowSorter = new TableRowSorter<>(tableModel);
@@ -164,25 +171,21 @@ public class PerformanceResultTablePanel extends JPanel {
         JSplitPane split = AppToolWindowChrome.createHorizontalInnerSplitPane(
                 leftPanel,
                 detailTabs,
-                620
+                760
         );
         leftPanel.setMinimumSize(new Dimension(560, 150));
-        leftPanel.setPreferredSize(new Dimension(620, 300));
-        split.setDividerLocation(620);
+        leftPanel.setPreferredSize(new Dimension(760, 300));
+        split.setDividerLocation(760);
         split.setResizeWeight(0.34);
         add(split, BorderLayout.CENTER);
     }
 
     // 配置排序比较器
     private void configureSorterComparators() {
-        // 列 0: Protocol - 字符串排序
-        rowSorter.setComparator(0, Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
-
-        // 列 1: Name - 字符串排序
-        rowSorter.setComparator(1, Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
-
-        // 列 2: Status - 数值排序（状态码）
-        rowSorter.setComparator(2, Comparator.comparing((Object o) -> {
+        rowSorter.setComparator(ResultTableModel.COL_PROTOCOL, Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
+        rowSorter.setComparator(ResultTableModel.COL_NAME, Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
+        // 状态码按数值排序
+        rowSorter.setComparator(ResultTableModel.COL_STATUS, Comparator.comparing((Object o) -> {
             String s = o.toString();
             if ("-".equals(s)) return 0;
             try {
@@ -191,39 +194,30 @@ public class PerformanceResultTablePanel extends JPanel {
                 return 0;
             }
         }));
-
-        // 列 3: Duration (ms) - 数值排序
-        rowSorter.setComparator(3, Comparator.comparingInt(Integer.class::cast));
-
-        // 列 4: Assertion - 按成功/失败排序
-        rowSorter.setComparator(4, Comparator.comparing(String::toString));
+        rowSorter.setComparator(ResultTableModel.COL_START_TIME, Comparator.comparingLong(Long.class::cast));
+        rowSorter.setComparator(ResultTableModel.COL_COST, Comparator.comparingInt(Integer.class::cast));
+        rowSorter.setComparator(ResultTableModel.COL_LATENCY, Comparator.comparingLong(Long.class::cast));
+        rowSorter.setComparator(ResultTableModel.COL_CONNECT, Comparator.comparingLong(Long.class::cast));
+        rowSorter.setComparator(ResultTableModel.COL_ASSERTION, Comparator.comparing(String::toString));
     }
 
     // 配置列宽度
     private void configureColumnWidths() {
-        // Protocol 列
-        table.getColumnModel().getColumn(0).setMinWidth(70);
-        table.getColumnModel().getColumn(0).setPreferredWidth(78);
-        table.getColumnModel().getColumn(0).setMaxWidth(95);
+        configureColumnWidth(ResultTableModel.COL_PROTOCOL, 64, 72, 95);
+        configureColumnWidth(ResultTableModel.COL_NAME, 120, 200, Integer.MAX_VALUE);
+        configureColumnWidth(ResultTableModel.COL_STATUS, 56, 64, 90);
+        configureColumnWidth(ResultTableModel.COL_START_TIME, 92, 100, 120);
+        configureColumnWidth(ResultTableModel.COL_COST, 72, 100, 130);
+        configureColumnWidth(ResultTableModel.COL_LATENCY, 72, 92, 120);
+        configureColumnWidth(ResultTableModel.COL_CONNECT, 64, 84, 120);
+        configureColumnWidth(ResultTableModel.COL_ASSERTION, 56, 64, 100);
+    }
 
-        // Name 列 - 接口名称，允许较宽显示
-        table.getColumnModel().getColumn(1).setMinWidth(150);
-        table.getColumnModel().getColumn(1).setPreferredWidth(240);
-
-        // Status 列 - 显示 "Status"（6个字符）+ 状态码（3位数）
-        table.getColumnModel().getColumn(2).setMinWidth(64);
-        table.getColumnModel().getColumn(2).setPreferredWidth(72);
-        table.getColumnModel().getColumn(2).setMaxWidth(90);
-
-        // Duration (ms) 列 - 显示耗时值
-        table.getColumnModel().getColumn(3).setMinWidth(105);
-        table.getColumnModel().getColumn(3).setPreferredWidth(112);
-        table.getColumnModel().getColumn(3).setMaxWidth(130);
-
-        // Assertion 列 - 显示 "Assertion"（9个字符）+ 状态符号
-        table.getColumnModel().getColumn(4).setMinWidth(72);
-        table.getColumnModel().getColumn(4).setPreferredWidth(82);
-        table.getColumnModel().getColumn(4).setMaxWidth(100);
+    private void configureColumnWidth(int column, int min, int preferred, int max) {
+        TableColumn tableColumn = table.getColumnModel().getColumn(column);
+        tableColumn.setMinWidth(min);
+        tableColumn.setPreferredWidth(preferred);
+        tableColumn.setMaxWidth(max);
     }
 
     private void registerListeners() {
@@ -501,11 +495,15 @@ public class PerformanceResultTablePanel extends JPanel {
 
     static class ResultTableModel extends AbstractTableModel {
 
-        private static final int COL_PROTOCOL = 0;
-        private static final int COL_NAME = 1;
-        private static final int COL_STATUS = 2;
-        private static final int COL_COST = 3;
-        private static final int COL_ASSERTION = 4;
+        static final int COL_PROTOCOL = 0;
+        static final int COL_NAME = 1;
+        static final int COL_STATUS = 2;
+        static final int COL_START_TIME = 3;
+        static final int COL_COST = 4;
+        static final int COL_LATENCY = 5;
+        static final int COL_CONNECT = 6;
+        static final int COL_ASSERTION = 7;
+        static final int COLUMN_COUNT = 8;
 
         private final List<ResultNodeInfo> dataList = new ArrayList<>(1024);
         private final List<Long> rowBytes = new ArrayList<>(1024);
@@ -536,7 +534,7 @@ public class PerformanceResultTablePanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 5;
+            return COLUMN_COUNT;
         }
 
         @Override
@@ -545,7 +543,10 @@ public class PerformanceResultTablePanel extends JPanel {
                 case COL_PROTOCOL -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_PROTOCOL);
                 case COL_NAME -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_NAME);
                 case COL_STATUS -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_STATUS);
+                case COL_START_TIME -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_START_TIME);
                 case COL_COST -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_COST);
+                case COL_LATENCY -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_LATENCY);
+                case COL_CONNECT -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_CONNECT);
                 case COL_ASSERTION -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_ASSERTION);
                 default -> "";
             };
@@ -560,7 +561,10 @@ public class PerformanceResultTablePanel extends JPanel {
                 case COL_STATUS -> r.cancelled
                         ? I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_CANCELLED)
                         : r.responseCode > 0 ? String.valueOf(r.responseCode) : "-";
+                case COL_START_TIME -> r.timing.startTimeMs();
                 case COL_COST -> r.costMs;
+                case COL_LATENCY -> r.timing.latencyMs();
+                case COL_CONNECT -> r.timing.connectMs();
                 case COL_ASSERTION -> formatAssertion(r);
                 default -> "";
             };
@@ -590,6 +594,7 @@ public class PerformanceResultTablePanel extends JPanel {
                 case COL_PROTOCOL -> String.class;
                 case COL_NAME -> String.class;
                 case COL_STATUS -> String.class;
+                case COL_START_TIME, COL_LATENCY, COL_CONNECT -> Long.class;
                 case COL_COST -> Integer.class;
                 case COL_ASSERTION -> String.class;
                 default -> Object.class;
@@ -674,6 +679,8 @@ public class PerformanceResultTablePanel extends JPanel {
 
     // 行渲染器 - 设置不同列的对齐方式和颜色
     static class ResultRowRenderer extends DefaultTableCellRenderer {
+        private static final DateTimeFormatter START_TIME_FORMATTER =
+                DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());
 
         @Override
         public Component getTableCellRendererComponent(
@@ -696,37 +703,49 @@ public class PerformanceResultTablePanel extends JPanel {
 
             // 设置对齐方式和颜色
             switch (modelColumn) {
-                case 0: // 协议 - 居中
-                    setHorizontalAlignment(SwingConstants.CENTER);
-                    break;
-                case 1: // 接口名称 - 左对齐
+                case ResultTableModel.COL_NAME -> {
                     setHorizontalAlignment(SwingConstants.LEFT);
                     if (!isSelected && info != null && !info.cancelled && !info.isActuallySuccessful()) {
                         setForeground(PerformanceTheme.resultFailureForeground());
                         setFont(table.getFont().deriveFont(Font.BOLD));
                     }
-                    break;
-                case 2: // 状态码 - 居中对齐，带颜色
+                }
+                case ResultTableModel.COL_STATUS -> {
                     setHorizontalAlignment(SwingConstants.CENTER);
                     if (!isSelected && value != null && !"-".equals(value)) {
                         applyStatusColors(this, value.toString());
                     }
-                    break;
-                case 3: // 耗时 - 右对齐
-                    setHorizontalAlignment(SwingConstants.RIGHT);
-                    break;
-                case 4: // 断言 - 居中
+                }
+                case ResultTableModel.COL_START_TIME -> {
                     setHorizontalAlignment(SwingConstants.CENTER);
-                    if (!isSelected && info != null) {
+                    setText(formatStartTime(value));
+                }
+                case ResultTableModel.COL_COST -> setHorizontalAlignment(SwingConstants.RIGHT);
+                case ResultTableModel.COL_LATENCY, ResultTableModel.COL_CONNECT -> {
+                    setHorizontalAlignment(SwingConstants.RIGHT);
+                    setText(formatMillis(value));
+                }
+                case ResultTableModel.COL_PROTOCOL, ResultTableModel.COL_ASSERTION -> {
+                    setHorizontalAlignment(SwingConstants.CENTER);
+                    if (modelColumn == ResultTableModel.COL_ASSERTION && !isSelected && info != null) {
                         applyAssertionColors(this, info);
                     }
-                    break;
-                default: // 其他列 - 左对齐
-                    setHorizontalAlignment(SwingConstants.LEFT);
-                    break;
+                }
+                default -> setHorizontalAlignment(SwingConstants.LEFT);
             }
 
             return this;
+        }
+
+        static String formatStartTime(Object value) {
+            if (value instanceof Long time && time > 0) {
+                return START_TIME_FORMATTER.format(Instant.ofEpochMilli(time));
+            }
+            return "—";
+        }
+
+        static String formatMillis(Object value) {
+            return value instanceof Long millis && millis >= 0 ? String.valueOf(millis) : "—";
         }
 
         private ResultNodeInfo getRowInfo(JTable table, int viewRow) {
@@ -741,9 +760,9 @@ public class PerformanceResultTablePanel extends JPanel {
         }
 
         private javax.swing.border.Border createCellBorder(int modelColumn, ResultNodeInfo info, boolean isSelected) {
-            int leftInset = modelColumn == 1 ? 8 : 6;
+            int leftInset = modelColumn == ResultTableModel.COL_NAME ? 8 : 6;
 
-            if (modelColumn == 1 && info != null && !isSelected) {
+            if (modelColumn == ResultTableModel.COL_NAME && info != null && !isSelected) {
                 Color stripeColor = info.cancelled ? PerformanceTheme.resultMutedForeground()
                         : info.isActuallySuccessful() ? PerformanceTheme.resultSuccessStripe()
                         : PerformanceTheme.resultFailureStripe();

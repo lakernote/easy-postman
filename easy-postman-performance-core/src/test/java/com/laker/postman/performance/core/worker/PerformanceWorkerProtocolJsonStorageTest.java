@@ -16,6 +16,7 @@ import java.util.List;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class PerformanceWorkerProtocolJsonStorageTest {
 
@@ -88,8 +89,8 @@ public class PerformanceWorkerProtocolJsonStorageTest {
                         2,
                         3,
                         4,
-                        new PerformanceTrendSnapshot.ProtocolWindowMetrics(10, 1, 10.0, 5.0, 20.0, 0, 0, 0, 0, 0, 0, Double.NaN),
-                        new PerformanceTrendSnapshot.ProtocolWindowMetrics(10, 1, 10.0, 5.0, 20.0, 0, 0, 0, 0, 0, 0, Double.NaN),
+                        new PerformanceTrendSnapshot.ProtocolWindowMetrics(10, 1, 10.0, 5.0, 20.0, 0, 0, 0, 0, 0, 0, Double.NaN, 90.0),
+                        new PerformanceTrendSnapshot.ProtocolWindowMetrics(10, 1, 10.0, 5.0, 20.0, 0, 0, 0, 0, 0, 0, Double.NaN, 90.0),
                         new PerformanceTrendSnapshot.ProtocolWindowMetrics(0, 0, Double.NaN, Double.NaN, Double.NaN, 6, 7, 8, 3.0, 3.5, 4.0, 11.0),
                         new PerformanceTrendSnapshot.ProtocolWindowMetrics(0, 0, Double.NaN, Double.NaN, Double.NaN, 0, 9, 10, 0, 4.5, 5.0, 12.0)
                 ))
@@ -108,6 +109,8 @@ public class PerformanceWorkerProtocolJsonStorageTest {
         assertEquals(loadedStatus.getTrendSnapshot().activeUsers(), 2);
         assertEquals(loadedStatus.getTrendSnapshot().webSocket().receivedMessages(), 7);
         assertEquals(loadedStatus.getTrendSnapshot().sse().matchedRate(), 5.0);
+        assertEquals(loadedStatus.getTrendSnapshot().http().maxDurationMs(), 90.0);
+        assertTrue(Double.isNaN(loadedStatus.getTrendSnapshot().sse().maxDurationMs()));
 
         PerformanceWorkerRunAcceptedResponse accepted = PerformanceWorkerRunAcceptedResponse.builder()
                 .runId("run-1")
@@ -191,5 +194,30 @@ public class PerformanceWorkerProtocolJsonStorageTest {
                 "{\"details\":[{\"response\":{\"code\":200,\"body\":\"ok\"}}]}").getDetails().get(0).getResponse();
         assertEquals(legacy.getFileName(), null);
         assertFalse(legacy.isFileContentOmitted(), "旧 worker 不带文件字段时按普通响应处理");
+    }
+
+    @Test
+    public void shouldRoundTripTimingInResultDetailsAndDefaultToUnknownForLegacyWorkers() {
+        PerformanceWorkerProtocolJsonStorage storage = new PerformanceWorkerProtocolJsonStorage();
+        PerformanceWorkerRunDetailsResponse details = PerformanceWorkerRunDetailsResponse.builder()
+                .runId("run-1")
+                .details(List.of(PerformanceWorkerResultDetail.builder()
+                        .name("slow")
+                        .startTimeMs(1_700_000_000_123L)
+                        .latencyMs(20_500L)
+                        .connectMs(20_000L)
+                        .build()))
+                .build();
+
+        PerformanceWorkerResultDetail loaded = storage.detailsResponseFromJson(storage.toJson(details)).getDetails().get(0);
+        assertEquals(loaded.getStartTimeMs(), 1_700_000_000_123L);
+        assertEquals(loaded.getLatencyMs(), 20_500L);
+        assertEquals(loaded.getConnectMs(), 20_000L);
+
+        PerformanceWorkerResultDetail legacy = storage.detailsResponseFromJson(
+                "{\"details\":[{\"name\":\"old\"}]}").getDetails().get(0);
+        assertEquals(legacy.getStartTimeMs(), -1L);
+        assertEquals(legacy.getLatencyMs(), -1L);
+        assertEquals(legacy.getConnectMs(), -1L);
     }
 }

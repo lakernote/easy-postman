@@ -32,7 +32,16 @@ public record ResultTiming(long startTimeMs, long latencyMs, long connectMs) {
         if (base <= 0) {
             return of(startTimeMs, UNKNOWN, UNKNOWN);
         }
-        return of(startTimeMs, elapsed(base, info.getResponseHeadersStart()), elapsed(base, info.getRequestHeadersStart()));
+        long latencyMs = elapsed(base, info.getResponseHeadersStart());
+        long connectMs = elapsed(base, info.getRequestHeadersStart());
+        // 耗时用单调时钟、事件用墙钟，取整可能差 1ms；保持 JMeter 语义：连接 ≤ 首字节 ≤ 耗时。
+        if (latencyMs >= 0 && response.costMs > 0) {
+            latencyMs = Math.min(latencyMs, response.costMs);
+        }
+        if (connectMs >= 0 && latencyMs >= 0) {
+            connectMs = Math.min(connectMs, latencyMs);
+        }
+        return of(startTimeMs, latencyMs, connectMs);
     }
 
     private static long elapsed(long base, long timestamp) {

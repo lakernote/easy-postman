@@ -97,6 +97,27 @@ public class PerformanceResultDisplayMapperTest {
     }
 
     @Test
+    public void shouldClampLatencyToDurationWhenClocksRoundDifferently() {
+        PreparedRequest request = new PreparedRequest();
+        HttpEventInfo eventInfo = new HttpEventInfo();
+        eventInfo.setQueueStart(10_000L);
+        eventInfo.setRequestHeadersStart(45_313L);
+        eventInfo.setResponseHeadersStart(45_566L);
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.costMs = 35_565L;
+        response.httpEventInfo = eventInfo;
+
+        PerformanceRequestExecutionResult executionResult = new PerformanceRequestExecutionResult(
+                "api-1", "slow", request, response, null, null, false, false, false, 10_000L, 0L);
+        ResultNodeInfo info = PerformanceResultDisplayMapper.toDisplayNodeInfo(
+                PerformanceSampleResult.fromExecutionResult(executionResult));
+
+        assertEquals(info.timing.latencyMs(), 35_565L);
+        assertEquals(info.timing.connectMs(), 35_313L);
+    }
+
+    @Test
     public void shouldFallBackToSampleStartWhenEventTimingIsUnavailable() {
         PreparedRequest request = new PreparedRequest();
         HttpResponse response = new HttpResponse();

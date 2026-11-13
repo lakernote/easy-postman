@@ -17,6 +17,10 @@ import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
 
+import com.formdev.flatlaf.FlatClientProperties;
+import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.IconUtil;
+
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -26,6 +30,8 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -49,6 +55,15 @@ public class PerformanceResultTablePanel extends JPanel {
     private ResultTableModel tableModel;
     private JTabbedPane detailTabs;
     private TableRowSorter<ResultTableModel> rowSorter;
+    private JScrollPane tableScroll;
+    private JPanel contentHolder;
+    private JSplitPane detailSplit;
+    private JPanel detailPanel;
+    private JLabel detailTitleLabel;
+    private JLabel detailSummaryLabel;
+    private JLabel rowCountLabel;
+    private JCheckBox failedOnlyCheckBox;
+    private int lastDividerLocation = -1;
 
     private SearchTextField searchField;
 
@@ -121,63 +136,146 @@ public class PerformanceResultTablePanel extends JPanel {
     }
 
     private void initUI() {
-        setLayout(new BorderLayout(5, 5));
+        setLayout(new BorderLayout(0, 6));
         ToolWindowSurfaceStyle.applyCard(this);
-        // 设置边距
         setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
         searchField = new SearchTextField();
         searchField.setPlaceholderText(I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_SEARCH_PLACEHOLDER));
 
-        JPanel searchPanel = new JPanel(new BorderLayout(6, 0));
+        failedOnlyCheckBox = new JCheckBox(I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_FAILED_ONLY));
+        failedOnlyCheckBox.setOpaque(false);
+        failedOnlyCheckBox.setFocusable(false);
+
+        rowCountLabel = new JLabel();
+        rowCountLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        rowCountLabel.setForeground(PerformanceTheme.resultMutedForeground());
+
+        JPanel filterActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        filterActions.setOpaque(false);
+        filterActions.add(failedOnlyCheckBox);
+        filterActions.add(rowCountLabel);
+
+        JPanel searchPanel = new JPanel(new BorderLayout(8, 0));
         searchPanel.setOpaque(false);
         searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(filterActions, BorderLayout.EAST);
 
         tableModel = new ResultTableModel(retentionBudgetBytes);
         table = new JTable(tableModel);
-        table.setRowHeight(24);
+        table.setRowHeight(26);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(false);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
         table.setFocusable(false);
+        table.setShowVerticalLines(false);
+        table.setIntercellSpacing(new Dimension(0, 1));
         table.setGridColor(PerformanceTheme.resultGridColor());
-        // 设置自定义渲染器
         ResultRowRenderer rowRenderer = new ResultRowRenderer();
         table.setDefaultRenderer(Object.class, rowRenderer);
         // 数值列也走同一渲染器，否则 JTable 默认 NumberRenderer 会绕过格式化和配色。
         table.setDefaultRenderer(Number.class, rowRenderer);
 
-        // 配置 TableRowSorter
         rowSorter = new TableRowSorter<>(tableModel);
         table.setRowSorter(rowSorter);
         configureSorterComparators();
-
-        // 配置列宽
         configureColumnWidths();
 
-        JScrollPane tableScroll = new JScrollPane(table);
+        tableScroll = new JScrollPane(table);
         ToolWindowSurfaceStyle.applyTableScrollPaneCard(tableScroll, table);
+        tableScroll.setMinimumSize(new Dimension(tableMinimumWidth(), 150));
 
-        JPanel leftPanel = new JPanel(new BorderLayout());
-        ToolWindowSurfaceStyle.applyCard(leftPanel);
-        // 设置左侧面板边距
-        leftPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5));
-        leftPanel.add(searchPanel, BorderLayout.NORTH);
-        leftPanel.add(tableScroll, BorderLayout.CENTER);
+        detailPanel = createDetailPanel();
+
+        detailSplit = AppToolWindowChrome.createHorizontalInnerSplitPane(new JPanel(), new JPanel(), 0);
+        detailSplit.setResizeWeight(0.5);
+
+        // 默认只显示全宽表格；选中行后才展开右侧详情。
+        contentHolder = new JPanel(new BorderLayout());
+        contentHolder.setOpaque(false);
+        contentHolder.add(tableScroll, BorderLayout.CENTER);
+
+        add(searchPanel, BorderLayout.NORTH);
+        add(contentHolder, BorderLayout.CENTER);
+        updateRowCount();
+    }
+
+    private JPanel createDetailPanel() {
+        detailTitleLabel = new JLabel();
+        detailTitleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, 0));
+        detailSummaryLabel = new JLabel();
+        detailSummaryLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        detailSummaryLabel.setForeground(PerformanceTheme.resultMutedForeground());
+
+        JPanel titles = new JPanel(new GridLayout(2, 1, 0, 2));
+        titles.setOpaque(false);
+        titles.add(detailTitleLabel);
+        titles.add(detailSummaryLabel);
+
+        JButton closeButton = new JButton(IconUtil.createThemed("icons/close.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        closeButton.setToolTipText(I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_DETAIL_CLOSE));
+        closeButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        closeButton.setFocusable(false);
+        closeButton.addActionListener(e -> table.clearSelection());
+
+        JPanel header = new JPanel(new BorderLayout(8, 0));
+        header.setOpaque(false);
+        header.setBorder(BorderFactory.createEmptyBorder(2, 8, 6, 2));
+        header.add(titles, BorderLayout.CENTER);
+        header.add(closeButton, BorderLayout.EAST);
 
         detailTabs = new JTabbedPane();
         ToolWindowSurfaceStyle.applyTabbedPaneCard(detailTabs);
 
-        JSplitPane split = AppToolWindowChrome.createHorizontalInnerSplitPane(
-                leftPanel,
-                detailTabs,
-                760
-        );
-        leftPanel.setMinimumSize(new Dimension(560, 150));
-        leftPanel.setPreferredSize(new Dimension(760, 300));
-        split.setDividerLocation(760);
-        split.setResizeWeight(0.34);
-        add(split, BorderLayout.CENTER);
+        JPanel panel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(panel);
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
+        panel.setMinimumSize(new Dimension(320, 150));
+        panel.add(header, BorderLayout.NORTH);
+        panel.add(detailTabs, BorderLayout.CENTER);
+        panel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeResultDetail");
+        panel.getActionMap().put("closeResultDetail", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                table.clearSelection();
+            }
+        });
+        return panel;
+    }
+
+    boolean isDetailVisible() {
+        return detailPanel.getParent() == detailSplit && detailSplit.getParent() == contentHolder;
+    }
+
+    private void showDetailPanel() {
+        if (isDetailVisible()) {
+            return;
+        }
+        detailSplit.setLeftComponent(tableScroll);
+        detailSplit.setRightComponent(detailPanel);
+        contentHolder.removeAll();
+        contentHolder.add(detailSplit, BorderLayout.CENTER);
+        int width = contentHolder.getWidth();
+        int minTableWidth = tableScroll.getMinimumSize().width;
+        int location = lastDividerLocation > 0 && (width <= 0 || lastDividerLocation < width - 320)
+                ? lastDividerLocation
+                : Math.max(minTableWidth, (int) (width * 0.58));
+        detailSplit.setDividerLocation(location);
+        contentHolder.revalidate();
+        contentHolder.repaint();
+    }
+
+    private void hideDetailPanel() {
+        if (!isDetailVisible()) {
+            return;
+        }
+        lastDividerLocation = detailSplit.getDividerLocation();
+        contentHolder.removeAll();
+        contentHolder.add(tableScroll, BorderLayout.CENTER);
+        detailSplit.setRightComponent(null);
+        contentHolder.revalidate();
+        contentHolder.repaint();
     }
 
     // 配置排序比较器
@@ -215,14 +313,38 @@ public class PerformanceResultTablePanel extends JPanel {
 
     private void configureColumnWidth(int column, int min, int preferred, int max) {
         TableColumn tableColumn = table.getColumnModel().getColumn(column);
-        tableColumn.setMinWidth(min);
-        tableColumn.setPreferredWidth(preferred);
-        tableColumn.setMaxWidth(max);
+        // 表头文案（尤其英文）不能被截断，最小宽度至少容纳表头。
+        int headerWidth = headerPreferredWidth(tableColumn);
+        int effectiveMin = Math.max(min, headerWidth);
+        tableColumn.setMinWidth(effectiveMin);
+        tableColumn.setMaxWidth(Math.max(max, effectiveMin));
+        tableColumn.setPreferredWidth(Math.max(preferred, effectiveMin));
+    }
+
+    private int headerPreferredWidth(TableColumn tableColumn) {
+        javax.swing.table.TableCellRenderer renderer = tableColumn.getHeaderRenderer();
+        if (renderer == null) {
+            renderer = table.getTableHeader().getDefaultRenderer();
+        }
+        Component header = renderer.getTableCellRendererComponent(
+                table, tableColumn.getHeaderValue(), false, false, -1, tableColumn.getModelIndex());
+        return header.getPreferredSize().width + 24;
+    }
+
+    private int tableMinimumWidth() {
+        int width = 0;
+        for (int i = 0; i < table.getColumnModel().getColumnCount(); i++) {
+            width += table.getColumnModel().getColumn(i).getMinWidth();
+        }
+        return width + 4;
     }
 
     private void registerListeners() {
         // 选择监听器 - 显示详情
         table.getSelectionModel().addListSelectionListener(this::onRowSelected);
+        tableModel.addTableModelListener(e -> SwingUtilities.invokeLater(this::updateRowCount));
+        rowSorter.addRowSorterListener(e -> updateRowCount());
+        failedOnlyCheckBox.addActionListener(e -> doFilter());
 
 
         // 搜索防抖
@@ -263,14 +385,27 @@ public class PerformanceResultTablePanel extends JPanel {
      */
     private void doFilter() {
         String text = searchField.getText();
-        if (text == null || text.trim().isEmpty()) {
-            rowSorter.setRowFilter(null);
-            searchField.setNoResult(false);
-        } else {
-            rowSorter.setRowFilter(new ResultRowFilter(text.trim().toLowerCase()));
-            // 过滤后无可见行时变红
-            searchField.setNoResult(table.getRowCount() == 0);
+        String keyword = text == null ? "" : text.trim().toLowerCase();
+        List<RowFilter<ResultTableModel, Integer>> filters = new ArrayList<>(2);
+        if (!keyword.isEmpty()) {
+            filters.add(new ResultRowFilter(keyword));
         }
+        if (failedOnlyCheckBox.isSelected()) {
+            filters.add(new FailedOnlyRowFilter());
+        }
+        rowSorter.setRowFilter(filters.isEmpty() ? null
+                : filters.size() == 1 ? filters.get(0) : RowFilter.andFilter(filters));
+        // 关键字过滤后无可见行时变红
+        searchField.setNoResult(!keyword.isEmpty() && table.getRowCount() == 0);
+    }
+
+    private void updateRowCount() {
+        int total = tableModel.getRowCount();
+        int visible = table.getRowCount();
+        rowCountLabel.setText(visible == total
+                ? I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_ROW_COUNT_TOTAL, String.valueOf(total))
+                : I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_ROW_COUNT_FILTERED,
+                String.valueOf(visible), String.valueOf(total)));
     }
 
     private void onRowSelected(ListSelectionEvent e) {
@@ -279,13 +414,18 @@ public class PerformanceResultTablePanel extends JPanel {
         int row = table.getSelectedRow();
         if (row < 0) {
             clearDetailTabs();
+            hideDetailPanel();
             return;
         }
 
         // 转换视图索引到模型索引
         int modelRow = table.convertRowIndexToModel(row);
         ResultNodeInfo info = tableModel.getRow(modelRow);
+        if (info == null) {
+            return;
+        }
         renderDetail(info);
+        showDetailPanel();
     }
 
     public void addResult(ResultNodeInfo info) {
@@ -313,6 +453,7 @@ public class PerformanceResultTablePanel extends JPanel {
         table.clearSelection();
         tableModel.clear();
         clearDetailTabs();
+        hideDetailPanel();
     }
 
     private void trimPendingQueueForRetention(int rowLimit) {
@@ -331,7 +472,7 @@ public class PerformanceResultTablePanel extends JPanel {
     }
 
     private void renderDetail(ResultNodeInfo info) {
-        // 清除所有标签页
+        renderDetailHeader(info);
         detailTabs.removeAll();
 
         int responseTabIndex = -1;
@@ -393,6 +534,33 @@ public class PerformanceResultTablePanel extends JPanel {
         detailTabs.addTab(title, scrollPane);
     }
 
+    private void renderDetailHeader(ResultNodeInfo info) {
+        String url = info.req != null ? info.req.url : null;
+        String method = info.req != null ? info.req.method : null;
+        detailTitleLabel.setText(info.name == null || info.name.isBlank() ? "-" : info.name);
+        detailTitleLabel.setForeground(!info.cancelled && !info.isActuallySuccessful()
+                ? PerformanceTheme.resultFailureForeground()
+                : PerformanceTheme.tableForeground());
+        detailTitleLabel.setToolTipText(url == null ? null : (method == null ? "" : method + " ") + url);
+        detailSummaryLabel.setText(buildDetailSummary(info));
+    }
+
+    static String buildDetailSummary(ResultNodeInfo info) {
+        String status = info.cancelled
+                ? I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_CANCELLED)
+                : info.responseCode > 0 ? String.valueOf(info.responseCode) : "-";
+        return I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_DETAIL_SUMMARY,
+                status,
+                info.costMs + " ms",
+                formatMillisWithUnit(info.timing.latencyMs()),
+                formatMillisWithUnit(info.timing.connectMs()),
+                ResultRowRenderer.formatStartTime(info.timing.startTimeMs()));
+    }
+
+    private static String formatMillisWithUnit(long millis) {
+        return millis >= 0 ? millis + " ms" : "—";
+    }
+
     private void clearDetailTabs() {
         detailTabs.removeAll();
     }
@@ -402,6 +570,14 @@ public class PerformanceResultTablePanel extends JPanel {
         uiFrameTimer.stop();
         if (searchDebounceTimer != null) {
             searchDebounceTimer.stop();
+        }
+    }
+
+    static class FailedOnlyRowFilter extends RowFilter<ResultTableModel, Integer> {
+        @Override
+        public boolean include(Entry<? extends ResultTableModel, ? extends Integer> entry) {
+            ResultNodeInfo info = entry.getModel().getRow(entry.getIdentifier());
+            return info != null && !info.cancelled && !info.isActuallySuccessful();
         }
     }
 
@@ -696,8 +872,9 @@ public class PerformanceResultTablePanel extends JPanel {
             ResultNodeInfo info = getRowInfo(table, row);
 
             setBorder(createCellBorder(modelColumn, info, isSelected));
+            setToolTipText(null);
             if (!isSelected) {
-                setBackground(table.getBackground());
+                setBackground(row % 2 == 1 ? alternateRowBackground(table) : table.getBackground());
                 setForeground(table.getForeground());
             }
 
@@ -705,6 +882,9 @@ public class PerformanceResultTablePanel extends JPanel {
             switch (modelColumn) {
                 case ResultTableModel.COL_NAME -> {
                     setHorizontalAlignment(SwingConstants.LEFT);
+                    if (info != null && info.req != null && info.req.url != null) {
+                        setToolTipText(info.req.method == null ? info.req.url : info.req.method + " " + info.req.url);
+                    }
                     if (!isSelected && info != null && !info.cancelled && !info.isActuallySuccessful()) {
                         setForeground(PerformanceTheme.resultFailureForeground());
                         setFont(table.getFont().deriveFont(Font.BOLD));
@@ -735,6 +915,20 @@ public class PerformanceResultTablePanel extends JPanel {
             }
 
             return this;
+        }
+
+        private static Color alternateRowBackground(JTable table) {
+            Color alternate = UIManager.getColor("Table.alternateRowColor");
+            if (alternate != null) {
+                return alternate;
+            }
+            Color bg = table.getBackground();
+            Color fg = table.getForeground();
+            float ratio = 0.035f;
+            return new Color(
+                    Math.round(bg.getRed() + (fg.getRed() - bg.getRed()) * ratio),
+                    Math.round(bg.getGreen() + (fg.getGreen() - bg.getGreen()) * ratio),
+                    Math.round(bg.getBlue() + (fg.getBlue() - bg.getBlue()) * ratio));
         }
 
         static String formatStartTime(Object value) {

@@ -1250,6 +1250,11 @@ public final class MessageKeys {
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_LATENCY = "performance.result_tree.column.latency";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_CONNECT = "performance.result_tree.column.connect";
     public static final String PERFORMANCE_RESULT_TREE_SEARCH_PLACEHOLDER = "performance.result_tree.search_placeholder";
+    public static final String PERFORMANCE_RESULT_TREE_FAILED_ONLY = "performance.result_tree.failed_only";
+    public static final String PERFORMANCE_RESULT_TREE_ROW_COUNT_TOTAL = "performance.result_tree.row_count.total";
+    public static final String PERFORMANCE_RESULT_TREE_ROW_COUNT_FILTERED = "performance.result_tree.row_count.filtered";
+    public static final String PERFORMANCE_RESULT_TREE_DETAIL_CLOSE = "performance.result_tree.detail.close";
+    public static final String PERFORMANCE_RESULT_TREE_DETAIL_SUMMARY = "performance.result_tree.detail.summary";
 
     // ============ 历史记录相关 ============
     public static final String HISTORY_EMPTY_BODY = "history.empty_body";

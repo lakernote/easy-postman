@@ -1046,6 +1046,16 @@ public class CurlParserTest {
         assertEquals(findUrlencodedValue(result.urlencodedList, "tag"), "a+b");
     }
 
+    @Test(description = "-G keeps + in the query as curl sends it")
+    public void testForceGetKeepsPlusInQuery() {
+        String curl = "curl -G 'https://example.com/search' -d 'q=a+b'";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(findParamValue(result.paramsList, "q"), "a+b");
+        assertEquals(HttpUrlUtil.buildEncodedUrl(result.url, result.paramsList),
+                "https://example.com/search?q=a+b");
+    }
+
     @Test(description = "测试 data-urlencode 单个参数中的 & 是 value 内容")
     public void testDataUrlencodeTreatsAmpersandAsValueContentForPost() {
         String curl = "curl -XPOST 'https://example.com/search' " +

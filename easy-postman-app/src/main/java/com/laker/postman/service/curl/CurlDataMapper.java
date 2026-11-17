@@ -116,10 +116,10 @@ class CurlDataMapper {
         String[] kv = pair.split("=", 2);
         if (kv.length == 2) {
             paramsList.add(new HttpParam(true,
-                    decodeFormComponent(kv[0].trim()),
-                    decodeValue ? decodeFormComponent(kv[1].trim()) : kv[1]));
+                    HttpUrlUtil.decodeComponent(kv[0].trim()),
+                    decodeValue ? HttpUrlUtil.decodeComponent(kv[1].trim()) : kv[1]));
         } else if (kv.length == 1) {
-            paramsList.add(new HttpParam(true, decodeFormComponent(kv[0].trim()), ""));
+            paramsList.add(new HttpParam(true, HttpUrlUtil.decodeComponent(kv[0].trim()), ""));
         }
     }
 

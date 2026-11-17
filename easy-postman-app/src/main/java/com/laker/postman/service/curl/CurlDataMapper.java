@@ -155,12 +155,12 @@ class CurlDataMapper {
         String[] kv = pair.split("=", 2);
         if (kv.length == 2) {
             urlencodedList.add(new HttpFormUrlencoded(true,
-                    HttpUrlUtil.decodeComponent(kv[0].trim()),
-                    decodeValue ? HttpUrlUtil.decodeComponent(kv[1].trim()) : kv[1]));
+                    decodeFormComponent(kv[0].trim()),
+                    decodeValue ? decodeFormComponent(kv[1].trim()) : kv[1]));
             return true;
         }
         if (kv.length == 1 && !kv[0].trim().isEmpty()) {
-            urlencodedList.add(new HttpFormUrlencoded(true, HttpUrlUtil.decodeComponent(kv[0].trim()), ""));
+            urlencodedList.add(new HttpFormUrlencoded(true, decodeFormComponent(kv[0].trim()), ""));
             return true;
         }
         return false;
@@ -178,5 +178,12 @@ class CurlDataMapper {
         combined.addAll(dataParams);
         combined.addAll(dataUrlencodeParams);
         return String.join("&", combined);
+    }
+
+    /**
+     * Decodes one key or value of form-urlencoded data, where {@code +} stands for a space.
+     */
+    private static String decodeFormComponent(String value) {
+        return HttpUrlUtil.decodeComponent(value.replace('+', ' '));
     }
 }

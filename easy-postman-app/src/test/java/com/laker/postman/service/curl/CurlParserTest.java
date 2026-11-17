@@ -1035,6 +1035,27 @@ public class CurlParserTest {
         assertNull(result.body, "当使用 urlencoded 时，body 应该为 null");
     }
 
+    @Test(description = "Copy as cURL form data: + is a space, %2B is a plus")
+    public void testDataRawFormPlusIsSpace() {
+        String curl = "curl 'https://example.com/search' " +
+                "-H 'Content-Type: application/x-www-form-urlencoded' " +
+                "--data-raw 'q=hello+world&tag=a%2Bb'";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(findUrlencodedValue(result.urlencodedList, "q"), "hello world");
+        assertEquals(findUrlencodedValue(result.urlencodedList, "tag"), "a+b");
+    }
+
+    @Test(description = "-G keeps + in the query as curl sends it")
+    public void testForceGetKeepsPlusInQuery() {
+        String curl = "curl -G 'https://example.com/search' -d 'q=a+b'";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(findParamValue(result.paramsList, "q"), "a+b");
+        assertEquals(HttpUrlUtil.buildEncodedUrl(result.url, result.paramsList),
+                "https://example.com/search?q=a+b");
+    }
+
     @Test(description = "测试 data-urlencode 单个参数中的 & 是 value 内容")
     public void testDataUrlencodeTreatsAmpersandAsValueContentForPost() {
         String curl = "curl -XPOST 'https://example.com/search' " +

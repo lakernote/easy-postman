@@ -430,6 +430,7 @@ public class PerformancePanel extends UiSingletonPanel {
         }
         selectFirstThreadGroup();
         setupSaveShortcut();
+        rememberLoadedBaseline();
     }
 
     private JSplitPane createWorkspaceSplitPane(PerformancePanelViewFactory.TreeSection treeSection,
@@ -476,6 +477,10 @@ public class PerformancePanel extends UiSingletonPanel {
         );
     }
 
+    public boolean isRunInProgress() {
+        return running;
+    }
+
     public void switchWorkspaceAndRefreshUI() {
         if (!isReadyForWorkspaceSwitch()) {
             return;
@@ -518,6 +523,16 @@ public class PerformancePanel extends UiSingletonPanel {
             performanceTree.expandRow(i);
         }
         selectFirstThreadGroup();
+        rememberLoadedBaseline();
+    }
+
+    /**
+     * 恢复界面状态时控件监听会触发自动保存；以界面加载结果为基准后，这些保存不会写盘，
+     * 文件被 Git 删除时也不会因切换/退出而重新生成默认方案。
+     */
+    private void rememberLoadedBaseline() {
+        autoSaveSupport.cancel();
+        persistenceService.rememberLoaded(currentWorkspaceSnapshot());
     }
 
     private boolean isReadyForWorkspaceSwitch() {
@@ -1002,7 +1017,7 @@ public class PerformancePanel extends UiSingletonPanel {
 
         saveAllPropertyPanelData();
 
-        persistenceService.saveWorkspace(currentWorkspaceSnapshot());
+        persistenceService.saveWorkspaceNow(currentWorkspaceSnapshot());
         NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_SAVE_SUCCESS));
     }
 

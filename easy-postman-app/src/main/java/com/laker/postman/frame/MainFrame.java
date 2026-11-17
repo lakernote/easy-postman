@@ -1,5 +1,6 @@
 package com.laker.postman.frame;
 
+import com.laker.postman.panel.workspace.WorkspaceExternalChangeMonitor;
 import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.placeholder.StartupShellPlaceholderPanel;
 import com.laker.postman.common.constants.Icons;
@@ -43,6 +44,8 @@ public class MainFrame extends JFrame {
     public void initComponents() {
         setJMenuBar(UiSingletonFactory.getInstance(TopMenuBar.class));
         initStartupShell();
+        // 主内容加载完成后再监听窗口激活，检查工作区文件是否被 IDE、AI 或 Git 在外部修改。
+        whenMainContentLoaded(() -> WorkspaceExternalChangeMonitor.install(this));
     }
 
     private void initStartupShell() {

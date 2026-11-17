@@ -1,6 +1,7 @@
 package com.laker.postman.mcp;
 
 import com.laker.postman.model.Workspace;
+import com.laker.postman.plugin.git.GitWorkspaceLayout;
 import com.laker.postman.util.WorkspaceStorageUtil;
 import com.laker.postman.workspace.cli.WorkspaceRunWorkspace;
 import com.laker.postman.workspace.cli.WorkspaceRunWorkspaceResolver;
@@ -91,7 +92,7 @@ final class McpWorkspaceCatalog {
                 "local-" + shortHash(normalized.toString()),
                 resolved.name(),
                 "",
-                "LOCAL",
+                detectedType(normalized),
                 normalized,
                 true
         ));
@@ -125,10 +126,17 @@ final class McpWorkspaceCatalog {
                 id,
                 name,
                 safe(workspace.getDescription()),
-                workspace.getType() == null ? "LOCAL" : workspace.getType().name(),
+                detectedType(directory),
                 directory,
                 id.equals(currentId)
         );
+    }
+
+    /**
+     * Git 类型以磁盘事实为准：数据目录位于任意 Git 工作树内即为 GIT。
+     */
+    private static String detectedType(Path directory) {
+        return GitWorkspaceLayout.detectDirectory(directory).isPresent() ? "GIT" : "LOCAL";
     }
 
     private static Path pathOf(Workspace workspace) {

@@ -232,6 +232,33 @@ public class WebDavSnapshotServiceTest {
     }
 
     @Test
+    public void snapshotShouldStripGitCredentialsFromLocalWorkspaces() throws Exception {
+        Path dataRoot = Files.createTempDirectory("webdav-snapshot-local-credentials");
+        write(dataRoot.resolve("workspaces/api/collections.json"), "{}");
+        write(dataRoot.resolve("workspaces.json"), """
+                [{
+                  "id":"api",
+                  "name":"API",
+                  "type":"LOCAL",
+                  "path":"%s",
+                  "gitUsername":"dev",
+                  "gitPassword":"pwd-secret",
+                  "gitToken":"token-secret",
+                  "sshPassphrase":"ssh-secret"
+                }]
+                """.formatted(dataRoot.resolve("workspaces/api").toString()));
+
+        Path snapshot = Files.createTempFile("webdav-snapshot-local-credentials", ".zip");
+        new WebDavSnapshotService().createSnapshot(dataRoot, snapshot);
+
+        String workspaceEntry = zipEntries(snapshot).get("workspaces.json");
+        assertFalse(workspaceEntry.contains("pwd-secret"));
+        assertFalse(workspaceEntry.contains("token-secret"));
+        assertFalse(workspaceEntry.contains("ssh-secret"));
+        assertTrue(workspaceEntry.replaceAll("\\s+", "").contains("\"gitUsername\":\"dev\""));
+    }
+
+    @Test
     public void snapshotShouldIncludeExternalWorkspacesAndRestoreThemUnderDataRoot() throws Exception {
         Path dataRoot = Files.createTempDirectory("webdav-snapshot-external-root");
         Path externalWorkspace = Files.createTempDirectory("webdav-snapshot-external-workspace");

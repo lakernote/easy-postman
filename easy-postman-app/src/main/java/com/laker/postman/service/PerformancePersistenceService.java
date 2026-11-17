@@ -64,6 +64,19 @@ public class PerformancePersistenceService {
         writeAndWait(() -> planStorage.saveWorkspace(configPath, workspace));
     }
 
+    /**
+     * 用户显式保存：即使内容未变也写盘。
+     */
+    public void saveWorkspaceNow(PerformancePlanWorkspace workspace) {
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> planStorage.saveWorkspace(configPath, workspace, true));
+    }
+
+    public void rememberLoaded(PerformancePlanWorkspace workspace) {
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> planStorage.rememberLoaded(configPath, workspace));
+    }
+
     public void saveWorkspaceAsync(PerformancePlanWorkspace workspace) {
         Path configPath = getConfigFilePath();
         saveExecutor.execute(() -> planStorage.saveWorkspace(configPath, workspace));

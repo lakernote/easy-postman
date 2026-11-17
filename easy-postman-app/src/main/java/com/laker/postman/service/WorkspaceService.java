@@ -12,7 +12,12 @@ import com.laker.postman.model.RemoteStatus;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
 import com.laker.postman.plugin.api.service.GitPluginService;
+import com.laker.postman.plugin.git.GitWorkspaceLayout;
 import com.laker.postman.plugin.host.GitServiceAccess;
+import com.laker.postman.service.collections.CollectionDocumentJsonCodec;
+import com.laker.postman.service.collections.DefaultCollectionDocumentFactory;
+import com.laker.postman.util.SafeFileUtil;
+import com.laker.postman.service.env.DefaultEnvironments;
 import com.laker.postman.util.WorkspaceStorageUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +28,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 工作区服务类
@@ -60,35 +68,103 @@ public class WorkspaceService {
     /**
      * 创建新工作区
      */
-    public void createWorkspace(Workspace workspace) throws Exception {
+    private static final long GIT_LAYOUT_CACHE_TTL_MS = 3000;
+    private static final List<String> WORKSPACE_DATA_FILES = List.of(
+            "collections.json", "environments.json", "functional_config.json",
+            "performance_config.json", "mock_servers.json");
+    private final Map<String, CachedGitLayout> gitLayoutCache = new ConcurrentHashMap<>();
+
+    private final Set<String> resolvingGitLayouts = ConcurrentHashMap.newKeySet();
+    private final java.util.concurrent.ExecutorService gitLayoutExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "workspace-git-layout");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    private record CachedGitLayout(GitWorkspaceLayout layout, long checkedAt) {
+    }
+
+    /**
+     * 不阻塞调用线程的 Git 布局查询结果。
+     *
+     * @param known  是否已有磁盘探测结果；为 {@code false} 时只能按已保存的类型暂时显示
+     * @param layout 所在仓库布局；不在 Git 仓库中时为 {@code null}
+     */
+    public record GitLayoutPeek(boolean known, GitWorkspaceLayout layout) {
+    }
+
+    /**
+     * 串行创建（新建、打开文件夹可能在后台线程并发进行），避免同一目录被登记两次。
+     */
+    public synchronized void createWorkspace(Workspace workspace) throws Exception {
         if (WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
             throw new IllegalArgumentException("Cannot create the default workspace");
         }
         validateWorkspace(workspace);
-
         // 生成唯一ID
         workspace.setId(UUID.randomUUID().toString());
         workspace.setCreatedAt(System.currentTimeMillis());
         workspace.setUpdatedAt(System.currentTimeMillis());
 
-        // 对于非Git克隆模式，创建本地目录
+        // 对于非Git克隆模式，创建本地目录；空目录写入初始数据（已在代码仓库中时只写空文件，不带示例）
+        Path workspacePath = Paths.get(workspace.getPath());
+        boolean seeded = false;
         if (workspace.getType() != WorkspaceType.GIT || workspace.getGitRepoSource() != GitRepoSource.CLONED) {
-            Path workspacePath = Paths.get(workspace.getPath());
             if (!Files.exists(workspacePath)) {
                 Files.createDirectories(workspacePath);
             }
+            seeded = !containsWorkspaceData(workspacePath);
+            seedWorkspaceData(workspacePath, GitWorkspaceLayout.detectDirectory(workspacePath).isEmpty());
         }
 
         // 根据工作区类型执行相应操作
         if (workspace.getType() == WorkspaceType.GIT) {
-            handleGitWorkspace(workspace);
+            try {
+                handleGitWorkspace(workspace);
+            } catch (Exception e) {
+                // 创建失败时不在（可能属于代码仓库的）目录里留下刚写入的初始文件
+                if (seeded) {
+                    Files.deleteIfExists(workspacePath.resolve("collections.json"));
+                    Files.deleteIfExists(workspacePath.resolve("environments.json"));
+                }
+                throw e;
+            }
         }
 
-        // 添加到工作区列表并保存
+        invalidateGitLayoutCache();
         workspaces.add(workspace);
         saveWorkspaces();
 
         log.info("Created workspace: {} ({})", workspace.getName(), workspace.getType());
+    }
+
+    /**
+     * 目录已被其他工作区使用。
+     */
+    public static class DuplicateWorkspacePathException extends IllegalArgumentException {
+        public DuplicateWorkspacePathException(String path) {
+            super("Path is already used by another workspace: " + path);
+        }
+    }
+
+    /**
+     * 规范化路径用于比较：解析符号链接（目录不存在时解析最近的已存在祖先）。
+     */
+    static Path canonicalPath(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        Path existing = absolute;
+        while (existing != null && !Files.exists(existing)) {
+            existing = existing.getParent();
+        }
+        if (existing == null) {
+            return absolute;
+        }
+        try {
+            return existing.toRealPath().resolve(existing.relativize(absolute)).normalize();
+        } catch (IOException e) {
+            return absolute;
+        }
     }
 
     /**
@@ -128,13 +204,8 @@ public class WorkspaceService {
             }
         }
 
-        // 检查路径是否已被其他工作区使用
-        String normalizedPath = Paths.get(workspace.getPath()).toAbsolutePath().normalize().toString();
-        boolean pathExists = workspaces.stream()
-                .anyMatch(w -> Paths.get(w.getPath()).toAbsolutePath().normalize().toString().equals(normalizedPath));
-
-        if (pathExists) {
-            throw new IllegalArgumentException("Path is already used by another workspace");
+        if (findWorkspaceByPath(Paths.get(workspace.getPath())) != null) {
+            throw new DuplicateWorkspacePathException(workspace.getPath());
         }
 
         // 对于Git克隆模式，检查目标目录是否已存在且不为空
@@ -336,6 +407,7 @@ public class WorkspaceService {
      */
     private void loadWorkspaces() {
         try {
+            boolean firstRun = !WorkspaceStorageUtil.hasWorkspaceRegistry();
             workspaces = WorkspaceStorageUtil.loadWorkspaces();
 
             String storedCurrentWorkspaceId = WorkspaceStorageUtil.getCurrentWorkspace();
@@ -351,6 +423,17 @@ public class WorkspaceService {
             if (currentWorkspace == null && !workspaces.isEmpty()) {
                 currentWorkspace = workspaces.get(0);
                 WorkspaceStorageUtil.saveCurrentWorkspace(currentWorkspace.getId());
+            }
+
+            if (firstRun) {
+                // 示例数据只在首次启动写入一次；之后默认工作区即使被清空也保持为空。
+                // 写入失败时不保存登记表，下次启动仍按首次启动重试。
+                boolean seeded = workspaces.stream()
+                        .map(WorkspaceService::seedDefaultWorkspaceOnFirstRun)
+                        .reduce(true, Boolean::logicalAnd);
+                if (seeded) {
+                    WorkspaceStorageUtil.saveWorkspaces(workspaces);
+                }
             }
 
             String selectionSource = storedWorkspaceSelected
@@ -418,6 +501,7 @@ public class WorkspaceService {
      */
     public void convertLocalToGit(Workspace workspace, String localBranch) throws Exception {
         requireGitService().convertLocalToGit(workspace, localBranch);
+        invalidateGitLayoutCache();
         saveWorkspaces();
     }
 
@@ -506,6 +590,161 @@ public class WorkspaceService {
 
     public boolean isGitServiceAvailable() {
         return GitServiceAccess.isServiceAvailable();
+    }
+
+    /**
+     * Git 能力来自磁盘事实：工作区目录位于任意（非 bare）Git 工作树内即可使用。
+     */
+    public GitWorkspaceLayout detectGitLayout(Workspace workspace) {
+        if (workspace == null || workspace.getPath() == null) {
+            return null;
+        }
+        String key = gitLayoutCacheKey(workspace);
+        long now = System.currentTimeMillis();
+        CachedGitLayout cached = gitLayoutCache.get(key);
+        if (cached != null && now - cached.checkedAt() < GIT_LAYOUT_CACHE_TTL_MS) {
+            return cached.layout();
+        }
+        GitWorkspaceLayout layout = GitWorkspaceLayout.detect(workspace).orElse(null);
+        gitLayoutCache.put(key, new CachedGitLayout(layout, now));
+        return layout;
+    }
+
+    /**
+     * 供界面渲染使用：只读取缓存，缓存缺失或过期时在后台探测，结果变化后在 EDT 上回调（通常是重绘）。
+     */
+    public GitLayoutPeek peekGitLayout(Workspace workspace, Runnable onResolved) {
+        if (workspace == null || workspace.getPath() == null) {
+            return new GitLayoutPeek(true, null);
+        }
+        String key = gitLayoutCacheKey(workspace);
+        CachedGitLayout cached = gitLayoutCache.get(key);
+        boolean fresh = cached != null && System.currentTimeMillis() - cached.checkedAt() < GIT_LAYOUT_CACHE_TTL_MS;
+        if (!fresh && resolvingGitLayouts.add(key)) {
+            gitLayoutExecutor.execute(() -> {
+                boolean changed;
+                try {
+                    GitWorkspaceLayout layout = GitWorkspaceLayout.detect(workspace).orElse(null);
+                    CachedGitLayout previous = gitLayoutCache.put(key, new CachedGitLayout(layout, System.currentTimeMillis()));
+                    changed = previous == null || !java.util.Objects.equals(previous.layout(), layout);
+                } finally {
+                    resolvingGitLayouts.remove(key);
+                }
+                if (changed && onResolved != null) {
+                    javax.swing.SwingUtilities.invokeLater(onResolved);
+                }
+            });
+        }
+        return cached == null ? new GitLayoutPeek(false, null) : new GitLayoutPeek(true, cached.layout());
+    }
+
+    /**
+     * 仓库归属判断会用到创建来源和记录的提交，它们变化时不能复用旧结果。
+     */
+    private static String gitLayoutCacheKey(Workspace workspace) {
+        return String.join("|", workspace.getPath(), String.valueOf(workspace.getGitRepoSource()),
+                String.valueOf(workspace.getLastCommitId()));
+    }
+
+    public void invalidateGitLayoutCache() {
+        gitLayoutCache.clear();
+    }
+
+    /**
+     * 把已有目录（可位于任意代码仓库中）注册为本地工作区；Git 能力由磁盘自动检测，不修改仓库。
+     */
+    public synchronized Workspace openFolderAsWorkspace(Path directory, String name) throws Exception {
+        Workspace workspace = new Workspace();
+        workspace.setName(name);
+        workspace.setType(WorkspaceType.LOCAL);
+        workspace.setPath(directory.toAbsolutePath().normalize().toString());
+        try {
+            createWorkspace(workspace);
+            return workspace;
+        } catch (DuplicateWorkspacePathException e) {
+            // 同一目录已登记（例如重复点击打开）：直接使用已有登记
+            Workspace existing = findWorkspaceByPath(directory);
+            if (existing == null) {
+                throw e;
+            }
+            return existing;
+        }
+    }
+
+    public Workspace findWorkspaceByPath(Path directory) {
+        Path canonical = canonicalPath(directory);
+        return new ArrayList<>(workspaces).stream()
+                .filter(w -> w.getPath() != null && canonicalPath(Paths.get(w.getPath())).equals(canonical))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 目录中还没有任何工作区数据时写入初始的集合与环境文件；加载数据时缺失的文件不会再自动生成。
+     */
+    static void seedWorkspaceData(Path directory, boolean withSamples) throws IOException {
+        if (containsWorkspaceData(directory)) {
+            return;
+        }
+        String collections = withSamples
+                ? CollectionDocumentJsonCodec.toJson(DefaultCollectionDocumentFactory.create()).toStringPretty()
+                : "[]";
+        String environments = withSamples ? DefaultEnvironments.json() : "[]";
+        SafeFileUtil.writeStringAtomically(directory.resolve("collections.json"), collections);
+        SafeFileUtil.writeStringAtomically(directory.resolve("environments.json"), environments);
+    }
+
+    private static boolean seedDefaultWorkspaceOnFirstRun(Workspace workspace) {
+        if (workspace == null || !WorkspaceStorageUtil.isDefaultWorkspace(workspace) || workspace.getPath() == null) {
+            return true;
+        }
+        return seedFirstRunDirectory(Paths.get(workspace.getPath()));
+    }
+
+    /**
+     * 首次启动时，默认工作区目录不存在或为空才写入示例数据。
+     */
+    static boolean seedFirstRunDirectory(Path directory) {
+        if (Files.exists(directory) && !isEmptyDirectory(directory)) {
+            return true;
+        }
+        try {
+            Files.createDirectories(directory);
+            seedWorkspaceData(directory, true);
+            return true;
+        } catch (IOException e) {
+            log.warn("Failed to seed default workspace: {}", directory, e);
+            return false;
+        }
+    }
+
+    private static boolean isEmptyDirectory(Path directory) {
+        try (var entries = Files.list(directory)) {
+            return entries.findAny().isEmpty();
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    public static boolean containsWorkspaceData(Path directory) {
+        for (String fileName : WORKSPACE_DATA_FILES) {
+            if (Files.isRegularFile(directory.resolve(fileName))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean isGitEnabled(Workspace workspace) {
+        return detectGitLayout(workspace) != null;
+    }
+
+    /**
+     * 仅 EasyPostman 创建/克隆且数据目录即仓库根时，才开放强制拉取/推送、Stash、历史恢复等整仓库改写操作。
+     */
+    public boolean hasGitFullControl(Workspace workspace) {
+        GitWorkspaceLayout layout = detectGitLayout(workspace);
+        return layout != null && layout.isFullControl();
     }
 
     public List<GitBranchInfo> listGitBranches(String workspaceId) throws Exception {

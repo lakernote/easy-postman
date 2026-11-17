@@ -27,6 +27,10 @@ public class CollectionDocumentJsonCodec {
         return fromJson(JSONUtil.readJSONArray(file, StandardCharsets.UTF_8));
     }
 
+    public CollectionDocument read(String content) {
+        return fromJson(JSONUtil.parseArray(content));
+    }
+
     public void write(File file, CollectionDocument document) throws IOException {
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
             writer.write(toJson(document).toStringPretty());

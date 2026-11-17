@@ -1,19 +1,20 @@
 package com.laker.postman.service;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.laker.postman.model.Environment;
 import com.laker.postman.model.Workspace;
+import com.laker.postman.util.SafeFileUtil;
 import com.laker.postman.util.SystemUtil;
 import lombok.Getter;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 
 /**
@@ -62,33 +63,75 @@ public class EnvironmentService {
      */
     private static void loadEnvironmentsFromPath(String filePath) {
         File file = new File(filePath);
-        if (!file.exists()) {
-            log.info("环境变量文件不存在: {}, 将创建默认环境", filePath);
-            createDefaultEnvironments();
+        Optional<String> content;
+        try {
+            content = SafeFileUtil.readForLoad(file.toPath());
+        } catch (IOException e) {
+            content = null;
+        }
+        if (content != null && content.isEmpty()) {
+            // 文件缺失（例如切换分支删除了它）时只清空内存，不生成默认文件，避免把仓库重新弄脏。
+            log.info("环境变量文件不存在，按空环境加载: {}", filePath);
+            replaceEnvironments(new LinkedHashMap<>(), null);
+            rememberLoaded(filePath);
             return;
         }
 
+        Map<String, Environment> loaded = new LinkedHashMap<>();
+        Environment loadedActive = null;
         try {
-            environments.clear();
-            JSONArray array = JSONUtil.readJSONArray(file, StandardCharsets.UTF_8);
+            if (content == null) {
+                throw new IOException("Cannot read " + filePath);
+            }
+            JSONArray array = JSONUtil.parseArray(content.get());
             for (Object obj : array) {
                 Environment env = JSONUtil.toBean((JSONObject) obj, Environment.class);
-                environments.put(env.getId(), env);
+                loaded.put(env.getId(), env);
                 if (env.isActive()) {
-                    activeEnvironment = env;
+                    loadedActive = env;
                 }
             }
-
-            if (activeEnvironment == null && !environments.isEmpty()) {
-                // 如果没有激活的环境，激活第一个
-                Environment firstEnv = environments.values().iterator().next();
-                firstEnv.setActive(true);
-                activeEnvironment = firstEnv;
-                saveEnvironments();
-            }
         } catch (Exception e) {
-            log.error("加载环境变量失败: {}", filePath, e);
-            createDefaultEnvironments();
+            // 外部编辑可能留下不完整的 JSON：保留原文件并备份，不能用默认环境覆盖。
+            log.error("加载环境变量失败，原文件保持不变: {}", filePath, e);
+            SafeFileUtil.backupUnreadable(file.toPath());
+            replaceEnvironments(new LinkedHashMap<>(), null);
+            rememberLoaded(filePath);
+            return;
+        }
+
+        if (loadedActive == null && !loaded.isEmpty()) {
+            // 只在内存中激活，加载过程不回写磁盘
+            loadedActive = loaded.values().iterator().next();
+            loadedActive.setActive(true);
+        }
+        replaceEnvironments(loaded, loadedActive);
+        rememberLoaded(filePath);
+    }
+
+    private static void replaceEnvironments(Map<String, Environment> loaded, Environment active) {
+        synchronized (environments) {
+            environments.clear();
+            environments.putAll(loaded);
+        }
+        activeEnvironment = active;
+    }
+
+    /**
+     * 以加载结果为保存基准：未修改时保存不写盘，不会重新生成被删除的文件或覆盖推迟重新加载的外部修改。
+     */
+    private static void rememberLoaded(String filePath) {
+        if (filePath == null) {
+            return;
+        }
+        try {
+            List<Environment> envList;
+            synchronized (environments) {
+                envList = new ArrayList<>(environments.values());
+            }
+            SafeFileUtil.rememberLoaded(Path.of(filePath), JSONUtil.toJsonPrettyStr(envList));
+        } catch (Exception e) {
+            log.debug("记录环境变量加载基准失败", e);
         }
     }
 
@@ -106,32 +149,6 @@ public class EnvironmentService {
     }
 
     /**
-     * 创建默认环境
-     */
-    private static void createDefaultEnvironments() {
-        environments.clear();
-
-        // Create Development Environment
-        Environment devEnv = new Environment("Dev Env");
-        devEnv.setId("dev-" + System.currentTimeMillis());
-        devEnv.setActive(true);
-        devEnv.addVariable("baseUrl", "https://so.gitee.com");
-        devEnv.addVariable("apiKey", "dev-api-key-123");
-
-        // Create Testing Environment
-        Environment testEnv = new Environment("Test Env");
-        testEnv.setId("test-" + System.currentTimeMillis());
-        testEnv.addVariable("baseUrl", "https://so.csdn.net/so/search");
-        testEnv.addVariable("apiKey", "test-api-key-456");
-
-        environments.put(devEnv.getId(), devEnv);
-        environments.put(testEnv.getId(), testEnv);
-        activeEnvironment = devEnv;
-
-        saveEnvironments();
-    }
-
-    /**
      * 保存所有环境变量
      */
     public static void saveEnvironments() {
@@ -144,16 +161,11 @@ public class EnvironmentService {
                 filePath = SystemUtil.getEnvPathForWorkspace(currentWorkspace);
             }
 
-            File file = new File(filePath);
-            File parentDir = file.getParentFile();
-            if (!parentDir.exists()) {
-                parentDir.mkdirs();
+            List<Environment> envList;
+            synchronized (environments) {
+                envList = new ArrayList<>(environments.values());
             }
-
-            List<Environment> envList = new ArrayList<>(environments.values());
-            String jsonStr = JSONUtil.toJsonPrettyStr(envList);
-
-            FileUtil.writeString(jsonStr, file, StandardCharsets.UTF_8);
+            SafeFileUtil.writeIfChanged(Path.of(filePath), JSONUtil.toJsonPrettyStr(envList));
             log.debug("环境变量已保存到: {}", filePath);
         } catch (Exception e) {
             log.error("保存环境变量失败", e);

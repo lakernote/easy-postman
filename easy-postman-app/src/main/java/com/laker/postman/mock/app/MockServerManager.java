@@ -224,6 +224,10 @@ public class MockServerManager {
         if (runtime != null) runtime.updateScript(definition.getScript());
     }
 
+    public synchronized boolean hasRunningServers() {
+        return runtimes.values().stream().anyMatch(LocalMockServer::isRunning);
+    }
+
     public synchronized void reloadWorkspace() {
         stopAll();
         loadCurrentWorkspace();
@@ -241,6 +245,7 @@ public class MockServerManager {
         workspaceId = currentWorkspaceId();
         definitions.clear();
         persistenceService.load().stream().map(this::normalizedCopy).forEach(definitions::add);
+        persistenceService.rememberLoaded(definitions);
         definitionsRevision++;
     }
 

@@ -24,6 +24,7 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand;
 import org.eclipse.jgit.api.LsRemoteCommand;
 import org.eclipse.jgit.api.Status;
+import org.eclipse.jgit.api.errors.EmptyCommitException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.api.errors.RefNotAdvertisedException;
 import org.eclipse.jgit.diff.DiffEntry;
@@ -51,6 +52,7 @@ import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
+import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 
 import java.io.ByteArrayOutputStream;
@@ -69,6 +71,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -94,8 +97,14 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitStatusCheck checkGitStatus(Workspace workspace, GitOperation operation) {
+        Optional<GitWorkspaceLayout> layout = GitWorkspaceLayout.detect(workspace);
+        String repositoryPath = layout.map(value -> value.getRepositoryRoot().toString()).orElse(workspace.getPath());
+        List<String> managedPaths = layout.map(GitWorkspaceLayout::managedPathFilters).orElse(null);
+        String scope = layout.map(GitWorkspaceLayout::getScope).orElse("");
         return GitConflictDetector.checkGitStatus(
-                workspace.getPath(),
+                repositoryPath,
+                managedPaths,
+                scope,
                 operation.name(),
                 getCredentialsProvider(workspace),
                 getSshCredentialsProvider(workspace)
@@ -112,7 +121,7 @@ public class GitWorkspacePluginService implements GitPluginService {
     @Override
     public List<GitBranchInfo> listBranches(Workspace workspace) throws Exception {
         ensureGitWorkspace(workspace);
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             String currentBranch = git.getRepository().getBranch();
             List<Ref> refs = git.branchList().setListMode(ListBranchCommand.ListMode.ALL).call();
             Map<String, String> trackingByLocalBranch = localBranchTrackingMap(git, refs);
@@ -144,7 +153,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Switch Branch";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             var status = git.status().call();
             if (!status.isClean()) {
                 throw new IllegalStateException("Cannot switch branches with uncommitted changes. Commit or stash changes first.");
@@ -182,7 +191,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Fetch Branches";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             var remotes = git.remoteList().call();
             if (remotes.isEmpty()) {
                 throw new IllegalStateException("No remote repository configured, unable to fetch branches");
@@ -210,7 +219,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Create Branch";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             if (git.getRepository().resolve("refs/heads/" + localBranch) != null) {
                 throw new IllegalArgumentException("Branch already exists: " + localBranch);
             }
@@ -241,7 +250,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Delete Branch";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             String currentBranch = git.getRepository().getBranch();
             if (localBranch.equals(currentBranch)) {
                 throw new IllegalStateException("Cannot delete the current branch: " + localBranch);
@@ -275,7 +284,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Publish Branch";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             var remotes = git.remoteList().call();
             if (remotes.isEmpty()) {
                 throw new IllegalStateException("No remote repository configured, unable to publish branch");
@@ -345,7 +354,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Pull";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             String branch = git.getRepository().getBranch();
             String tracking = git.getRepository().getConfig().getString("branch", branch, "merge");
             if (tracking == null) {
@@ -445,7 +454,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Push";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             var remotes = git.remoteList().call();
             if (remotes.isEmpty()) {
                 throw new IllegalStateException("No remote repository configured, unable to push");
@@ -557,11 +566,11 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitOperationResult forcePushChanges(Workspace workspace) throws Exception {
-        ensureGitWorkspace(workspace);
+        ensureFullControl(workspace);
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Force Push";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             TrackingRef trackingRef = resolveTrackingRef(git);
             ObjectId expectedRemoteId = git.getRepository().resolve(trackingRef.remoteTrackingRef());
             RefSpec forceRefSpec = new RefSpec("refs/heads/" + trackingRef.localBranch()
@@ -607,11 +616,11 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitOperationResult stashChanges(Workspace workspace) throws Exception {
-        ensureGitWorkspace(workspace);
+        ensureFullControl(workspace);
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Stash";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             var status = git.status().call();
             result.affectedFiles.addAll(status.getModified());
             result.affectedFiles.addAll(status.getChanged());
@@ -635,11 +644,11 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitOperationResult popStashChanges(Workspace workspace) throws Exception {
-        ensureGitWorkspace(workspace);
+        ensureFullControl(workspace);
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Pop Stash";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             if (!git.stashList().call().iterator().hasNext()) {
                 throw new RuntimeException("No stashed changes found");
             }
@@ -666,11 +675,11 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitOperationResult forcePullUpdates(Workspace workspace) throws Exception {
-        ensureGitWorkspace(workspace);
+        ensureFullControl(workspace);
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Force Pull";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             var statusBefore = git.status().call();
             result.affectedFiles.addAll(statusBefore.getModified());
             result.affectedFiles.addAll(statusBefore.getChanged());
@@ -709,28 +718,61 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitOperationResult commitChanges(Workspace workspace, String message) throws Exception {
-        ensureGitWorkspace(workspace);
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
         GitOperationResult result = new GitOperationResult();
         result.operationType = "Commit";
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = git.status().call();
+        try (Git git = openGit(workspace)) {
+            var status = scopedStatus(git, layout);
             boolean hasChanges = !status.getAdded().isEmpty()
                     || !status.getModified().isEmpty()
                     || !status.getRemoved().isEmpty()
                     || !status.getUntracked().isEmpty()
-                    || !status.getMissing().isEmpty();
+                    || !status.getMissing().isEmpty()
+                    || !status.getChanged().isEmpty();
             if (!hasChanges) {
                 throw new IllegalStateException("No file changes to commit");
             }
 
-            result.affectedFiles.addAll(status.getAdded());
-            result.affectedFiles.addAll(status.getModified());
-            result.affectedFiles.addAll(status.getRemoved());
-            result.affectedFiles.addAll(status.getUntracked());
+            addDataPaths(result.affectedFiles, layout, status.getAdded());
+            addDataPaths(result.affectedFiles, layout, status.getModified());
+            addDataPaths(result.affectedFiles, layout, status.getRemoved());
+            addDataPaths(result.affectedFiles, layout, status.getUntracked());
+            addDataPaths(result.affectedFiles, layout, status.getChanged());
+            addDataPaths(result.affectedFiles, layout, status.getMissing());
+            List<String> managedPaths = layout.managedPathFilters();
 
-            git.add().addFilepattern(".").call();
-            var commitResult = git.commit().setMessage(message).call();
+            RevCommit commitResult;
+            if (managedPaths != null) {
+                // 只提交 EasyPostman 数据文件；setOnly 会保留其他已暂存的源码改动，但不把它们带进本次提交。
+                var add = git.add();
+                var update = git.add().setUpdate(true);
+                for (String path : managedPaths) {
+                    add.addFilepattern(path);
+                    update.addFilepattern(path);
+                }
+                add.call();
+                update.call();
+                Status staged = scopedStatus(git, layout);
+                Set<String> commitPaths = new java.util.TreeSet<>();
+                commitPaths.addAll(staged.getAdded());
+                commitPaths.addAll(staged.getChanged());
+                commitPaths.addAll(staged.getRemoved());
+                if (commitPaths.isEmpty()) {
+                    throw new IllegalStateException("No file changes to commit");
+                }
+                var commit = git.commit().setMessage(message);
+                commitPaths.forEach(commit::setOnly);
+                try {
+                    commitResult = commit.call();
+                } catch (EmptyCommitException e) {
+                    throw new IllegalStateException("No file changes to commit", e);
+                }
+            } else {
+                git.add().addFilepattern(".").call();
+                git.add().setUpdate(true).addFilepattern(".").call();
+                commitResult = git.commit().setMessage(message).call();
+            }
 
             workspace.setLastCommitId(getLastCommitId(git));
             workspace.setUpdatedAt(System.currentTimeMillis());
@@ -745,17 +787,24 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public List<String> getChangedFilesBetweenCommits(Workspace workspace, String oldCommitId, String newCommitId) throws Exception {
-        ensureGitWorkspace(workspace);
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
+        try (Git git = openGit(workspace)) {
             ObjectId oldId = git.getRepository().resolve(oldCommitId);
             ObjectId newId = git.getRepository().resolve(newCommitId);
-            List<DiffEntry> diffs = git.diff()
+            var diffCommand = git.diff()
                     .setOldTree(prepareTreeParser(git.getRepository(), oldId))
-                    .setNewTree(prepareTreeParser(git.getRepository(), newId))
-                    .call();
+                    .setNewTree(prepareTreeParser(git.getRepository(), newId));
+            if (layout.managedPathFilters() != null) {
+                diffCommand.setPathFilter(PathFilterGroup.createFromStrings(layout.managedPathFilters()));
+            }
             List<String> files = new ArrayList<>();
-            for (DiffEntry entry : diffs) {
-                files.add(entry.getNewPath());
+            for (DiffEntry entry : diffCommand.call()) {
+                String path = layout.toDataPath(entry.getChangeType() == DiffEntry.ChangeType.DELETE
+                        ? entry.getOldPath()
+                        : entry.getNewPath());
+                if (path != null) {
+                    files.add(path);
+                }
             }
             return files;
         }
@@ -763,9 +812,9 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public List<GitFileChange> listWorkingTreeChanges(Workspace workspace) throws Exception {
-        ensureGitWorkspace(workspace);
-        try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = readAndCacheWorkingTreeStatus(workspace, git);
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
+        try (Git git = openGit(workspace)) {
+            var status = readAndCacheWorkingTreeStatus(workspace, git, layout);
             Map<String, GitFileChange.Type> changes = new HashMap<>();
             putChanges(changes, status.getAdded(), GitFileChange.Type.ADDED);
             putChanges(changes, status.getChanged(), GitFileChange.Type.MODIFIED);
@@ -775,7 +824,8 @@ public class GitWorkspacePluginService implements GitPluginService {
             putChanges(changes, status.getUntracked(), GitFileChange.Type.UNTRACKED);
             putChanges(changes, status.getConflicting(), GitFileChange.Type.CONFLICTING);
             return changes.entrySet().stream()
-                    .map(entry -> new GitFileChange(entry.getKey(), entry.getValue()))
+                    .filter(entry -> layout.toDataPath(entry.getKey()) != null)
+                    .map(entry -> new GitFileChange(layout.toDataPath(entry.getKey()), entry.getValue()))
                     .sorted((left, right) -> left.getPath().compareToIgnoreCase(right.getPath()))
                     .toList();
         }
@@ -783,11 +833,11 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public String getWorkingTreeDiff(Workspace workspace, String filePath) throws Exception {
-        ensureGitWorkspace(workspace);
-        String normalizedPath = normalizeWorkspaceRelativePath(filePath);
-        Path workspacePath = Paths.get(workspace.getPath());
-        try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = consumeCachedWorkingTreeStatus(workspace, git);
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
+        String normalizedPath = layout.toRepositoryPath(normalizeWorkspaceRelativePath(filePath));
+        Path workspacePath = layout.getRepositoryRoot();
+        try (Git git = openGit(workspace)) {
+            var status = consumeCachedWorkingTreeStatus(workspace, git, layout);
             int largeFileThresholdMb = SettingManager.getGitDiffLargeFileThresholdMb();
             long largeFileThresholdBytes = SettingManager.gitDiffLargeFileThresholdBytes(largeFileThresholdMb);
             if (status.getUntracked().contains(normalizedPath)) {
@@ -806,8 +856,8 @@ public class GitWorkspacePluginService implements GitPluginService {
         }
     }
 
-    private Status readAndCacheWorkingTreeStatus(Workspace workspace, Git git) throws Exception {
-        Status status = git.status().call();
+    private Status readAndCacheWorkingTreeStatus(Workspace workspace, Git git, GitWorkspaceLayout layout) throws Exception {
+        Status status = scopedStatus(git, layout);
         cachedWorkingTreeStatus.set(new CachedWorkingTreeStatus(
                 workspaceStatusCacheKey(workspace),
                 System.nanoTime(),
@@ -816,14 +866,35 @@ public class GitWorkspacePluginService implements GitPluginService {
         return status;
     }
 
-    private Status consumeCachedWorkingTreeStatus(Workspace workspace, Git git) throws Exception {
+    private Status consumeCachedWorkingTreeStatus(Workspace workspace, Git git, GitWorkspaceLayout layout) throws Exception {
         CachedWorkingTreeStatus cached = cachedWorkingTreeStatus.getAndSet(null);
         if (cached != null
                 && cached.workspacePath().equals(workspaceStatusCacheKey(workspace))
                 && System.nanoTime() - cached.createdAtNanos() <= WORKING_TREE_STATUS_CACHE_NANOS) {
             return cached.status();
         }
-        return git.status().call();
+        return scopedStatus(git, layout);
+    }
+
+    /**
+     * 非 EasyPostman 拥有的仓库只扫描数据文件，避免大型业务仓库的全量状态扫描，也避免把源码改动展示给用户。
+     */
+    private Status scopedStatus(Git git, GitWorkspaceLayout layout) throws Exception {
+        var statusCommand = git.status();
+        List<String> managedPaths = layout.managedPathFilters();
+        if (managedPaths != null) {
+            managedPaths.forEach(statusCommand::addPath);
+        }
+        return statusCommand.call();
+    }
+
+    private void addDataPaths(List<String> target, GitWorkspaceLayout layout, Set<String> repositoryPaths) {
+        for (String repositoryPath : repositoryPaths) {
+            String dataPath = layout.toDataPath(repositoryPath);
+            if (dataPath != null && !target.contains(dataPath)) {
+                target.add(dataPath);
+            }
+        }
     }
 
     private String workspaceStatusCacheKey(Workspace workspace) {
@@ -1295,7 +1366,7 @@ public class GitWorkspacePluginService implements GitPluginService {
                                     String sshPrivateKeyPath, String sshPassphrase) throws Exception {
         ensureGitWorkspace(workspace);
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             boolean originExists = git.remoteList().call().stream()
                     .anyMatch(remote -> "origin".equals(remote.getName()));
             if (originExists) {
@@ -1383,7 +1454,7 @@ public class GitWorkspacePluginService implements GitPluginService {
     @Override
     public RemoteStatus getRemoteStatus(Workspace workspace) throws Exception {
         ensureGitWorkspace(workspace);
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             RemoteStatus status = new RemoteStatus();
             var remotes = git.remoteList().call();
             status.hasRemote = !remotes.isEmpty();
@@ -1404,6 +1475,9 @@ public class GitWorkspacePluginService implements GitPluginService {
         if (workspace.getType() != WorkspaceType.LOCAL) {
             throw new IllegalStateException("Only LOCAL workspaces can be converted to GIT");
         }
+        if (GitWorkspaceLayout.detect(workspace).isPresent()) {
+            throw new IllegalStateException(I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_ALREADY_IN_REPOSITORY));
+        }
         workspace.setType(WorkspaceType.GIT);
         workspace.setGitRepoSource(GitRepoSource.INITIALIZED);
         workspace.setCurrentBranch(localBranch != null && !localBranch.isEmpty() ? localBranch : "master");
@@ -1413,10 +1487,17 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public List<GitCommitInfo> getGitHistory(Workspace workspace, int maxCount) throws Exception {
-        ensureGitWorkspace(workspace);
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
         List<GitCommitInfo> commits = new ArrayList<>();
-        try (Git git = Git.open(new File(workspace.getPath()))) {
-            Iterable<RevCommit> logs = maxCount > 0 ? git.log().setMaxCount(maxCount).call() : git.log().call();
+        try (Git git = openGit(workspace)) {
+            var logCommand = git.log();
+            if (maxCount > 0) {
+                logCommand.setMaxCount(maxCount);
+            }
+            if (layout.managedPathFilters() != null) {
+                layout.managedPathFilters().forEach(logCommand::addPath);
+            }
+            Iterable<RevCommit> logs = logCommand.call();
             for (RevCommit revCommit : logs) {
                 GitCommitInfo commitInfo = new GitCommitInfo();
                 commitInfo.setCommitId(revCommit.getName());
@@ -1439,11 +1520,11 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public GitOperationResult restoreToCommit(Workspace workspace, String commitId, boolean createBackup) throws Exception {
-        ensureGitWorkspace(workspace);
+        ensureFullControl(workspace);
         GitOperationResult result = new GitOperationResult();
         String backupCommitId = null;
 
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             Repository repository = git.getRepository();
             var status = git.status().call();
             boolean hasChanges = !status.getAdded().isEmpty()
@@ -1500,9 +1581,9 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     @Override
     public String getCommitDetails(Workspace workspace, String commitId) throws Exception {
-        ensureGitWorkspace(workspace);
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
         StringBuilder details = new StringBuilder();
-        try (Git git = Git.open(new File(workspace.getPath()))) {
+        try (Git git = openGit(workspace)) {
             Repository repository = git.getRepository();
             try (RevWalk revWalk = new RevWalk(repository)) {
                 ObjectId objectId = repository.resolve(commitId);
@@ -1522,7 +1603,11 @@ public class GitWorkspacePluginService implements GitPluginService {
                         oldTreeParser.reset(reader, parent.getTree().getId());
                         newTreeParser.reset(reader, commit.getTree().getId());
                     }
-                    List<DiffEntry> diffs = git.diff().setOldTree(oldTreeParser).setNewTree(newTreeParser).call();
+                    var diffCommand = git.diff().setOldTree(oldTreeParser).setNewTree(newTreeParser);
+                    if (layout.managedPathFilters() != null) {
+                        diffCommand.setPathFilter(PathFilterGroup.createFromStrings(layout.managedPathFilters()));
+                    }
+                    List<DiffEntry> diffs = diffCommand.call();
                     if (!diffs.isEmpty()) {
                         details.append("Changed files:\n");
                         for (DiffEntry entry : diffs) {
@@ -1533,7 +1618,9 @@ public class GitWorkspacePluginService implements GitPluginService {
                                 case RENAME -> "R";
                                 case COPY -> "C";
                             };
-                            details.append("  ").append(changeType).append(" ").append(entry.getNewPath()).append("\n");
+                            String path = entry.getChangeType() == DiffEntry.ChangeType.DELETE ? entry.getOldPath() : entry.getNewPath();
+                            String dataPath = layout.toDataPath(path);
+                            details.append("  ").append(changeType).append(" ").append(dataPath == null ? path : dataPath).append("\n");
                         }
                     }
                 } else {
@@ -1544,24 +1631,31 @@ public class GitWorkspacePluginService implements GitPluginService {
         return details.toString();
     }
 
-    private void ensureGitWorkspace(Workspace workspace) {
-        ensureGitWorkspaceType(workspace);
-        ensureGitRepositoryMetadata(workspace);
+    private GitWorkspaceLayout ensureGitWorkspace(Workspace workspace) {
+        return GitWorkspaceLayout.detect(workspace).orElseThrow(() -> new IllegalStateException(I18nUtil.getMessage(
+                MessageKeys.GIT_WORKSPACE_REPOSITORY_MISSING,
+                Paths.get(workspace.getPath()).toAbsolutePath().normalize()
+        )));
+    }
+
+    /**
+     * 强制拉取/推送、Stash、历史恢复会改写整个仓库，只允许在 EasyPostman 自己管理的仓库中执行。
+     */
+    private GitWorkspaceLayout ensureFullControl(Workspace workspace) {
+        GitWorkspaceLayout layout = ensureGitWorkspace(workspace);
+        if (!layout.isFullControl()) {
+            throw new IllegalStateException(I18nUtil.getMessage(MessageKeys.GIT_OPERATION_REQUIRES_DEDICATED_REPOSITORY));
+        }
+        return layout;
+    }
+
+    private Git openGit(Workspace workspace) throws IOException {
+        return new RepositoryGit(GitWorkspaceLayout.openRepository(ensureGitWorkspace(workspace)));
     }
 
     private void ensureGitWorkspaceType(Workspace workspace) {
         if (workspace.getType() != WorkspaceType.GIT) {
             throw new IllegalStateException("Not a Git workspace");
-        }
-    }
-
-    private void ensureGitRepositoryMetadata(Workspace workspace) {
-        Path workspacePath = Paths.get(workspace.getPath()).toAbsolutePath().normalize();
-        if (!Files.exists(workspacePath.resolve(".git"))) {
-            throw new IllegalStateException(I18nUtil.getMessage(
-                    MessageKeys.GIT_WORKSPACE_REPOSITORY_MISSING,
-                    workspacePath
-            ));
         }
     }
 
@@ -1598,6 +1692,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         applyAuth(cloneCommand, workspace);
 
         try (Git git = cloneCommand.call()) {
+            GitWorkspaceLayout.markOwnedByEasyPostman(git.getRepository());
             workspace.setLastCommitId(getLastCommitId(git));
             String actualCurrentBranch = git.getRepository().getBranch();
             workspace.setCurrentBranch(actualCurrentBranch);
@@ -1626,7 +1721,11 @@ public class GitWorkspacePluginService implements GitPluginService {
     }
 
     private void initializeGitRepository(Workspace workspace) throws Exception {
+        if (GitWorkspaceLayout.detectDirectory(Paths.get(workspace.getPath())).isPresent()) {
+            throw new IllegalStateException(I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_ALREADY_IN_REPOSITORY));
+        }
         try (Git git = Git.init().setDirectory(new File(workspace.getPath())).call()) {
+            GitWorkspaceLayout.markOwnedByEasyPostman(git.getRepository());
             createInitialCommit(git, workspace);
             String currentBranch = git.getRepository().getBranch();
             if (workspace.getCurrentBranch() != null
@@ -1645,9 +1744,11 @@ public class GitWorkspacePluginService implements GitPluginService {
     private void createInitialCommit(Git git, Workspace workspace) throws Exception {
         createGitignore(workspace);
         Path readmePath = Paths.get(workspace.getPath(), "README.md");
-        Files.write(readmePath, String.format("# %s\n\n%s",
-                workspace.getName(),
-                workspace.getDescription() != null ? workspace.getDescription() : "EasyPostman Workspace").getBytes());
+        if (!Files.exists(readmePath)) {
+            Files.write(readmePath, String.format("# %s\n\n%s",
+                    workspace.getName(),
+                    workspace.getDescription() != null ? workspace.getDescription() : "EasyPostman Workspace").getBytes());
+        }
         git.add().addFilepattern(".").call();
         git.commit().setMessage("Initial commit").call();
         workspace.setLastCommitId(getLastCommitId(git));
@@ -1655,6 +1756,9 @@ public class GitWorkspacePluginService implements GitPluginService {
 
     private void createGitignore(Workspace workspace) throws IOException {
         Path gitignorePath = Paths.get(workspace.getPath(), ".gitignore");
+        if (Files.exists(gitignorePath)) {
+            return;
+        }
         List<String> ignorePatterns = new ArrayList<>();
         ignorePatterns.add("# EasyPostman Workspace");
         ignorePatterns.add("");
@@ -1893,6 +1997,21 @@ public class GitWorkspacePluginService implements GitPluginService {
             } else if (sshCredentialsProvider != null) {
                 transportCommand.setTransportConfigCallback(sshCredentialsProvider);
             }
+        }
+    }
+
+    /**
+     * 关闭时同时释放通过 {@link GitWorkspaceLayout#openRepository} 打开的仓库。
+     */
+    private static final class RepositoryGit extends Git {
+        private RepositoryGit(Repository repository) {
+            super(repository);
+        }
+
+        @Override
+        public void close() {
+            super.close();
+            getRepository().close();
         }
     }
 }

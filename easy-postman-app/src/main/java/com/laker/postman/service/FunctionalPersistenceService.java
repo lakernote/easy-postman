@@ -13,17 +13,18 @@ import com.laker.postman.functional.model.FunctionalCsvDataState;
 import com.laker.postman.ioc.Component;
 import com.laker.postman.ioc.PostConstruct;
 import com.laker.postman.ioc.PreDestroy;
+import com.laker.postman.util.SafeFileUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -81,21 +82,36 @@ public class FunctionalPersistenceService {
         try {
             ensureDirExists(configPath);
             FunctionalConfigSnapshot safeSnapshot = snapshot == null ? FunctionalConfigSnapshot.empty() : snapshot;
-            JSONObject root = new JSONObject();
-            root.set("version", "1.0");
-            root.set("rows", serializeRows(safeSnapshot.getRows()));
-            if (safeSnapshot.getCsvState() != null) {
-                root.set("csvState", serializeCsvState(safeSnapshot.getCsvState()));
-            }
 
-            // 写入文件
-            String jsonString = JSONUtil.toJsonPrettyStr(root);
-            Files.writeString(configPath, jsonString, StandardCharsets.UTF_8);
+            // 内容未变时不写盘，避免切换工作区时重新生成被 Git 删除的文件
+            if (!SafeFileUtil.writeIfChanged(configPath, toJson(safeSnapshot))) {
+                return;
+            }
 
             log.info("Successfully saved {} functional test configurations", safeSnapshot.getRows().size());
         } catch (IOException e) {
             log.error("Failed to save functional test config: {}", e.getMessage(), e);
         }
+    }
+
+    private String toJson(FunctionalConfigSnapshot snapshot) {
+        JSONObject root = new JSONObject();
+        root.set("version", "1.0");
+        root.set("rows", serializeRows(snapshot.getRows()));
+        if (snapshot.getCsvState() != null) {
+            root.set("csvState", serializeCsvState(snapshot.getCsvState()));
+        }
+        return JSONUtil.toJsonPrettyStr(root);
+    }
+
+    public void rememberLoaded(FunctionalConfigSnapshot snapshot) {
+        Path configPath = getConfigFilePath();
+        writeAndWait(() -> remember(configPath, snapshot == null ? FunctionalConfigSnapshot.empty() : snapshot));
+    }
+
+    private FunctionalConfigSnapshot remember(Path configPath, FunctionalConfigSnapshot snapshot) {
+        SafeFileUtil.rememberLoaded(configPath, toJson(snapshot));
+        return snapshot;
     }
 
     /**
@@ -116,28 +132,20 @@ public class FunctionalPersistenceService {
         Path configPath = getConfigFilePath();
         File file = configPath.toFile();
 
-        if (!file.exists()) {
-            log.info("No functional test config file found, starting fresh");
-            return FunctionalConfigSnapshot.empty();
-        }
-
         try {
-            // 检查文件大小
-            long fileSizeInBytes = file.length();
-            if (fileSizeInBytes > MAX_FILE_SIZE) {
-                log.warn("Config file is too large ({} bytes), deleting and starting fresh", fileSizeInBytes);
-                deleteFile(file);
-                return FunctionalConfigSnapshot.empty();
+            if (file.isFile() && file.length() > MAX_FILE_SIZE) {
+                log.warn("Config file is too large ({} bytes), ignoring it and keeping the file unchanged", file.length());
+                SafeFileUtil.backupUnreadable(configPath);
+                return remember(configPath, FunctionalConfigSnapshot.empty());
             }
-
-            if (fileSizeInBytes == 0) {
-                return FunctionalConfigSnapshot.empty();
+            Optional<String> content = SafeFileUtil.readForLoad(configPath);
+            if (content.isEmpty()) {
+                log.info("No functional test config file found, starting fresh");
+                return remember(configPath, FunctionalConfigSnapshot.empty());
             }
-
-            // 读取文件
-            String jsonString = Files.readString(configPath, StandardCharsets.UTF_8);
+            String jsonString = content.get();
             if (jsonString.trim().isEmpty()) {
-                return FunctionalConfigSnapshot.empty();
+                return remember(configPath, FunctionalConfigSnapshot.empty());
             }
 
             JSONObject root = JSONUtil.parseObj(jsonString);
@@ -145,14 +153,14 @@ public class FunctionalPersistenceService {
             rows.addAll(deserializeRows(jsonArray));
 
             log.info("Successfully loaded {} functional test configurations", rows.size());
-            return new FunctionalConfigSnapshot(rows, deserializeCsvState(root.getJSONObject("csvState")));
+            return remember(configPath, new FunctionalConfigSnapshot(rows, deserializeCsvState(root.getJSONObject("csvState"))));
 
         } catch (Exception e) {
-            log.error("Failed to load functional test config: {}", e.getMessage(), e);
-            deleteFile(file);
+            log.error("Failed to load functional test config, keeping the file unchanged: {}", e.getMessage(), e);
+            SafeFileUtil.backupUnreadable(configPath);
         }
 
-        return FunctionalConfigSnapshot.empty();
+        return remember(configPath, FunctionalConfigSnapshot.empty());
     }
 
     /**

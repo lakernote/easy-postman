@@ -186,7 +186,8 @@ public class WorkspacePanelTest {
         String remoteIcon = Files.readString(remoteIconPath);
 
         assertTrue(listRenderer.contains("IconUtil.create(\"icons/git-remote.svg\", 20, 20)"));
-        assertTrue(selectionDialog.contains("IconUtil.create(\"icons/git-remote.svg\", 20, 20)"));
+        // 选择对话框复用工作区列表渲染器
+        assertTrue(selectionDialog.contains("new com.laker.postman.panel.workspace.components.WorkspaceListCellRenderer()"));
         assertFalse(listRenderer.contains("IconUtil.createThemed(\"icons/git-remote.svg\""));
         assertFalse(selectionDialog.contains("IconUtil.createThemed(\"icons/git-remote.svg\""));
         assertTrue(remoteIcon.contains("stroke=\"#f97316\""));
@@ -315,7 +316,7 @@ public class WorkspacePanelTest {
                 source.indexOf("\n    private void showWorkspaceTool", source.indexOf("private void showDefaultWorkspaceTool") + 1)
         );
 
-        assertTrue(method.contains("WorkspaceType.GIT"));
+        assertTrue(method.contains("workspaceService.isGitEnabled(workspace)"));
         assertTrue(method.contains("showGitDiff(workspace, false);"));
         assertTrue(method.contains("hideWorkspaceTool();"));
         assertFalse(source.contains("createEmptyWorkspaceToolPanel"));
@@ -384,4 +385,11 @@ public class WorkspacePanelTest {
         }
         throw new IllegalStateException("Cannot locate repository root");
     }
+
+    @Test
+    public void openedFolderNameShouldPreferRepositoryNameForDefaultSubdirectory() {
+        assertEquals(WorkspacePanel.suggestWorkspaceName(Path.of("/repo/order-service/easy-postman")), "order-service");
+        assertEquals(WorkspacePanel.suggestWorkspaceName(Path.of("/repo/order-service/api")), "api");
+    }
+
 }

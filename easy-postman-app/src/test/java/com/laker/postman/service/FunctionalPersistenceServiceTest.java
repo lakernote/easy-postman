@@ -47,6 +47,16 @@ public class FunctionalPersistenceServiceTest {
         assertFalse(Files.exists(configPath));
     }
 
+    @Test(description = "配置无法解析时必须保留原文件，不能删除外部编辑中的内容")
+    public void unreadableConfigShouldBeKeptUnchanged() throws Exception {
+        Path configPath = Files.createTempDirectory("functional-broken").resolve("functional_config.json");
+        Files.writeString(configPath, "{\"rows\": [");
+        TestableFunctionalPersistenceService service = new TestableFunctionalPersistenceService(configPath);
+
+        assertTrue(service.loadSnapshot().getRows().isEmpty());
+        assertEquals(Files.readString(configPath), "{\"rows\": [");
+    }
+
     @Test(description = "功能测试配置路径应跟随当前工作区，便于 Git 工作区同步")
     public void shouldResolveConfigPathFromCurrentWorkspace() throws IOException {
         Path workspaceDir = Files.createTempDirectory("functional-workspace-path");

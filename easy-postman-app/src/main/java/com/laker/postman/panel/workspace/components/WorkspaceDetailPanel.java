@@ -30,7 +30,8 @@ public class WorkspaceDetailPanel extends JPanel {
             Runnable remoteConfigAction,
             Runnable historyAction,
             Runnable branchManagementAction,
-            Runnable diffAction
+            Runnable diffAction,
+            String repositoryHint
     ) {
         private boolean hasAnyAction() {
             return commitAction != null
@@ -52,7 +53,7 @@ public class WorkspaceDetailPanel extends JPanel {
     }
 
     public WorkspaceDetailPanel(Workspace workspace, Runnable branchManagementAction, Runnable diffAction) {
-        this(workspace, new GitActions(null, null, null, null, null, branchManagementAction, diffAction));
+        this(workspace, new GitActions(null, null, null, null, null, branchManagementAction, diffAction, null));
     }
 
     public WorkspaceDetailPanel(Workspace workspace, GitActions gitActions) {
@@ -66,7 +67,7 @@ public class WorkspaceDetailPanel extends JPanel {
         int row = 0;
         addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_NAME) + ":", nameLabel);
         addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE) + ":",
-                workspace.getType() == WorkspaceType.LOCAL
+                workspace.getType() != WorkspaceType.GIT && gitActions == null
                         ? I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL)
                         : I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT));
         addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_PATH) + ":", new PathFieldPanel(workspace.getPath()));
@@ -78,10 +79,10 @@ public class WorkspaceDetailPanel extends JPanel {
         addSection(sectionRow++, createSection(I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_BASIC_INFO), infoGrid),
                 new Insets(0, 0, 0, 0));
 
-        if (workspace.getType() == WorkspaceType.GIT) {
+        if (workspace.getType() == WorkspaceType.GIT || gitActions != null) {
             addSection(sectionRow++, createSection(
                     I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_GIT_INFO),
-                    createGitInfoPanel(workspace),
+                    createGitInfoPanel(workspace, gitActions == null ? null : gitActions.repositoryHint()),
                     createGitActionPanel(gitActions)
             ), new Insets(14, 0, 0, 0));
         }
@@ -226,14 +227,26 @@ public class WorkspaceDetailPanel extends JPanel {
     // Git 信息面板
     // ──────────────────────────────────────────────────────────────────────────
 
-    private JPanel createGitInfoPanel(Workspace workspace) {
+    private JPanel createGitInfoPanel(Workspace workspace, String repositoryHint) {
         JPanel panel = createDetailGrid();
         int row = 0;
 
-        addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":",
-                workspace.getGitRepoSource() == GitRepoSource.CLONED
-                        ? I18nUtil.getMessage(MessageKeys.WORKSPACE_CLONE_FROM_REMOTE)
-                        : I18nUtil.getMessage(MessageKeys.WORKSPACE_INIT_LOCAL));
+        if (repositoryHint != null && !repositoryHint.isBlank()) {
+            JTextArea hintArea = new JTextArea(repositoryHint);
+            hintArea.setEditable(false);
+            hintArea.setLineWrap(true);
+            hintArea.setWrapStyleWord(true);
+            hintArea.setOpaque(false);
+            hintArea.setBorder(null);
+            hintArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+            hintArea.setForeground(ModernColors.getTextSecondary());
+            addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":", hintArea);
+        } else {
+            addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":",
+                    workspace.getGitRepoSource() == GitRepoSource.CLONED
+                            ? I18nUtil.getMessage(MessageKeys.WORKSPACE_CLONE_FROM_REMOTE)
+                            : I18nUtil.getMessage(MessageKeys.WORKSPACE_INIT_LOCAL));
+        }
 
         addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REMOTE_REPO) + ":",
                 workspace.getGitRemoteUrl());

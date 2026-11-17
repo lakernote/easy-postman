@@ -20,22 +20,22 @@ public class CollectionFilePersistenceTest {
         CollectionDocument document = document("group-1", "Group");
 
         persistence.save(document);
-        CollectionDocument loaded = persistence.loadOrCreate(CollectionDocument::empty);
+        CollectionDocument loaded = persistence.load();
 
         assertEquals(loaded.getRoots().size(), 1);
         assertEquals(loaded.getRoots().get(0).asGroup().getId(), "group-1");
     }
 
     @Test
-    public void shouldCreateMissingFileFromDefaultDocument() throws Exception {
+    public void shouldLoadMissingFileAsEmptyWithoutCreatingIt() throws Exception {
         Path file = Files.createTempDirectory("collection-file-store")
                 .resolve("missing-collections.json");
         CollectionFilePersistence persistence = new CollectionFilePersistence(file.toString());
 
-        CollectionDocument loaded = persistence.loadOrCreate(() -> document("default-group", "Default"));
+        CollectionDocument loaded = persistence.load();
 
-        assertEquals(loaded.getRoots().get(0).asGroup().getId(), "default-group");
-        assertEquals(Files.exists(file), true);
+        assertEquals(loaded.getRoots().size(), 0);
+        assertEquals(Files.exists(file), false);
     }
 
     @Test
@@ -46,9 +46,21 @@ public class CollectionFilePersistenceTest {
         CollectionFilePersistence second = new CollectionFilePersistence(secondFile.toString());
         second.save(document("target-group", "Target"));
 
-        CollectionDocument loaded = first.switchFilePathAndLoad(secondFile.toString(), CollectionDocument::empty);
+        CollectionDocument loaded = first.switchFilePathAndLoad(secondFile.toString());
 
         assertEquals(loaded.getRoots().get(0).asGroup().getId(), "target-group");
+    }
+
+    @Test
+    public void shouldKeepUnreadableFileUnchangedAndReturnEmptyDocument() throws Exception {
+        Path file = Files.createTempFile("collection-file-store-broken", ".json");
+        Files.writeString(file, "[{\"broken\"");
+        CollectionFilePersistence persistence = new CollectionFilePersistence(file.toString());
+
+        CollectionDocument loaded = persistence.load();
+
+        assertEquals(loaded.getRoots().size(), 0);
+        assertEquals(Files.readString(file), "[{\"broken\"");
     }
 
     private CollectionDocument document(String id, String name) {

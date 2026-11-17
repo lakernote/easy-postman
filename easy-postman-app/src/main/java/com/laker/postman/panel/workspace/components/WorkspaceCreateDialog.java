@@ -10,6 +10,8 @@ import com.laker.postman.model.GitAuthType;
 import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
+import com.laker.postman.plugin.git.GitWorkspaceLayout;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.service.WorkspaceService;
 import com.laker.postman.util.*;
 import lombok.Getter;
@@ -20,12 +22,15 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
- * 创建工作区对话框
- * 支持创建本地工作区和Git工作区
+ * 创建工作区对话框。
+ * <p>
+ * “新建”只需选择目录：目录位于已有 Git 仓库中时直接使用该仓库，否则可选初始化一个由 EasyPostman 管理的仓库；
+ * “克隆”是独立入口。
  */
 @Slf4j
 public class WorkspaceCreateDialog extends ProgressDialog {
@@ -40,8 +45,15 @@ public class WorkspaceCreateDialog extends ProgressDialog {
     // UI组件
     private JTextField nameField;
     private JTextArea descriptionArea;
-    private JRadioButton localTypeRadio;
-    private JRadioButton gitTypeRadio;
+    private final boolean cloneMode;
+    private JCheckBox initGitCheckBox;
+    private boolean pathInRepository;
+    private int pathStatusGeneration;
+    /**
+     * 与当前路径输入对应的最新后台探测结果；界面线程只读取它，不直接访问磁盘。
+     */
+    private WorkspaceDirectoryProbe pathProbe;
+    private boolean confirmAfterProbe;
     private JTextField pathField;
     private JButton browseButton;
     private JCheckBox autoGeneratePathCheckBox;
@@ -49,18 +61,24 @@ public class WorkspaceCreateDialog extends ProgressDialog {
 
     // Git相关组件
     private JPanel gitPanel;
-    private JRadioButton cloneRadio;
-    private JRadioButton initRadio;
+    private JLabel gitUrlLabel;
     private JTextField gitUrlField;
     private GitAuthPanel gitAuthPanel;
 
     // 新增分支相关组件
     private JTextField branchField;
     private JLabel branchLabel;
-    private boolean adjustingWorkspaceType;
+
+    private JLabel pathStatusLabel;
+    private Timer pathStatusTimer;
 
     public WorkspaceCreateDialog(Window parent) {
-        super(parent, I18nUtil.getMessage(MessageKeys.WORKSPACE_CREATE));
+        this(parent, false);
+    }
+
+    public WorkspaceCreateDialog(Window parent, boolean cloneFromGit) {
+        super(parent, I18nUtil.getMessage(cloneFromGit ? MessageKeys.WORKSPACE_ACTION_CLONE : MessageKeys.WORKSPACE_CREATE));
+        this.cloneMode = cloneFromGit;
         initComponents();
         initDialog();
     }
@@ -76,12 +94,8 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         descriptionScrollPane = new JScrollPane(descriptionArea);
         ToolWindowSurfaceStyle.applyFramedScrollPaneCard(descriptionScrollPane);
 
-        // 工作区类型
-        localTypeRadio = new JRadioButton(I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL), true);
-        gitTypeRadio = new JRadioButton(I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT));
-        ButtonGroup typeGroup = new ButtonGroup();
-        typeGroup.add(localTypeRadio);
-        typeGroup.add(gitTypeRadio);
+        // 是否初始化 Git：目录已在仓库中时禁用，直接使用该仓库
+        initGitCheckBox = new JCheckBox(I18nUtil.getMessage(MessageKeys.WORKSPACE_INIT_GIT));
 
         // 路径选择 - 设置默认工作区目录
         pathField = new JTextField(15);
@@ -91,17 +105,16 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         browseButton = new JButton(I18nUtil.getMessage(MessageKeys.WORKSPACE_SELECT_PATH));
         browseButton.setIcon(IconUtil.createThemed("icons/file.svg", 16, 16));
 
+        pathStatusLabel = new JLabel();
+        pathStatusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        pathStatusLabel.setForeground(ModernColors.getTextSecondary());
+        pathStatusLabel.setVisible(false);
+
         // 自动生成路径选项
         autoGeneratePathCheckBox = new JCheckBox(I18nUtil.getMessage(MessageKeys.WORKSPACE_AUTO_GENERATE_PATH), true);
         autoGeneratePathCheckBox.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
 
         // Git相关组件
-        cloneRadio = new JRadioButton(I18nUtil.getMessage(MessageKeys.WORKSPACE_CLONE_FROM_REMOTE), true);
-        initRadio = new JRadioButton(I18nUtil.getMessage(MessageKeys.WORKSPACE_INIT_LOCAL));
-        ButtonGroup gitModeGroup = new ButtonGroup();
-        gitModeGroup.add(cloneRadio);
-        gitModeGroup.add(initRadio);
-
         gitUrlField = new JTextField(15);
         SettingsInputStyle.apply(gitUrlField);
         gitAuthPanel = new GitAuthPanel();
@@ -180,7 +193,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
 
         // Git配置面板
         gitPanel = createGitPanel();
-        gitPanel.setVisible(false);
+        gitPanel.setVisible(cloneMode);
         contentGbc.gridy = 1;
         contentGbc.insets = new Insets(10, 0, 0, 0);
         contentPanel.add(gitPanel, contentGbc);
@@ -221,18 +234,30 @@ public class WorkspaceCreateDialog extends ProgressDialog {
 
     @Override
     protected void setupEventHandlers() {
-        // 工作区类型切换
-        ActionListener typeChangeListener = e -> handleWorkspaceTypeChanged();
-        localTypeRadio.addActionListener(typeChangeListener);
-        gitTypeRadio.addActionListener(typeChangeListener);
-
-        // Git模式切换
-        ActionListener gitModeListener = e -> updateGitUrlFieldState();
-        cloneRadio.addActionListener(gitModeListener);
-        initRadio.addActionListener(gitModeListener);
+        initGitCheckBox.addActionListener(e -> updateGitPanelVisibility());
 
         // 路径浏览
         browseButton.addActionListener(this::browseForPath);
+
+        // 路径变化时检测所在 Git 仓库和已有数据，给出提示
+        pathStatusTimer = new Timer(250, e -> updatePathStatus());
+        pathStatusTimer.setRepeats(false);
+        pathField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                pathStatusTimer.restart();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                pathStatusTimer.restart();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                pathStatusTimer.restart();
+            }
+        });
 
         // 名称字段变化监听器 - 自动生成路径
         nameField.getDocument().addDocumentListener(new DocumentListener() {
@@ -271,6 +296,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         // 初始状态
         updateGitPanelVisibility();
         updateGitUrlFieldState();
+        updatePathStatus();
 
         // 设置初始状态
         pathField.setEditable(false);
@@ -286,12 +312,101 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         pathField.setText(generatedPath);
     }
 
-    private void handleWorkspaceTypeChanged() {
-        if (adjustingWorkspaceType) {
-            updateGitPanelVisibility();
+    private boolean isGitSelected() {
+        return cloneMode || (!pathInRepository && initGitCheckBox.isSelected());
+    }
+
+    /**
+     * Git 仓库探测会访问磁盘（网络盘、大仓库可能较慢），在后台执行；只应用与当前输入一致的最新结果。
+     */
+    private void updatePathStatus() {
+        String pathText = pathField.getText().trim();
+        boolean clone = cloneMode;
+        int generation = ++pathStatusGeneration;
+        pathProbe = null;
+        Path path = parsePath(pathText);
+        if (clone || path == null) {
+            confirmAfterProbe = false;
+            applyPathStatus(clone, null);
             return;
         }
-        updateGitPanelVisibility();
+        new SwingWorker<WorkspaceDirectoryProbe, Void>() {
+            @Override
+            protected WorkspaceDirectoryProbe doInBackground() {
+                return WorkspaceDirectoryProbe.probe(path);
+            }
+
+            @Override
+            protected void done() {
+                if (generation != pathStatusGeneration) {
+                    return;
+                }
+                WorkspaceDirectoryProbe probe;
+                try {
+                    probe = get();
+                } catch (Exception e) {
+                    probe = null;
+                }
+                applyPathStatus(false, probe);
+                if (confirmAfterProbe) {
+                    confirmAfterProbe = false;
+                    confirmButton.setEnabled(true);
+                    if (probe != null) {
+                        retryConfirm();
+                    }
+                }
+            }
+        }.execute();
+    }
+
+    private void applyPathStatus(boolean clone, WorkspaceDirectoryProbe probe) {
+        pathProbe = probe;
+        if (!clone) {
+            pathInRepository = probe != null && probe.inRepository();
+            initGitCheckBox.setEnabled(!pathInRepository && !isOperationInProgress());
+            initGitCheckBox.setToolTipText(pathInRepository
+                    ? I18nUtil.getMessage(MessageKeys.WORKSPACE_INIT_GIT_IN_REPO) : null);
+            updateGitPanelVisibility();
+        }
+        String message = clone ? null : describePath(probe);
+        pathStatusLabel.setText(message == null ? "" : "<html>" + escapeHtml(message) + "</html>");
+        pathStatusLabel.setVisible(message != null);
+        pathStatusLabel.revalidate();
+    }
+
+    private static Path parsePath(String pathText) {
+        if (pathText.isEmpty()) {
+            return null;
+        }
+        try {
+            return Paths.get(pathText).toAbsolutePath().normalize();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String describePath(WorkspaceDirectoryProbe probe) {
+        if (probe == null) {
+            return null;
+        }
+        GitWorkspaceLayout layout = probe.layout();
+        StringBuilder message = new StringBuilder();
+        if (layout != null) {
+            message.append(I18nUtil.getMessage(MessageKeys.WORKSPACE_PATH_IN_REPOSITORY,
+                    layout.getRepositoryRoot().toString(),
+                    layout.isEmbedded() ? layout.getScope() : "./"));
+        }
+        if (probe.hasData()) {
+            if (!message.isEmpty()) {
+                message.append(' ');
+            }
+            message.append(I18nUtil.getMessage(MessageKeys.WORKSPACE_PATH_HAS_DATA));
+        }
+        return message.isEmpty() ? null : message.toString();
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private JPanel createBasicInfoPanel() {
@@ -337,17 +452,6 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         gbc.weightx = 1.0;
         panel.add(descriptionScrollPane, gbc);
 
-        // 工作区类型
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        gbc.gridwidth = 1;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.weightx = 0;
-        panel.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE) + ":"), gbc);
-        gbc.gridx = 1;
-        panel.add(localTypeRadio, gbc);
-        gbc.gridx = 2;
-        panel.add(gitTypeRadio, gbc);
 
         // 自动生成路径选项
         gbc.gridx = 0;
@@ -371,6 +475,22 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         gbc.weightx = 0;
         panel.add(browseButton, gbc);
 
+        gbc.gridx = 1;
+        gbc.gridy = 6;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        gbc.insets = new Insets(0, 8, 6, 8);
+        panel.add(pathStatusLabel, gbc);
+
+        if (!cloneMode) {
+            gbc.gridx = 0;
+            gbc.gridy = 7;
+            gbc.gridwidth = 3;
+            gbc.insets = new Insets(2, 8, 6, 8);
+            panel.add(initGitCheckBox, gbc);
+        }
+
         return panel;
     }
 
@@ -390,16 +510,6 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         rootGbc.insets = new Insets(6, 8, 2, 8);
         panel.add(titleLabel, rootGbc);
 
-        // Git模式选择
-        JPanel modePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        modePanel.setOpaque(false);
-        modePanel.add(cloneRadio);
-        modePanel.add(Box.createHorizontalStrut(18));
-        modePanel.add(initRadio);
-        rootGbc.gridy = 1;
-        rootGbc.insets = new Insets(6, 8, 2, 8);
-        panel.add(modePanel, rootGbc);
-
         // Git URL、分支配置
         JPanel gitConfigPanel = new JPanel(new GridBagLayout());
         gitConfigPanel.setOpaque(false);
@@ -410,7 +520,8 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         // Git URL
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gitConfigPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_URL) + ":"), gbc);
+        gitUrlLabel = new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_URL) + ":");
+        gitConfigPanel.add(gitUrlLabel, gbc);
         gbc.gridx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -448,7 +559,10 @@ public class WorkspaceCreateDialog extends ProgressDialog {
     }
 
     private void updateGitPanelVisibility() {
-        boolean isGit = gitTypeRadio.isSelected();
+        boolean isGit = isGitSelected();
+        if (gitPanel.isVisible() == isGit && isShowing()) {
+            return;
+        }
         gitPanel.setVisible(isGit);
 
         setPreferredSize(null);
@@ -460,12 +574,15 @@ public class WorkspaceCreateDialog extends ProgressDialog {
     }
 
     private void updateGitUrlFieldState() {
-        boolean enableUrl = cloneRadio.isSelected();
-        gitUrlField.setEnabled(enableUrl);
-        gitAuthPanel.setComponentsEnabled(enableUrl);
+        // 初始化新仓库时只需要分支名，远程地址与认证在之后添加远程仓库时再配置
+        gitUrlLabel.setVisible(cloneMode);
+        gitUrlField.setVisible(cloneMode);
+        gitAuthPanel.setVisible(cloneMode);
+        gitUrlField.setEnabled(cloneMode);
+        gitAuthPanel.setComponentsEnabled(cloneMode);
 
         // 根据模式控制分支字段的标签和状态
-        if (cloneRadio.isSelected()) {
+        if (cloneMode) {
             branchLabel.setText(I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REMOTE_BRANCH) + ":");
             branchField.setEnabled(true);
             if (branchField.getText().trim().isEmpty()) {
@@ -501,6 +618,10 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         int result = chooser.showOpenDialog(this);
         if (result == SystemFileChooser.APPROVE_OPTION) {
             File selectedDir = chooser.getSelectedFile();
+            if (nameField.getText().trim().isEmpty()) {
+                autoGeneratePathCheckBox.setSelected(false);
+                nameField.setText(selectedDir.getName());
+            }
             pathField.setText(selectedDir.getAbsolutePath());
             // 取消自动生成，因为用户手动选择了路径
             autoGeneratePathCheckBox.setSelected(false);
@@ -525,7 +646,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
 
         // Git工作区特殊验证
         // 克隆模式下必须提供Git URL 和认证信息 和分支信息
-        if (gitTypeRadio.isSelected() && cloneRadio.isSelected()) {
+        if (cloneMode) {
             String gitUrl = gitUrlField.getText().trim();
             if (gitUrl.isEmpty()) {
                 throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_URL_REQUIRED));
@@ -538,15 +659,43 @@ public class WorkspaceCreateDialog extends ProgressDialog {
             // 验证认证信息
             gitAuthPanel.validateAuth();
         }
+        WorkspaceDirectoryProbe probe = null;
+        if (!cloneMode) {
+            probe = pathProbe;
+            if (probe == null || !probe.isFor(parsePath(path))) {
+                // 磁盘探测尚未完成：后台探测结束后自动继续，不在界面线程访问磁盘
+                Path parsed = parsePath(path);
+                if (parsed == null) {
+                    throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_PATH_REQUIRED));
+                }
+                confirmAfterProbe = true;
+                confirmButton.setEnabled(false);
+                updatePathStatus();
+                throw new IllegalArgumentException("");
+            }
+            pathInRepository = probe.inRepository();
+        }
         // 初始化模式下只需要验证分支信息
-        if (gitTypeRadio.isSelected() && initRadio.isSelected()) {
+        if (isGitSelected() && !cloneMode) {
+            if (probe.inRepository()) {
+                throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_ALREADY_IN_REPOSITORY));
+            }
             String branch = branchField.getText().trim();
             if (branch.isEmpty()) {
                 throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_BRANCH_INVALID));
             }
         }
 
-        // 构建workspace对象供后续使用
+        // 在已有目录（尤其是代码仓库）中创建数据前确认
+        if (!cloneMode) {
+            // 用完即清空：再次确认（如创建失败后重试）时重新探测，不沿用旧的磁盘状态
+            pathProbe = null;
+            if (!WorkspaceConfirmations.confirmCreateData(this, probe, false)) {
+                throw new IllegalArgumentException("");
+            }
+        }
+
+        // 构建workspace对象供后续使用；createWorkspace 会为同一对象分配 ID
         workspace = buildWorkspace();
     }
 
@@ -581,17 +730,12 @@ public class WorkspaceCreateDialog extends ProgressDialog {
     }
 
     @Override
-    protected void onOperationSuccess() {
-        workspace = buildWorkspace();
-        super.onOperationSuccess();
-    }
-
-    @Override
     protected void setInputComponentsEnabled(boolean enabled) {
         nameField.setEnabled(enabled);
         descriptionArea.setEnabled(enabled);
-        localTypeRadio.setEnabled(enabled);
-        gitTypeRadio.setEnabled(enabled);
+        if (!cloneMode) {
+            initGitCheckBox.setEnabled(enabled && !pathInRepository);
+        }
         autoGeneratePathCheckBox.setEnabled(enabled);
 
         // 路径相关控件的启用状态取决于是否自动生成
@@ -605,10 +749,8 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         }
 
         if (gitPanel.isVisible()) {
-            cloneRadio.setEnabled(enabled);
-            initRadio.setEnabled(enabled);
-            gitUrlField.setEnabled(enabled);
-            gitAuthPanel.setComponentsEnabled(enabled);
+            gitUrlField.setEnabled(enabled && cloneMode);
+            gitAuthPanel.setComponentsEnabled(enabled && cloneMode);
             branchField.setEnabled(enabled);
         }
     }
@@ -619,7 +761,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
         ws.setDescription(descriptionArea.getText().trim());
         ws.setPath(pathField.getText().trim());
 
-        if (localTypeRadio.isSelected()) {
+        if (!isGitSelected()) {
             ws.setType(WorkspaceType.LOCAL);
         } else {
             ws.setType(WorkspaceType.GIT);
@@ -630,7 +772,7 @@ public class WorkspaceCreateDialog extends ProgressDialog {
                 ws.setCurrentBranch(localBranch);
             }
 
-            if (cloneRadio.isSelected()) {
+            if (cloneMode) {
                 ws.setGitRepoSource(GitRepoSource.CLONED);
                 ws.setGitRemoteUrl(gitUrlField.getText().trim());
 

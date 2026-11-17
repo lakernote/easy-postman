@@ -1,12 +1,14 @@
 package com.laker.postman.service.collections;
 
 import com.laker.postman.collection.model.CollectionDocument;
+import com.laker.postman.util.SafeFileUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 
 @Slf4j
 public class CollectionFilePersistence {
@@ -19,18 +21,18 @@ public class CollectionFilePersistence {
         this.filePath = filePath;
     }
 
-    public CollectionDocument loadOrCreate(Supplier<CollectionDocument> defaultDocumentSupplier) throws IOException {
+    public CollectionDocument load() throws IOException {
         synchronized (fileLock()) {
             setFileLoading(true);
             try {
                 File file = new File(filePath);
-                if (!file.exists()) {
-                    CollectionDocument defaultDocument = defaultDocument(defaultDocumentSupplier);
-                    saveIgnoringLoadGuard(defaultDocument);
-                    log.info("Collection file not found, created default document: {}", filePath);
-                    return defaultDocument;
+                Optional<String> content = SafeFileUtil.readForLoad(file.toPath());
+                if (content.isEmpty()) {
+                    // 文件缺失（例如切换分支删除了它）时按空集合加载，不生成默认文件；示例数据只在新建工作区时写入。
+                    log.info("Collection file not found, loading empty collections without creating it: {}", filePath);
+                    return remember(file, CollectionDocument.empty());
                 }
-                return CollectionDocumentJsonCodec.read(file);
+                return remember(file, readOrEmpty(file, content.get()));
             } finally {
                 setFileLoading(false);
             }
@@ -63,29 +65,39 @@ public class CollectionFilePersistence {
         CollectionDocumentJsonCodec.write(fileToSave, document);
     }
 
-    public CollectionDocument switchFilePathAndLoad(String path,
-                                                    Supplier<CollectionDocument> defaultDocumentSupplier) throws IOException {
+    public CollectionDocument switchFilePathAndLoad(String path) throws IOException {
         if (path == null || path.isBlank()) {
-            return loadOrCreate(defaultDocumentSupplier);
+            return load();
         }
 
         String oldPath = this.filePath;
         synchronized (FILE_LOCKS.computeIfAbsent(oldPath, ignored -> new Object())) {
             this.filePath = path;
-            return loadOrCreate(defaultDocumentSupplier);
+            return load();
         }
+    }
+
+    private CollectionDocument readOrEmpty(File file, String content) {
+        try {
+            return CollectionDocumentJsonCodec.read(content);
+        } catch (Exception e) {
+            // 外部编辑可能留下不完整的 JSON：保留原文件并备份，不能用默认内容覆盖。
+            log.error("Failed to parse collection file, keeping it unchanged: {}", filePath, e);
+            SafeFileUtil.backupUnreadable(file.toPath());
+            return CollectionDocument.empty();
+        }
+    }
+
+    /**
+     * 以加载结果作为保存基准：内容未变时不写盘（不会重新生成被删除的文件，也不会覆盖推迟重新加载的外部修改）；
+     */
+    private CollectionDocument remember(File file, CollectionDocument document) {
+        SafeFileUtil.rememberLoaded(file.toPath(), CollectionDocumentJsonCodec.toJson(document).toStringPretty());
+        return document;
     }
 
     private void saveIgnoringLoadGuard(CollectionDocument document) throws IOException {
-        CollectionDocumentJsonCodec.write(new File(filePath), document);
-    }
-
-    private CollectionDocument defaultDocument(Supplier<CollectionDocument> defaultDocumentSupplier) {
-        if (defaultDocumentSupplier == null) {
-            return CollectionDocument.empty();
-        }
-        CollectionDocument document = defaultDocumentSupplier.get();
-        return document == null ? CollectionDocument.empty() : document;
+        SafeFileUtil.writeIfChanged(Path.of(filePath), CollectionDocumentJsonCodec.toJson(document).toStringPretty());
     }
 
     private Object fileLock() {

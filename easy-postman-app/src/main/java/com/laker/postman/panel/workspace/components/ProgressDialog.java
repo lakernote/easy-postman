@@ -155,6 +155,15 @@ public abstract class ProgressDialog extends JDialog {
     /**
      * 处理确认操作
      */
+    /**
+     * 子类在 {@link #validateInput()} 中启动后台准备（如磁盘探测）后，准备完成时重新执行确认流程。
+     */
+    protected void retryConfirm() {
+        if (!operationInProgress && isDisplayable()) {
+            handleConfirm(null);
+        }
+    }
+
     private void handleConfirm(ActionEvent e) {
         try {
             validateInput();

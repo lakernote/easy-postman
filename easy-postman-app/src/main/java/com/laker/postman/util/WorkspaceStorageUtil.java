@@ -311,6 +311,13 @@ public class WorkspaceStorageUtil {
         }
     }
 
+    /**
+     * 工作区注册表是否已经写入过；不存在表示首次启动。
+     */
+    public static boolean hasWorkspaceRegistry() {
+        return workspacesFile().exists();
+    }
+
     private static File workspacesFile() {
         return dataRootPath().resolve(WORKSPACES_FILE_NAME).toFile();
     }

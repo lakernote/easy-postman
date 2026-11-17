@@ -60,6 +60,12 @@ public class WebDavSnapshotService {
             "sshPassphrase"
     );
 
+    private static final List<String> GIT_CREDENTIAL_FIELDS = List.of(
+            "gitPassword",
+            "gitToken",
+            "sshPassphrase"
+    );
+
     private final WebDavSnapshotPolicy policy;
     private final long maxExternalWorkspaceBytes;
     private final long maxExternalWorkspaceFiles;
@@ -494,6 +500,10 @@ public class WebDavSnapshotService {
     }
 
     private void normalizeWorkspaceForWebDavSnapshot(ObjectNode workspaceNode) {
+        // Git 状态由磁盘检测，凭据可能残留在任何类型的工作区上，快照中一律剔除。
+        for (String field : GIT_CREDENTIAL_FIELDS) {
+            workspaceNode.remove(field);
+        }
         JsonNode typeNode = workspaceNode.get("type");
         if (typeNode == null || !typeNode.isTextual() || !"GIT".equalsIgnoreCase(typeNode.asText())) {
             return;

@@ -3,6 +3,7 @@ package com.laker.postman.plugin.git.internal;
 import cn.hutool.core.io.FileUtil;
 import com.laker.postman.model.ConflictBlock;
 import com.laker.postman.model.GitStatusCheck;
+import com.laker.postman.plugin.git.GitWorkspaceLayout;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,18 @@ public class GitConflictDetector {
     public static GitStatusCheck checkGitStatus(String workspacePath, String operationType,
                                                 CredentialsProvider credentialsProvider,
                                                 SshCredentialsProvider sshCredentialsProvider) {
+        return checkGitStatus(workspacePath, null, "", operationType, credentialsProvider, sshCredentialsProvider);
+    }
+
+    /**
+     * @param managedPaths EasyPostman 管理的仓库路径；为 null 时按整个仓库检查。
+     *                     提交、推送只关心这些文件的变更；拉取会影响整个仓库，仍检查全部变更。
+     * @param scope        数据目录相对仓库根的路径（"/" 分隔，非空时以 "/" 结尾），用于把仓库路径转换为数据目录路径。
+     */
+    public static GitStatusCheck checkGitStatus(String workspacePath, List<String> managedPaths, String scope,
+                                                String operationType,
+                                                CredentialsProvider credentialsProvider,
+                                                SshCredentialsProvider sshCredentialsProvider) {
         GitStatusCheck result = new GitStatusCheck();
 
         try (Git git = Git.open(new File(workspacePath))) {
@@ -64,10 +77,17 @@ public class GitConflictDetector {
 
             // 检查本地状态
             Status status = git.status().call();
-            checkLocalStatus(status, result);
+            if (managedPaths != null) {
+                checkScopedLocalStatus(git, managedPaths, scope == null ? "" : scope, status, result);
+            } else {
+                checkLocalStatus(status, result);
+            }
 
             // 检查远程状态
             checkRemoteStatus(git, workspacePath, result, credentialsProvider, sshCredentialsProvider);
+            if (managedPaths != null && "pull".equalsIgnoreCase(operationType)) {
+                checkOutsideChangesForPull(git, managedPaths, status, result);
+            }
 
             // 根据操作类型生成建议
             generateSuggestions(result, operationType);
@@ -98,6 +118,88 @@ public class GitConflictDetector {
         int totalChanges = result.added.size() + result.changed.size() + result.modified.size()
                 + result.missing.size() + result.removed.size() + result.untracked.size();
         result.canCommit = totalChanges > 0 && result.conflicting.isEmpty();
+    }
+
+    private static void checkScopedLocalStatus(Git git, List<String> managedPaths, String prefix,
+                                               Status repositoryStatus, GitStatusCheck result) throws Exception {
+        var statusCommand = git.status();
+        managedPaths.forEach(statusCommand::addPath);
+        Status scoped = statusCommand.call();
+        result.hasUncommittedChanges = scoped.hasUncommittedChanges();
+        addScoped(scoped.getAdded(), prefix, result.added);
+        addScoped(scoped.getChanged(), prefix, result.changed);
+        addScoped(scoped.getModified(), prefix, result.modified);
+        addScoped(scoped.getMissing(), prefix, result.missing);
+        addScoped(scoped.getRemoved(), prefix, result.removed);
+        addScoped(scoped.getUntracked(), prefix, result.untracked);
+        addScoped(scoped.getConflicting(), prefix, result.conflicting);
+
+        int totalChanges = result.added.size() + result.changed.size() + result.modified.size()
+                + result.missing.size() + result.removed.size() + result.untracked.size();
+        // 仓库处于合并冲突状态时 Git 不允许任何提交，目录外的冲突同样会阻止提交
+        long outsideConflicts = repositoryStatus.getConflicting().stream()
+                .filter(path -> !GitWorkspaceLayout.isManagedPath(path, managedPaths)).count();
+        if (outsideConflicts > 0) {
+            result.warnings.add(I18nUtil.getMessage(MessageKeys.GIT_SCOPED_OUTSIDE_CONFLICTS, outsideConflicts));
+        }
+        result.canCommit = totalChanges > 0 && result.conflicting.isEmpty() && outsideConflicts == 0;
+    }
+
+    /**
+     * 拉取影响整个仓库：业务源码的未提交改动只要不与远程变更的文件重叠，Git 就能安全合并，不应阻止拉取；
+     * 重叠或仓库处于冲突状态时交给 IDE 处理。
+     */
+    static void checkOutsideChangesForPull(Git git, List<String> managedPaths, Status repositoryStatus,
+                                           GitStatusCheck result) {
+        if (!repositoryStatus.getConflicting().isEmpty()
+                && repositoryStatus.getConflicting().stream().anyMatch(path -> !GitWorkspaceLayout.isManagedPath(path, managedPaths))) {
+            result.canPull = false;
+            return;
+        }
+        Set<String> outsideDirty = new HashSet<>();
+        outsideDirty.addAll(repositoryStatus.getUncommittedChanges());
+        outsideDirty.addAll(repositoryStatus.getUntracked());
+        outsideDirty.removeIf(path -> GitWorkspaceLayout.isManagedPath(path, managedPaths));
+        if (outsideDirty.isEmpty() || result.remoteBranch == null) {
+            return;
+        }
+        try {
+            Repository repo = git.getRepository();
+            ObjectId head = repo.resolve("HEAD^{tree}");
+            ObjectId remote = repo.resolve("refs/remotes/" + result.remoteBranch + "^{tree}");
+            if (head == null || remote == null) {
+                return;
+            }
+            List<String> overlapping = new ArrayList<>();
+            try (var reader = repo.newObjectReader()) {
+                var oldTree = new org.eclipse.jgit.treewalk.CanonicalTreeParser();
+                oldTree.reset(reader, head);
+                var newTree = new org.eclipse.jgit.treewalk.CanonicalTreeParser();
+                newTree.reset(reader, remote);
+                for (DiffEntry diff : git.diff().setOldTree(oldTree).setNewTree(newTree).call()) {
+                    for (String path : List.of(diff.getOldPath(), diff.getNewPath())) {
+                        if (outsideDirty.contains(path) && !overlapping.contains(path)) {
+                            overlapping.add(path);
+                        }
+                    }
+                }
+            }
+            if (!overlapping.isEmpty()) {
+                result.canPull = false;
+                result.warnings.add(I18nUtil.getMessage(MessageKeys.GIT_SCOPED_PULL_OUTSIDE_OVERLAP,
+                        String.join(", ", overlapping.subList(0, Math.min(3, overlapping.size())))));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to compare outside changes with remote", e);
+        }
+    }
+
+    private static void addScoped(java.util.Set<String> repositoryPaths, String prefix, java.util.Collection<String> target) {
+        for (String path : repositoryPaths) {
+            if (path.startsWith(prefix)) {
+                target.add(path.substring(prefix.length()));
+            }
+        }
     }
 
     private static void checkRemoteStatus(Git git, String workspacePath, GitStatusCheck result,

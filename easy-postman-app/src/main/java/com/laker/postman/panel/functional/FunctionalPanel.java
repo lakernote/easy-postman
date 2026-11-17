@@ -806,6 +806,8 @@ public class FunctionalPanel extends UiSingletonPanel {
                 runBtn.setEnabled(true);
                 log.info("Loaded {} saved test configurations", savedRows.size());
             }
+            // 以界面加载结果为保存基准：未修改时切换/退出不写盘，不会重新生成被 Git 删除的文件。
+            persistenceService.rememberLoaded(toConfigSnapshot(tableModel.getAllRows()));
         } catch (Exception e) {
             log.error("Failed to load saved config", e);
         }

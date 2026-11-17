@@ -5,6 +5,7 @@ import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
+import com.laker.postman.plugin.git.GitWorkspaceLayout;
 import com.laker.postman.service.WorkspaceService;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
@@ -13,6 +14,7 @@ import com.laker.postman.util.MessageKeys;
 
 import javax.swing.*;
 import java.awt.*;
+import java.nio.file.Path;
 
 /**
  * 自定义列表单元格渲染器
@@ -27,18 +29,28 @@ public class WorkspaceListCellRenderer extends DefaultListCellRenderer {
         super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 
         if (value instanceof Workspace workspace) {
-            configureWorkspaceIcon(workspace);
-            configureWorkspaceText(workspace);
+            // 渲染在 EDT 上进行：只读取缓存的磁盘探测结果，探测完成后重绘列表
+            WorkspaceService.GitLayoutPeek peek = WorkspaceService.getInstance().peekGitLayout(workspace, list::repaint);
+            configureWorkspaceIcon(workspace, peek);
+            configureWorkspaceText(workspace, peek);
             configureWorkspaceStyle();
             setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
         }
         return this;
     }
 
-    private void configureWorkspaceIcon(Workspace workspace) {
+    /**
+     * 图标由磁盘事实决定；探测结果返回前暂按已保存的类型显示。
+     */
+    private void configureWorkspaceIcon(Workspace workspace, WorkspaceService.GitLayoutPeek peek) {
+        GitWorkspaceLayout layout = peek.layout();
+        boolean git = peek.known() ? layout != null : workspace.getType() == WorkspaceType.GIT;
+        boolean ownedRepository = workspace.getType() == WorkspaceType.GIT && (layout == null || layout.isFullControl());
         FlatSVGIcon icon;
-        if (workspace.getType() == WorkspaceType.LOCAL) {
+        if (!git) {
             icon = IconUtil.createThemed("icons/local.svg", 20, 20);
+        } else if (!ownedRepository) {
+            icon = IconUtil.create("icons/git.svg", 20, 20);
         } else if (workspace.getGitRemoteUrl() == null || workspace.getGitRemoteUrl().trim().isEmpty()) {
             icon = IconUtil.create("icons/git-warning.svg", 20, 20);
         } else if (workspace.getGitRepoSource() == GitRepoSource.CLONED) {
@@ -49,7 +61,7 @@ public class WorkspaceListCellRenderer extends DefaultListCellRenderer {
         setIcon(icon);
     }
 
-    private void configureWorkspaceText(Workspace workspace) {
+    private void configureWorkspaceText(Workspace workspace, WorkspaceService.GitLayoutPeek peek) {
         StringBuilder text = new StringBuilder();
         text.append(HTML_START);
 
@@ -74,8 +86,7 @@ public class WorkspaceListCellRenderer extends DefaultListCellRenderer {
             text.append("<small style='color: ").append(secondaryColor).append(";'>");
         }
 
-        text.append(workspace.getType() == WorkspaceType.LOCAL ?
-                I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL) : I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT));
+        text.append(escapeHtml(typeLabel(workspace, peek)));
 
         // 显示描述信息（警告状态已通过橙色图标表示）
         if (workspace.getDescription() != null && !workspace.getDescription().trim().isEmpty()) {
@@ -108,6 +119,38 @@ public class WorkspaceListCellRenderer extends DefaultListCellRenderer {
         int lineSpacing = 4; // 行间距
 
         return twoLinesHeight + verticalPadding + lineSpacing;
+    }
+
+    static String typeLabel(Workspace workspace, WorkspaceService.GitLayoutPeek peek) {
+        if (!peek.known()) {
+            return I18nUtil.getMessage(workspace.getType() == WorkspaceType.GIT
+                    ? MessageKeys.WORKSPACE_TYPE_GIT : MessageKeys.WORKSPACE_TYPE_LOCAL);
+        }
+        return typeLabel(workspace, peek.layout());
+    }
+
+    /**
+     * 列表标记完全来自磁盘探测结果：本地 / Git · 分支 / Git · 仓库名/子目录 · 分支（位于代码仓库中的工作区）。
+     */
+    static String typeLabel(Workspace workspace, GitWorkspaceLayout layout) {
+        if (layout == null) {
+            return I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL);
+        }
+        StringBuilder label = new StringBuilder(I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT));
+        if (!layout.isFullControl()) {
+            Path repositoryName = layout.getRepositoryRoot().getFileName();
+            label.append(" · ")
+                    .append(repositoryName == null ? layout.getRepositoryRoot().toString() : repositoryName.toString())
+                    .append(layout.isEmbedded() ? "/" + layout.scopePathFilter() : "");
+        }
+        if (layout.getBranch() != null && !layout.getBranch().isBlank()) {
+            label.append(" · ").append(layout.getBranch());
+        }
+        return label.toString();
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private static String toHex(Color color) {

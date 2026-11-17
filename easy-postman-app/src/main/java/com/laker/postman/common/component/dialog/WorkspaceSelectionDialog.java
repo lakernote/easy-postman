@@ -1,18 +1,14 @@
 package com.laker.postman.common.component.dialog;
 
-import com.formdev.flatlaf.extras.FlatSVGIcon;
 import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.ModernButtonFactory;
 import com.laker.postman.common.component.setting.SettingsInputStyle;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.frame.MainFrame;
-import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.Workspace;
-import com.laker.postman.model.WorkspaceType;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
-import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
 
 import javax.swing.*;
@@ -66,7 +62,8 @@ public class WorkspaceSelectionDialog extends JDialog {
         workspaceList = new JList<>(listModel);
         workspaceList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         workspaceList.setFixedCellHeight(40);
-        workspaceList.setCellRenderer(new WorkspaceListCellRenderer());
+        // 与工作区面板共用渲染器：类型与图标来自磁盘探测，不阻塞界面线程
+        workspaceList.setCellRenderer(new com.laker.postman.panel.workspace.components.WorkspaceListCellRenderer());
 
         JScrollPane scrollPane = new JScrollPane(workspaceList);
         ToolWindowSurfaceStyle.applyDialogListScrollPane(scrollPane, workspaceList);
@@ -206,63 +203,5 @@ public class WorkspaceSelectionDialog extends JDialog {
     public Workspace showDialog() {
         setVisible(true);
         return selectedWorkspace;
-    }
-
-    /**
-     * 工作区列表单元格渲染器
-     */
-    private static class WorkspaceListCellRenderer extends DefaultListCellRenderer {
-        private static final String HTML_START = "<html>";
-        private static final String HTML_END = "</html>";
-
-        @Override
-        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                      boolean isSelected, boolean cellHasFocus) {
-            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-
-            if (value instanceof Workspace workspace) {
-                FlatSVGIcon icon = workspace.getType() == WorkspaceType.LOCAL
-                        ? IconUtil.createThemed("icons/local.svg", 20, 20)
-                        : createGitIcon(workspace);
-                setIcon(icon);
-
-                // 构建显示文本：名称 + 类型 + 描述
-                StringBuilder text = new StringBuilder();
-                text.append(HTML_START);
-                text.append("<b>").append(workspace.getName()).append("</b>");
-                text.append("<br>");
-                text.append("<small style='color: ")
-                        .append(ModernColors.toHtmlColor(ModernColors.getTextHint()))
-                        .append(";'>");
-
-                // 显示工作区类型
-                text.append(workspace.getType() == WorkspaceType.LOCAL
-                        ? I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL)
-                        : I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT));
-
-                // 如果有描述，追加显示
-                if (workspace.getDescription() != null && !workspace.getDescription().trim().isEmpty()) {
-                    text.append(" - ").append(workspace.getDescription());
-                }
-
-                text.append("</small>");
-                text.append(HTML_END);
-
-                setText(text.toString());
-                setBorder(new EmptyBorder(5, 10, 5, 10));
-            }
-
-            return this;
-        }
-
-        private FlatSVGIcon createGitIcon(Workspace workspace) {
-            if (workspace.getGitRemoteUrl() == null || workspace.getGitRemoteUrl().trim().isEmpty()) {
-                return IconUtil.create("icons/git-warning.svg", 20, 20);
-            }
-            if (workspace.getGitRepoSource() == GitRepoSource.CLONED) {
-                return IconUtil.create("icons/git-remote.svg", 20, 20);
-            }
-            return IconUtil.create("icons/git.svg", 20, 20);
-        }
     }
 }

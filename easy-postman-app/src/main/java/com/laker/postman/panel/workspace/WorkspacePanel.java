@@ -1,6 +1,8 @@
 package com.laker.postman.panel.workspace;
 
 import com.laker.postman.common.UiSingletonFactory;
+import com.formdev.flatlaf.util.SystemFileChooser;
+import com.laker.postman.common.component.notification.NotificationCenter;
 import com.laker.postman.common.UiSingletonPanel;
 import com.laker.postman.common.component.SearchTextField;
 import com.laker.postman.common.component.AppToolWindowChrome;
@@ -13,6 +15,7 @@ import com.laker.postman.model.GitOperation;
 import com.laker.postman.model.RemoteStatus;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
+import com.laker.postman.plugin.git.GitWorkspaceLayout;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
 import com.laker.postman.panel.env.EnvironmentPanel;
 import com.laker.postman.panel.functional.FunctionalPanel;
@@ -36,6 +39,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -49,6 +53,7 @@ import java.util.Objects;
 public class WorkspacePanel extends UiSingletonPanel {
 
     private static final String HTML_START = "<html>";
+    private static final String DEFAULT_EMBEDDED_DIRECTORY = "easy-postman";
     private static final String HTML_END = "</html>";
     private static final String WORKSPACE_DETAIL_DIVIDER_APPLIED_PROPERTY =
             "EasyPostman.workspace.detailDividerApplied";
@@ -106,7 +111,7 @@ public class WorkspacePanel extends UiSingletonPanel {
     private JPanel createToolbar() {
         // 新建工作区按钮
         JButton newButton = new PlusButton();
-        newButton.addActionListener(e -> showCreateWorkspaceDialog());
+        newButton.addActionListener(e -> showNewWorkspaceMenu(newButton));
 
         workspaceSearchField = new SearchTextField();
         workspaceSearchField.getDocument().addDocumentListener(new DocumentListener() {
@@ -216,7 +221,7 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     private void showDefaultWorkspaceTool(Workspace workspace) {
-        if (workspace != null && workspace.getType() == WorkspaceType.GIT) {
+        if (workspace != null && workspaceService.isGitEnabled(workspace)) {
             showGitDiff(workspace, false);
             return;
         }
@@ -378,19 +383,181 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     /**
+     * 新建入口：新建 / 打开文件夹 / 从 Git 克隆。
+     */
+    private void showNewWorkspaceMenu(JComponent anchor) {
+        JPopupMenu menu = new JPopupMenu();
+        ToolWindowSurfaceStyle.applyPopupMenuCard(menu);
+        JMenuItem newItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_ACTION_NEW));
+        newItem.setIcon(IconUtil.createThemed("icons/local.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        newItem.addActionListener(e -> showCreateWorkspaceDialog(false));
+        menu.add(newItem);
+        JMenuItem openItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_ACTION_OPEN_FOLDER));
+        openItem.setIcon(IconUtil.createThemed("icons/file.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        openItem.addActionListener(e -> openFolderAsWorkspace());
+        menu.add(openItem);
+        JMenuItem cloneItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_ACTION_CLONE));
+        cloneItem.setIcon(IconUtil.create("icons/git-remote.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        cloneItem.addActionListener(e -> showCreateWorkspaceDialog(true));
+        menu.add(cloneItem);
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /**
      * 显示创建工作区对话框
      */
-    private void showCreateWorkspaceDialog() {
+    private void showCreateWorkspaceDialog(boolean cloneFromGit) {
         WorkspaceCreateDialog dialog = new WorkspaceCreateDialog(
-                SwingUtilities.getWindowAncestor(this)
+                SwingUtilities.getWindowAncestor(this),
+                cloneFromGit
         );
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
-            refreshWorkspaceList();
-            // 更新顶部菜单栏的工作区下拉框（不需要重新加载整个菜单栏）
-            UiSingletonFactory.getInstance(TopMenuBar.class).updateWorkspaceComboBox();
+            onWorkspaceAdded(dialog.getWorkspace());
         }
+    }
+
+    /**
+     * 新建、克隆或打开文件夹后直接切换过去，加载其集合与环境。
+     */
+    private void onWorkspaceAdded(Workspace workspace) {
+        refreshWorkspaceList();
+        selectWorkspaceInList(workspace);
+        // 更新顶部菜单栏的工作区下拉框（不需要重新加载整个菜单栏）
+        UiSingletonFactory.getInstance(TopMenuBar.class).updateWorkspaceComboBox();
+        openWorkspace(workspace);
+    }
+
+    private void openWorkspace(Workspace workspace) {
+        if (workspace == null || workspace.getId() == null) {
+            return;
+        }
+        Workspace current = workspaceService.getCurrentWorkspace();
+        if (current != null && current.getId().equals(workspace.getId())) {
+            return;
+        }
+        switchToWorkspace(workspace);
+    }
+
+    private void selectWorkspaceInList(Workspace workspace) {
+        if (workspace == null || workspace.getId() == null) {
+            return;
+        }
+        for (int i = 0; i < listModel.size(); i++) {
+            if (workspace.getId().equals(listModel.get(i).getId())) {
+                workspaceList.setSelectedIndex(i);
+                workspaceList.ensureIndexIsVisible(i);
+                return;
+            }
+        }
+    }
+
+    /**
+     * 打开已有目录作为工作区：目录可以是独立目录，也可以位于任意代码仓库中。
+     */
+    private void openFolderAsWorkspace() {
+        SystemFileChooser chooser = FileChooserUtil.createDirectoryChooser(
+                "workspace.open.folder",
+                I18nUtil.getMessage(MessageKeys.WORKSPACE_ACTION_OPEN_FOLDER));
+        if (chooser.showOpenDialog(this) != SystemFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+        Path directory = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+        Workspace registered = workspaceService.findWorkspaceByPath(directory);
+        if (registered != null) {
+            openExistingRegistration(registered);
+            return;
+        }
+        // 仓库探测与数据写入在后台执行，界面线程只负责确认对话框
+        runInBackground(() -> WorkspaceDirectoryProbe.probe(directory), this::continueOpenFolder,
+                ex -> showError(I18nUtil.getMessage(MessageKeys.WORKSPACE_OPEN_FOLDER_FAILED, ex.getMessage())));
+    }
+
+    private void continueOpenFolder(WorkspaceDirectoryProbe probe) {
+        Path directory = probe.directory();
+        GitWorkspaceLayout layout = probe.layout();
+        boolean confirmedLocation = false;
+        if (layout != null && !layout.isEmbedded() && !probe.hasData()) {
+            confirmedLocation = true;
+            Path subdirectory = directory.resolve(DEFAULT_EMBEDDED_DIRECTORY);
+            String[] options = {
+                    I18nUtil.getMessage(MessageKeys.WORKSPACE_OPEN_FOLDER_USE_SUBDIRECTORY),
+                    I18nUtil.getMessage(MessageKeys.WORKSPACE_OPEN_FOLDER_USE_SELECTED),
+                    CommonI18n.get(CommonMessageKeys.BUTTON_CANCEL)
+            };
+            int choice = JOptionPane.showOptionDialog(this,
+                    I18nUtil.getMessage(MessageKeys.WORKSPACE_OPEN_FOLDER_REPO_ROOT_PROMPT, directory.toString()),
+                    I18nUtil.getMessage(MessageKeys.WORKSPACE_ACTION_OPEN_FOLDER),
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (choice == 0) {
+                directory = subdirectory;
+            } else if (choice != 1) {
+                return;
+            }
+        }
+
+        Workspace existing = workspaceService.findWorkspaceByPath(directory);
+        if (existing != null) {
+            openExistingRegistration(existing);
+            return;
+        }
+        if (!confirmedLocation && !WorkspaceConfirmations.confirmCreateData(this, probe, true)) {
+            return;
+        }
+        Path target = directory;
+        runInBackground(() -> workspaceService.openFolderAsWorkspace(target, suggestWorkspaceName(target)),
+                this::onWorkspaceAdded,
+                ex -> {
+                    log.error("Failed to open folder as workspace: {}", target, ex);
+                    showError(I18nUtil.getMessage(MessageKeys.WORKSPACE_OPEN_FOLDER_FAILED, ex.getMessage()));
+                });
+    }
+
+    private <T> void runInBackground(java.util.concurrent.Callable<T> task,
+                                     java.util.function.Consumer<T> onSuccess,
+                                     java.util.function.Consumer<Exception> onFailure) {
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        new SwingWorker<T, Void>() {
+            @Override
+            protected T doInBackground() throws Exception {
+                return task.call();
+            }
+
+            @Override
+            protected void done() {
+                setCursor(Cursor.getDefaultCursor());
+                T result;
+                try {
+                    result = get();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    onFailure.accept(e.getCause() instanceof Exception cause ? cause : e);
+                    return;
+                } catch (Exception e) {
+                    onFailure.accept(e);
+                    return;
+                }
+                onSuccess.accept(result);
+            }
+        }.execute();
+    }
+
+    private void openExistingRegistration(Workspace existing) {
+        selectWorkspaceInList(existing);
+        NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.WORKSPACE_OPEN_FOLDER_EXISTS, existing.getName()));
+        openWorkspace(existing);
+    }
+
+    static String suggestWorkspaceName(Path directory) {
+        Path fileName = directory.getFileName();
+        if (fileName == null) {
+            return directory.toString();
+        }
+        Path parentName = directory.getParent() == null ? null : directory.getParent().getFileName();
+        if (DEFAULT_EMBEDDED_DIRECTORY.equals(fileName.toString()) && parentName != null) {
+            return parentName.toString();
+        }
+        return fileName.toString();
     }
 
     /**
@@ -428,11 +595,17 @@ public class WorkspacePanel extends UiSingletonPanel {
             if (!WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
                 menu.addSeparator();
             }
+        } else {
+            JMenuItem reloadItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_RELOAD_FROM_DISK));
+            reloadItem.setIcon(IconUtil.createThemed("icons/refresh.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+            reloadItem.addActionListener(e -> reloadCurrentWorkspaceFromDisk());
+            menu.add(reloadItem);
+            menu.addSeparator();
         }
     }
 
     private void addGitMenuItems(JPopupMenu menu, Workspace workspace) {
-        if (workspace.getType() == WorkspaceType.GIT) {
+        if (workspace.getType() == WorkspaceType.GIT || workspaceService.isGitEnabled(workspace)) {
             return;
         }
 
@@ -506,6 +679,7 @@ public class WorkspacePanel extends UiSingletonPanel {
             UiSingletonFactory.getInstance(CollectionTreePanel.class)
                     .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), () -> {
                         refreshExistingWorkspaceScopedPanels();
+                        WorkspaceExternalChangeMonitor.acknowledgeCurrentWorkspace();
                         // 更新顶部菜单栏工作区显示
                         UiSingletonFactory.getInstance(TopMenuBar.class).updateWorkspaceDisplay();
                         refreshWorkspaceList();
@@ -516,8 +690,7 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     private void saveCurrentWorkspaceScopedPanels() {
-        UiSingletonFactory.getExistingInstance(FunctionalPanel.class).ifPresent(FunctionalPanel::save);
-        UiSingletonFactory.getExistingInstance(PerformancePanel.class).ifPresent(PerformancePanel::save);
+        WorkspaceDataReloader.saveCurrentWorkspacePanels();
     }
 
     private void refreshExistingWorkspaceScopedPanels() {
@@ -527,6 +700,20 @@ public class WorkspacePanel extends UiSingletonPanel {
                 .ifPresent(PerformancePanel::switchWorkspaceAndRefreshUI);
         UiSingletonFactory.getExistingInstance(MockServerPanel.class)
                 .ifPresent(MockServerPanel::switchWorkspaceAndRefreshUI);
+    }
+
+    /**
+     * Git 操作改写了仓库文件：当前工作区与之相同或位于同一仓库时重新加载，否则只刷新列表。
+     */
+    private void refreshAfterRepositoryChange(Workspace workspace) {
+        WorkspaceDataReloader.reloadAfterRepositoryChange(workspace, this::refreshWorkspaceList);
+    }
+
+    private void reloadCurrentWorkspaceFromDisk() {
+        WorkspaceExternalChangeMonitor.reloadCurrentWorkspaceFromDisk(() -> {
+            refreshWorkspaceList();
+            NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.WORKSPACE_RELOAD_FROM_DISK_DONE));
+        });
     }
 
     /**
@@ -542,14 +729,7 @@ public class WorkspacePanel extends UiSingletonPanel {
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
-            // 刷新 requests 和 env 面板
-            UiSingletonFactory.getInstance(CollectionTreePanel.class)
-                    .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), () -> {
-                        refreshExistingWorkspaceScopedPanels();
-                        refreshWorkspaceList();
-                    });
-            UiSingletonFactory.getInstance(EnvironmentPanel.class)
-                    .switchWorkspaceAndRefreshUI(SystemUtil.getEnvPathForWorkspace(workspace));
+            refreshAfterRepositoryChange(workspace);
         }
     }
 
@@ -583,14 +763,7 @@ public class WorkspacePanel extends UiSingletonPanel {
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
-            // 刷新 requests 和 env 面板
-            UiSingletonFactory.getInstance(CollectionTreePanel.class)
-                    .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), () -> {
-                        refreshExistingWorkspaceScopedPanels();
-                        refreshWorkspaceList();
-                    });
-            UiSingletonFactory.getInstance(EnvironmentPanel.class)
-                    .switchWorkspaceAndRefreshUI(SystemUtil.getEnvPathForWorkspace(workspace));
+            refreshAfterRepositoryChange(workspace);
         }
     }
 
@@ -602,26 +775,12 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     private void refreshAfterGitHistoryRestore(Workspace workspace) {
-        UiSingletonFactory.getInstance(CollectionTreePanel.class)
-                .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), () -> {
-                    refreshExistingWorkspaceScopedPanels();
-                    refreshWorkspaceList();
-                });
-        UiSingletonFactory.getInstance(EnvironmentPanel.class)
-                .switchWorkspaceAndRefreshUI(SystemUtil.getEnvPathForWorkspace(workspace));
+        refreshAfterRepositoryChange(workspace);
     }
 
     private void showGitBranches(Workspace workspace) {
-        Workspace current = workspaceService.getCurrentWorkspace();
-        boolean isCurrentWorkspace = current != null && current.getId().equals(workspace.getId());
-        if (isCurrentWorkspace) {
-            saveCurrentWorkspaceScopedPanels();
-        }
-
-        showWorkspaceTool(new GitBranchPanel(
-                workspace,
-                () -> refreshAfterGitBranchChange(workspace, isCurrentWorkspace)
-        ));
+        saveCurrentWorkspaceScopedPanels();
+        showWorkspaceTool(new GitBranchPanel(workspace, () -> refreshAfterRepositoryChange(workspace)));
     }
 
     private void showGitDiff(Workspace workspace) {
@@ -636,20 +795,6 @@ public class WorkspacePanel extends UiSingletonPanel {
         }
 
         showWorkspaceTool(new GitDiffPanel(workspace));
-    }
-
-    private void refreshAfterGitBranchChange(Workspace workspace, boolean isCurrentWorkspace) {
-        if (isCurrentWorkspace) {
-            UiSingletonFactory.getInstance(CollectionTreePanel.class)
-                    .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), () -> {
-                        refreshExistingWorkspaceScopedPanels();
-                        refreshWorkspaceList();
-                    });
-            UiSingletonFactory.getInstance(EnvironmentPanel.class)
-                    .switchWorkspaceAndRefreshUI(SystemUtil.getEnvPathForWorkspace(workspace));
-        } else {
-            refreshWorkspaceList();
-        }
     }
 
     /**
@@ -727,7 +872,10 @@ public class WorkspacePanel extends UiSingletonPanel {
                                 SystemUtil.getEnvPathForWorkspace(newCurrentWorkspace));
                         // 切换请求集合文件
                         UiSingletonFactory.getInstance(CollectionTreePanel.class).switchWorkspaceAndRefreshUI(
-                                SystemUtil.getCollectionPathForWorkspace(newCurrentWorkspace), this::refreshExistingWorkspaceScopedPanels);
+                                SystemUtil.getCollectionPathForWorkspace(newCurrentWorkspace), () -> {
+                                    refreshExistingWorkspaceScopedPanels();
+                                    WorkspaceExternalChangeMonitor.acknowledgeCurrentWorkspace();
+                                });
 
                     }
                 }
@@ -892,7 +1040,8 @@ public class WorkspacePanel extends UiSingletonPanel {
     }
 
     private WorkspaceDetailPanel.GitActions createGitActions(Workspace workspace) {
-        if (workspace.getType() != WorkspaceType.GIT) {
+        GitWorkspaceLayout layout = workspaceService.detectGitLayout(workspace);
+        if (layout == null) {
             return null;
         }
 
@@ -918,7 +1067,10 @@ public class WorkspacePanel extends UiSingletonPanel {
                 remoteConfigAction,
                 () -> showGitHistory(workspace),
                 () -> showGitBranches(workspace),
-                () -> showGitDiff(workspace)
+                () -> showGitDiff(workspace),
+                layout.isFullControl() ? null : I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_EMBEDDED_HINT,
+                        layout.getRepositoryRoot().toString(),
+                        layout.isEmbedded() ? layout.getScope() : "./")
         );
     }
 

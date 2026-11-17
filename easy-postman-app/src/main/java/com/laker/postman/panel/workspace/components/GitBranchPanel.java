@@ -237,6 +237,10 @@ public class GitBranchPanel extends JPanel {
         if (selectedBranch == null || selectedBranch.isCurrent()) {
             return;
         }
+        if (!WorkspaceConfirmations.confirmRepositoryWideOperation(this, workspace,
+                I18nUtil.getMessage(MessageKeys.GIT_BRANCH_SWITCH) + " " + selectedBranch.getName())) {
+            return;
+        }
 
         setBusy(true, I18nUtil.getMessage(MessageKeys.GIT_BRANCH_SWITCHING));
         new SwingWorker<GitOperationResult, Void>() {
@@ -319,6 +323,10 @@ public class GitBranchPanel extends JPanel {
                 "",
                 I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_BRANCH_INVALID)
         ).ifPresent(branchName -> {
+            if (!WorkspaceConfirmations.confirmRepositoryWideOperation(this, workspace,
+                    I18nUtil.getMessage(MessageKeys.GIT_BRANCH_CREATE_TITLE) + " " + branchName)) {
+                return;
+            }
             setBusy(true, I18nUtil.getMessage(MessageKeys.GIT_BRANCH_CREATING));
             new SwingWorker<GitOperationResult, Void>() {
                 @Override
@@ -363,15 +371,23 @@ public class GitBranchPanel extends JPanel {
             updateActionButtonState();
             return;
         }
-        int choice = JOptionPane.showConfirmDialog(
-                this,
-                I18nUtil.getMessage(MessageKeys.GIT_BRANCH_DELETE_CONFIRM, selectedBranch.getName()),
-                I18nUtil.getMessage(MessageKeys.GIT_BRANCH_DELETE),
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE
-        );
-        if (choice != JOptionPane.YES_OPTION) {
-            return;
+        if (WorkspaceConfirmations.isSharedRepository(workspace)) {
+            // 业务代码仓库：整仓库确认已包含删除确认
+            if (!WorkspaceConfirmations.confirmRepositoryWideOperation(this, workspace,
+                    I18nUtil.getMessage(MessageKeys.GIT_BRANCH_DELETE) + " " + selectedBranch.getName())) {
+                return;
+            }
+        } else {
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    I18nUtil.getMessage(MessageKeys.GIT_BRANCH_DELETE_CONFIRM, selectedBranch.getName()),
+                    I18nUtil.getMessage(MessageKeys.GIT_BRANCH_DELETE),
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+            if (choice != JOptionPane.YES_OPTION) {
+                return;
+            }
         }
 
         deleteBranch(selectedBranch, false);
@@ -442,6 +458,10 @@ public class GitBranchPanel extends JPanel {
         }
         if (!selectedBranch.isCurrent()) {
             statusLabel.setText(I18nUtil.getMessage(MessageKeys.GIT_BRANCH_PUBLISH_CURRENT_ONLY));
+            return;
+        }
+        if (!WorkspaceConfirmations.confirmRepositoryWideOperation(this, workspace,
+                I18nUtil.getMessage(MessageKeys.GIT_BRANCH_PUBLISH) + " " + selectedBranch.getName())) {
             return;
         }
 

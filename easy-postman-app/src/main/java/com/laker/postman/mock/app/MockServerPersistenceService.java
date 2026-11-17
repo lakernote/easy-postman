@@ -9,16 +9,15 @@ import com.laker.postman.model.Workspace;
 import com.laker.postman.service.WorkspaceService;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
+import com.laker.postman.util.SafeFileUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -27,46 +26,44 @@ public class MockServerPersistenceService {
 
     public List<MockServerDefinition> load() {
         Path path = configPath();
-        if (!Files.isRegularFile(path)) {
-            return List.of();
-        }
         try {
-            if (Files.size(path) > MAX_CONFIG_BYTES) {
-                log.warn("Ignoring oversized mock server config: {}", path);
+            if (Files.isRegularFile(path) && Files.size(path) > MAX_CONFIG_BYTES) {
+                log.warn("Ignoring oversized mock server config, keeping it unchanged: {}", path);
+                SafeFileUtil.backupUnreadable(path);
                 return List.of();
             }
-            JSONArray array = JSONUtil.readJSONArray(path.toFile(), StandardCharsets.UTF_8);
+            Optional<String> content = SafeFileUtil.readForLoad(path);
+            if (content.isEmpty()) {
+                return List.of();
+            }
+            JSONArray array = JSONUtil.parseArray(content.get());
             return new ArrayList<>(JSONUtil.toList(array, MockServerDefinition.class));
         } catch (Exception ex) {
-            log.warn("Failed to load mock server config: {}", path, ex);
+            log.warn("Failed to load mock server config, keeping it unchanged: {}", path, ex);
+            SafeFileUtil.backupUnreadable(path);
             return List.of();
         }
     }
 
     public void save(List<MockServerDefinition> definitions) {
         Path target = configPath();
-        Path parent = target.getParent();
         try {
-            if (parent != null) Files.createDirectories(parent);
-            Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
             String json = JSONUtil.toJsonPrettyStr(definitions == null ? List.of() : definitions);
-            Files.writeString(temporary, json, StandardCharsets.UTF_8);
-            moveAtomically(temporary, target);
+            SafeFileUtil.writeStringAtomically(target, json);
         } catch (IOException ex) {
             throw new IllegalStateException(I18nUtil.getMessage(MessageKeys.MOCK_SERVER_PERSIST_FAILED), ex);
         }
     }
 
+    /**
+     * 记录加载基准，用于识别自身写入，避免把自己的保存当成外部修改。
+     */
+    public void rememberLoaded(List<MockServerDefinition> definitions) {
+        SafeFileUtil.rememberLoaded(configPath(), JSONUtil.toJsonPrettyStr(definitions == null ? List.of() : definitions));
+    }
+
     Path configPath() {
         Workspace workspace = WorkspaceService.getInstance().getCurrentWorkspace();
         return Path.of(ConfigPathConstants.getMockServersPath(workspace));
-    }
-
-    private void moveAtomically(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException ignored) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
     }
 }

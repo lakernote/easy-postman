@@ -709,6 +709,36 @@ public final class MessageKeys {
     public static final String WORKSPACE_PATH_OPEN_TOOLTIP = "workspace.path.open.tooltip";
     public static final String WORKSPACE_PATH_NOT_EXIST = "workspace.path.not.exist";
     public static final String WORKSPACE_SELECT_PATH = "workspace.select.path";
+    public static final String WORKSPACE_ACTION_NEW = "workspace.action.new";
+    public static final String WORKSPACE_ACTION_OPEN_FOLDER = "workspace.action.open_folder";
+    public static final String WORKSPACE_ACTION_CLONE = "workspace.action.clone";
+    public static final String WORKSPACE_OPEN_FOLDER_REPO_ROOT_PROMPT = "workspace.open_folder.repo_root_prompt";
+    public static final String WORKSPACE_OPEN_FOLDER_USE_SUBDIRECTORY = "workspace.open_folder.use_subdirectory";
+    public static final String WORKSPACE_OPEN_FOLDER_USE_SELECTED = "workspace.open_folder.use_selected";
+    public static final String WORKSPACE_OPEN_FOLDER_EXISTS = "workspace.open_folder.exists";
+    public static final String WORKSPACE_OPEN_FOLDER_FAILED = "workspace.open_folder.failed";
+    public static final String WORKSPACE_PATH_IN_REPOSITORY = "workspace.path.in_repository";
+    public static final String WORKSPACE_PATH_HAS_DATA = "workspace.path.has_data";
+    public static final String WORKSPACE_RELOAD_FROM_DISK = "workspace.reload_from_disk";
+    public static final String WORKSPACE_RELOAD_FROM_DISK_DONE = "workspace.reload_from_disk.done";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_TITLE = "workspace.external_change.title";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_CONFIRM = "workspace.external_change.confirm";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_LATER = "workspace.external_change.later";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_DISCARD_UNSAVED = "workspace.external_change.discard_unsaved";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_STOP_MOCK = "workspace.external_change.stop_mock";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_STOP_PERFORMANCE = "workspace.external_change.stop_performance";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_RELOADED = "workspace.external_change.reloaded";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_POSTPONED = "workspace.external_change.postponed";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_UNREADABLE = "workspace.external_change.unreadable";
+    public static final String WORKSPACE_CREATE_DATA_TITLE = "workspace.create_data.title";
+    public static final String WORKSPACE_CREATE_DATA_CONFIRM = "workspace.create_data.confirm";
+    public static final String WORKSPACE_CREATE_DATA_IN_REPO_CONFIRM = "workspace.create_data.in_repo_confirm";
+    public static final String WORKSPACE_INIT_GIT = "workspace.init_git";
+    public static final String WORKSPACE_INIT_GIT_IN_REPO = "workspace.init_git.in_repo";
+    public static final String GIT_REPO_WIDE_OPERATION_TITLE = "git.repo_wide_operation.title";
+    public static final String GIT_REPO_WIDE_OPERATION_CONFIRM = "git.repo_wide_operation.confirm";
+    public static final String GIT_SCOPED_OUTSIDE_CONFLICTS = "git.scoped.outside_conflicts";
+    public static final String GIT_SCOPED_PULL_OUTSIDE_OVERLAP = "git.scoped.pull_outside_overlap";
     public static final String WORKSPACE_GIT_URL = "workspace.git.url";
     public static final String WORKSPACE_GIT_USERNAME = "workspace.git.username";
     public static final String WORKSPACE_GIT_PASSWORD = "workspace.git.password";
@@ -796,6 +826,9 @@ public final class MessageKeys {
     public static final String GIT_DIFF_SIZE_STAGED = "git.diff.size.staged";
     public static final String GIT_DIFF_SIZE_WORKTREE = "git.diff.size.worktree";
     public static final String GIT_WORKSPACE_REPOSITORY_MISSING = "git.workspace.repository_missing";
+    public static final String GIT_WORKSPACE_ALREADY_IN_REPOSITORY = "git.workspace.already_in_repository";
+    public static final String GIT_WORKSPACE_EMBEDDED_HINT = "git.workspace.embedded_hint";
+    public static final String GIT_OPERATION_REQUIRES_DEDICATED_REPOSITORY = "git.operation.requires_dedicated_repository";
 
     // Git Branch Dialog
     public static final String GIT_BRANCH_TITLE = "git.branch.title";

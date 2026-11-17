@@ -83,6 +83,7 @@ public class GitHistoryPanel extends JPanel {
         );
         restoreButton.setEnabled(false);
         restoreButton.addActionListener(e -> restoreSelectedCommit());
+        restoreButton.setVisible(workspaceService.hasGitFullControl(workspace));
         actions.add(restoreButton);
 
         refreshButton = new RefreshButton();

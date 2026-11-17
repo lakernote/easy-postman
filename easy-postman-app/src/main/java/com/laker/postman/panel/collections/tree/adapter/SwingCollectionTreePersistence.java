@@ -3,7 +3,6 @@ package com.laker.postman.panel.collections.tree.adapter;
 import com.laker.postman.collection.CollectionIdNormalizer;
 import com.laker.postman.collection.model.CollectionDocument;
 import com.laker.postman.service.collections.CollectionFilePersistence;
-import com.laker.postman.service.collections.DefaultCollectionDocumentFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -35,9 +34,10 @@ public class SwingCollectionTreePersistence {
 
     public void loadIntoTree() {
         try {
-            applyDocument(filePersistence.loadOrCreate(this::defaultDocument));
+            applyDocument(filePersistence.load());
         } catch (Exception e) {
             log.error("Error loading request collections", e);
+            applyDocument(CollectionDocument.empty());
         }
     }
 
@@ -47,18 +47,16 @@ public class SwingCollectionTreePersistence {
 
     public void switchDataFilePath(String path) {
         try {
-            applyDocument(filePersistence.switchFilePathAndLoad(path, this::defaultDocument));
+            applyDocument(filePersistence.switchFilePathAndLoad(path));
         } catch (Exception e) {
             log.error("Error switching collection data file", e);
+            // 不能保留上一个工作区的树，否则后续保存会把它写进新工作区。
+            applyDocument(CollectionDocument.empty());
         }
     }
 
     private CollectionDocument currentDocument() {
         return SwingCollectionTreeDocumentMapper.fromRoot(rootTreeNode);
-    }
-
-    private CollectionDocument defaultDocument() {
-        return DefaultCollectionDocumentFactory.create();
     }
 
     private void applyDocument(CollectionDocument document) {

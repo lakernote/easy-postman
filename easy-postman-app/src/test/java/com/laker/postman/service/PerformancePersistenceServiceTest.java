@@ -474,7 +474,7 @@ public class PerformancePersistenceServiceTest {
 	                """, StandardCharsets.UTF_8);
 
         assertNull(service.loadConfiguration());
-        assertFalse(Files.exists(configPath));
+        assertTrue(Files.exists(configPath), "unreadable config must be kept for manual recovery");
     }
 
     @Test(description = "空 CSV 状态不应写出脏数据")
@@ -618,7 +618,7 @@ public class PerformancePersistenceServiceTest {
         TestablePerformancePersistenceService service = new TestablePerformancePersistenceService(configPath);
 
         assertNull(service.loadConfiguration());
-        assertFalse(Files.exists(configPath));
+        assertTrue(Files.exists(configPath), "unreadable config must be kept for manual recovery");
     }
 
     @Test(description = "SSE Read 阶段配置遇到未知枚举值时不再兼容回退")
@@ -671,7 +671,7 @@ public class PerformancePersistenceServiceTest {
         TestablePerformancePersistenceService service = new TestablePerformancePersistenceService(configPath);
 
         assertNull(service.loadConfiguration());
-        assertFalse(Files.exists(configPath));
+        assertTrue(Files.exists(configPath), "unreadable config must be kept for manual recovery");
     }
 
     @Test(description = "应保存并恢复 WebSocket Connect 步骤的独立配置")

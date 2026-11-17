@@ -19,6 +19,7 @@ import java.util.List;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class PerformancePlanStorageTest {
@@ -27,6 +28,15 @@ public class PerformancePlanStorageTest {
     public void storageApiShouldNotExposeSwingOrCsvPanelTypes() {
         assertFalse(exposesType(PerformancePlanStorage.class, PerformanceTestPlanNode.class));
         assertFalse(exposesTypeInPackage(PerformancePlanStorage.class, "com.laker.postman.common.component."));
+    }
+
+    @Test
+    public void unreadableConfigShouldBeKeptUnchanged() throws Exception {
+        Path configPath = Files.createTempDirectory("performance-plan-broken").resolve("performance_config.json");
+        Files.writeString(configPath, "{\"plans\": [");
+
+        assertNull(new PerformancePlanStorage().loadWorkspace(configPath));
+        assertEquals(Files.readString(configPath), "{\"plans\": [");
     }
 
     @Test

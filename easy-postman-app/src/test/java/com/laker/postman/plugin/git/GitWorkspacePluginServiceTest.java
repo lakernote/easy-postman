@@ -4,6 +4,7 @@ import com.laker.postman.model.GitAuthType;
 import com.laker.postman.model.GitBranchInfo;
 import com.laker.postman.model.GitFileChange;
 import com.laker.postman.model.GitOperationResult;
+import com.laker.postman.model.GitOperation;
 import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
@@ -27,6 +28,7 @@ import java.util.Properties;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 public class GitWorkspacePluginServiceTest {
@@ -586,6 +588,211 @@ public class GitWorkspacePluginServiceTest {
         assertTrue(diff.contains(oneFileSummary(MessageKeys.GIT_DIFF_SUMMARY_UNSTAGED)));
     }
 
+    @Test
+    public void embeddedWorkspaceShouldOnlyExposeAndCommitItsDataFiles() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("code-repo");
+        Path dataDir = repo.resolve("api");
+        Files.createDirectories(dataDir);
+        Files.writeString(dataDir.resolve("collections.json"), "[]", StandardCharsets.UTF_8);
+        Files.writeString(dataDir.resolve("mock_servers.json"), "[]", StandardCharsets.UTF_8);
+        Path source = repo.resolve("Main.java");
+        Path stagedSource = repo.resolve("Staged.java");
+        try (Git git = Git.open(repo.toFile())) {
+            Files.writeString(source, "class Main {}", StandardCharsets.UTF_8);
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("seed").call();
+
+            Files.writeString(dataDir.resolve("collections.json"), "[{\"v\":1}]", StandardCharsets.UTF_8);
+            Files.delete(dataDir.resolve("mock_servers.json"));
+            Files.writeString(dataDir.resolve("environments.json"), "[]", StandardCharsets.UTF_8);
+            Files.writeString(dataDir.resolve("notes.md"), "not EasyPostman data", StandardCharsets.UTF_8);
+            Files.createDirectories(dataDir.resolve("backups"));
+            Files.writeString(dataDir.resolve("backups/old.json"), "[]", StandardCharsets.UTF_8);
+            Files.writeString(source, "class Main { int x; }", StandardCharsets.UTF_8);
+            Files.writeString(stagedSource, "class Staged {}", StandardCharsets.UTF_8);
+            git.add().addFilepattern("Staged.java").call();
+        }
+
+        Workspace workspace = localWorkspace(dataDir);
+        GitWorkspaceLayout layout = GitWorkspaceLayout.detect(workspace).orElseThrow();
+        assertEquals(layout.getScope(), "api/");
+        assertFalse(layout.isFullControl());
+
+        List<String> changedPaths = service.listWorkingTreeChanges(workspace).stream()
+                .map(GitFileChange::getPath).sorted().toList();
+        // 嵌入目录整体由工作区管理：目录内的其他文件同样纳入状态与提交，目录外的源码不受影响
+        assertEquals(changedPaths, List.of("backups/old.json", "collections.json", "environments.json",
+                "mock_servers.json", "notes.md"));
+        assertTrue(service.getWorkingTreeDiff(workspace, "collections.json").contains("\"v\":1"));
+        assertTrue(service.checkGitStatus(workspace, GitOperation.COMMIT).canCommit);
+
+        service.commitChanges(workspace, "scoped commit");
+
+        try (Git git = Git.open(repo.toFile())) {
+            var status = git.status().call();
+            assertTrue(status.getAdded().contains("Staged.java"), "out-of-scope staged file must stay staged");
+            assertTrue(status.getModified().contains("Main.java"), "out-of-scope change must stay uncommitted");
+            assertTrue(status.getUncommittedChanges().stream().noneMatch(p -> p.startsWith("api/")));
+        }
+        assertTrue(service.listWorkingTreeChanges(workspace).isEmpty());
+        assertFalse(service.checkGitStatus(workspace, GitOperation.COMMIT).canCommit);
+        assertEquals(service.getGitHistory(workspace, 10).get(0).getMessage().trim(), "scoped commit");
+    }
+
+    @Test
+    public void openedRepositoryRootShouldOnlyCommitDataFiles() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("opened-root-repo");
+        try (Git git = Git.open(repo.toFile())) {
+            Files.writeString(repo.resolve("collections.json"), "[]", StandardCharsets.UTF_8);
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("seed").call();
+        }
+        Files.writeString(repo.resolve("collections.json"), "[{\"v\":2}]", StandardCharsets.UTF_8);
+        Files.writeString(repo.resolve("README.md"), "changed source", StandardCharsets.UTF_8);
+        Files.writeString(repo.resolve("Main.java"), "class Main {}", StandardCharsets.UTF_8);
+        Workspace workspace = localWorkspace(repo);
+
+        assertEquals(service.listWorkingTreeChanges(workspace).stream().map(GitFileChange::getPath).toList(),
+                List.of("collections.json"));
+
+        service.commitChanges(workspace, "data only");
+
+        try (Git git = Git.open(repo.toFile())) {
+            var status = git.status().call();
+            assertTrue(status.getModified().contains("README.md"));
+            assertTrue(status.getUntracked().contains("Main.java"));
+            assertFalse(status.getUncommittedChanges().contains("collections.json"));
+        }
+        assertEquals(service.getChangedFilesBetweenCommits(workspace, "HEAD~1", "HEAD"), List.of("collections.json"));
+    }
+
+    @Test
+    public void openedRepositoryWithoutOwnershipShouldRejectRepositoryRewrites() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("opened-repo");
+        try (Git git = Git.open(repo.toFile())) {
+            writeAndCommit(git, repo.resolve("pom.xml"), "<project/>", "source");
+        }
+        Workspace workspace = localWorkspace(repo);
+
+        GitWorkspaceLayout layout = GitWorkspaceLayout.detect(workspace).orElseThrow();
+        assertFalse(layout.isEmbedded());
+        assertFalse(layout.isFullControl());
+        assertRejected(() -> service.stashChanges(workspace));
+        assertRejected(() -> service.forcePullUpdates(workspace));
+        assertRejected(() -> service.forcePushChanges(workspace));
+        assertRejected(() -> service.restoreToCommit(workspace, "HEAD", false));
+
+        // 旧类型不能单独授予整仓库权限
+        workspace.setType(WorkspaceType.GIT);
+        assertFalse(GitWorkspaceLayout.detect(workspace).orElseThrow().isFullControl());
+        // 旧版本记录的创建来源 + 最后提交与磁盘仓库一致时才认定
+        workspace.setGitRepoSource(GitRepoSource.INITIALIZED);
+        workspace.setLastCommitId("0123456789012345678901234567890123456789");
+        assertFalse(GitWorkspaceLayout.detect(workspace).orElseThrow().isFullControl());
+        try (Git git = Git.open(repo.toFile())) {
+            workspace.setLastCommitId(git.getRepository().resolve("HEAD").getName());
+        }
+        assertTrue(GitWorkspaceLayout.detect(workspace).orElseThrow().isFullControl());
+    }
+
+    @Test
+    public void ownershipShouldComeFromMarkerNotFileNames() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("dedicated-repo");
+        try (Git git = Git.open(repo.toFile())) {
+            writeAndCommit(git, repo.resolve("collections.json"), "[]", "data");
+        }
+        // 只有数据文件也不代表独占：历史或其他分支可能包含源码
+        assertFalse(GitWorkspaceLayout.detect(localWorkspace(repo)).orElseThrow().isFullControl());
+
+        try (Git git = Git.open(repo.toFile())) {
+            GitWorkspaceLayout.markOwnedByEasyPostman(git.getRepository());
+        }
+        assertTrue(GitWorkspaceLayout.detect(localWorkspace(repo)).orElseThrow().isFullControl());
+        assertTrue(GitWorkspaceLayout.detectDirectory(repo).orElseThrow().isFullControl());
+        // 标记只对仓库根目录生效
+        Files.createDirectories(repo.resolve("sub"));
+        assertFalse(GitWorkspaceLayout.detectDirectory(repo.resolve("sub")).orElseThrow().isFullControl());
+    }
+
+    @Test
+    public void initializedWorkspaceShouldBeMarkedAsOwned() throws Exception {
+        Path path = tempDir.resolve("created-by-app");
+        Workspace workspace = workspace(path, GitRepoSource.INITIALIZED);
+        workspace.setName("created");
+        Files.createDirectories(path);
+        service.prepareGitWorkspace(workspace);
+        GitWorkspaceLayout layout = GitWorkspaceLayout.detectDirectory(path).orElseThrow();
+        assertTrue(layout.isFullControl());
+        assertNotNull(layout.getBranch());
+    }
+
+    @Test
+    public void commitShouldAcceptChangesThatAreOnlyStaged() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("staged-only");
+        Workspace workspace = workspace(repo, GitRepoSource.INITIALIZED);
+        try (Git git = Git.open(repo.toFile())) {
+            Files.writeString(repo.resolve("README.md"), "staged", StandardCharsets.UTF_8);
+            git.add().addFilepattern("README.md").call();
+        }
+
+        service.commitChanges(workspace, "staged only");
+
+        try (Git git = Git.open(repo.toFile())) {
+            assertTrue(git.status().call().isClean());
+        }
+    }
+
+    @Test
+    public void layoutDetectionShouldSupportWorktreesAndMissingDataDirectories() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("main-repo");
+        Path worktree = tempDir.resolve("linked-worktree");
+        Path gitDir = repo.resolve(".git/worktrees/linked");
+        Files.createDirectories(gitDir);
+        Files.createDirectories(worktree);
+        Files.writeString(gitDir.resolve("HEAD"), "ref: refs/heads/main\n", StandardCharsets.UTF_8);
+        Files.writeString(gitDir.resolve("commondir"), "../..\n", StandardCharsets.UTF_8);
+        Files.writeString(gitDir.resolve("gitdir"), worktree.resolve(".git").toString() + "\n", StandardCharsets.UTF_8);
+        Files.writeString(worktree.resolve(".git"), "gitdir: " + gitDir + "\n", StandardCharsets.UTF_8);
+
+        GitWorkspaceLayout layout = GitWorkspaceLayout.detect(localWorkspace(worktree.resolve("tools/api"))).orElseThrow();
+        assertEquals(layout.getRepositoryRoot(), worktree.toRealPath());
+        assertEquals(layout.getScope(), "tools/api/");
+
+        assertTrue(GitWorkspaceLayout.detect(localWorkspace(createBareRemote())).isEmpty());
+        assertTrue(GitWorkspaceLayout.detect(localWorkspace(tempDir.resolve("plain"))).isEmpty());
+    }
+
+    @Test
+    public void initializingInsideExistingRepositoryShouldNotCreateNestedRepository() throws Exception {
+        Path repo = initRepositoryWithInitialCommit("host-repo");
+        Workspace workspace = workspace(repo.resolve("api"), GitRepoSource.INITIALIZED);
+
+        assertRejected(() -> service.prepareGitWorkspace(workspace));
+        assertFalse(Files.exists(repo.resolve("api/.git")));
+    }
+
+    private void assertRejected(ThrowingRunnable action) {
+        try {
+            action.run();
+        } catch (Exception expected) {
+            return;
+        }
+        throw new AssertionError("Expected operation to be rejected");
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    private Workspace localWorkspace(Path path) {
+        Workspace workspace = new Workspace();
+        workspace.setType(WorkspaceType.LOCAL);
+        workspace.setGitAuthType(GitAuthType.NONE);
+        workspace.setPath(path.toString());
+        return workspace;
+    }
+
     private Path createBareRemote() throws Exception {
         Path remote = tempDir.resolve("remote.git");
         try (Git ignored = Git.init().setBare(true).setDirectory(remote.toFile()).call()) {
@@ -696,12 +903,22 @@ public class GitWorkspacePluginServiceTest {
         return (Properties) propsField.get(null);
     }
 
+    /**
+     * 模拟由 EasyPostman 创建的工作区：仓库已存在时写入归属标记。
+     */
     private Workspace workspace(Path path, GitRepoSource repoSource) {
         Workspace workspace = new Workspace();
         workspace.setType(WorkspaceType.GIT);
         workspace.setGitRepoSource(repoSource);
         workspace.setGitAuthType(GitAuthType.NONE);
         workspace.setPath(path.toString());
+        if (Files.exists(path.resolve(".git"))) {
+            try (Git git = Git.open(path.toFile())) {
+                GitWorkspaceLayout.markOwnedByEasyPostman(git.getRepository());
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
         return workspace;
     }
 

@@ -7,12 +7,13 @@ import com.laker.postman.common.component.combobox.WorkspaceComboBox;
 import com.laker.postman.model.GitOperation;
 import com.laker.postman.model.RemoteStatus;
 import com.laker.postman.model.Workspace;
-import com.laker.postman.model.WorkspaceType;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
 import com.laker.postman.panel.env.EnvironmentPanel;
 import com.laker.postman.panel.functional.FunctionalPanel;
 import com.laker.postman.panel.mock.MockServerPanel;
 import com.laker.postman.panel.performance.PerformancePanel;
+import com.laker.postman.panel.workspace.WorkspaceDataReloader;
+import com.laker.postman.panel.workspace.WorkspaceExternalChangeMonitor;
 import com.laker.postman.panel.topmenu.setting.WebDavSyncQuickActionController;
 import com.laker.postman.panel.workspace.components.GitOperationDialog;
 import com.laker.postman.panel.workspace.components.GitOperationPresentation;
@@ -93,10 +94,7 @@ class TopMenuWorkspaceControls {
 
         if (dialog.isConfirmed()) {
             if (operation == GitOperation.PULL) {
-                UiSingletonFactory.getInstance(CollectionTreePanel.class)
-                        .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), this::refreshExistingWorkspaceScopedPanels);
-                UiSingletonFactory.getInstance(EnvironmentPanel.class)
-                        .switchWorkspaceAndRefreshUI(SystemUtil.getEnvPathForWorkspace(workspace));
+                WorkspaceDataReloader.reloadAfterRepositoryChange(workspace, null);
             }
 
             log.info("Git {} operation completed successfully", operation.getDisplayName());
@@ -137,7 +135,7 @@ class TopMenuWorkspaceControls {
         try {
             WorkspaceService workspaceService = WorkspaceService.getInstance();
             Workspace currentWorkspace = workspaceService.getCurrentWorkspace();
-            if (currentWorkspace != null && currentWorkspace.getType() == WorkspaceType.GIT
+            if (currentWorkspace != null && workspaceService.isGitEnabled(currentWorkspace)
                     && workspaceService.isGitServiceAvailable()) {
                 menuBar.add(createGitToolbar(currentWorkspace));
                 menuBar.add(Box.createHorizontalStrut(12));
@@ -189,6 +187,7 @@ class TopMenuWorkspaceControls {
             UiSingletonFactory.getInstance(CollectionTreePanel.class)
                     .switchWorkspaceAndRefreshUI(SystemUtil.getCollectionPathForWorkspace(workspace), () -> {
                         refreshExistingWorkspaceScopedPanels();
+                        WorkspaceExternalChangeMonitor.acknowledgeCurrentWorkspace();
                         refreshMenuBar.run();
                         log.info("Switched to workspace: {}", workspace.getName());
                     });
@@ -199,8 +198,7 @@ class TopMenuWorkspaceControls {
     }
 
     private void saveCurrentWorkspaceScopedPanels() {
-        UiSingletonFactory.getExistingInstance(FunctionalPanel.class).ifPresent(FunctionalPanel::save);
-        UiSingletonFactory.getExistingInstance(PerformancePanel.class).ifPresent(PerformancePanel::save);
+        WorkspaceDataReloader.saveCurrentWorkspacePanels();
     }
 
     private void refreshExistingWorkspaceScopedPanels() {

@@ -82,12 +82,14 @@ public class GitOperationDialog extends JDialog {
 
     // 检测结果
     private GitStatusCheck statusCheck;
+    private final boolean repositoryRewriteAllowed;
 
     public GitOperationDialog(Window parent, Workspace workspace, GitOperation operation) {
         super(parent, operation.getDisplayName() + " - " + workspace.getName(), ModalityType.APPLICATION_MODAL);
         this.workspace = workspace;
         this.operation = operation;
         this.workspaceService = WorkspaceService.getInstance();
+        this.repositoryRewriteAllowed = workspaceService.hasGitFullControl(workspace);
 
         setupDialog();
         initializeUI();
@@ -820,6 +822,9 @@ public class GitOperationDialog extends JDialog {
     }
 
     private void addOption(String value, String text, String description, boolean selected, Color textColor) {
+        if (!repositoryRewriteAllowed && (OPTION_FORCE.equals(value) || OPTION_STASH.equals(value))) {
+            return;
+        }
         JPanel optionPanel = new JPanel(new BorderLayout(0, 2));
         optionPanel.setBorder(new EmptyBorder(2, 0, 4, 0));
         optionPanel.setOpaque(false);
@@ -1181,6 +1186,14 @@ public class GitOperationDialog extends JDialog {
         @Override
         public void actionPerformed(ActionEvent e) {
             if (!validateOperation()) {
+                return;
+            }
+            // 提交并推送同样会拉取/推送整个仓库，需要同样的确认
+            boolean repositoryWide = operation == GitOperation.PULL || operation == GitOperation.PUSH
+                    || (operation == GitOperation.COMMIT && OPTION_COMMIT_AND_PUSH.equals(getUserChoice()));
+            if (repositoryWide
+                    && !WorkspaceConfirmations.confirmRepositoryWideOperation(
+                    GitOperationDialog.this, workspace, operation.getDisplayName())) {
                 return;
             }
 

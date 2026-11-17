@@ -7,6 +7,7 @@ import com.laker.postman.performance.core.plan.PerformanceCorePlanDocument;
 import com.laker.postman.performance.core.plan.PerformanceCorePlanJsonStorage;
 import com.laker.postman.performance.core.plan.PerformanceCorePlanNode;
 import com.laker.postman.util.JsonUtil;
+import com.laker.postman.util.SafeFileUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
@@ -14,9 +15,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 
 @Slf4j
@@ -27,7 +28,7 @@ public class PerformancePlanStorage {
     private final PerformanceCorePlanJsonStorage corePlanJsonStorage = new PerformanceCorePlanJsonStorage();
 
     public void saveConfiguration(Path configPath, PerformancePlanConfiguration configuration) {
-        PerformancePlanWorkspace workspace = loadWorkspace(configPath);
+        PerformancePlanWorkspace workspace = readWorkspace(configPath, false);
         PerformancePlanWorkspace updatedWorkspace = (workspace == null
                 ? PerformancePlanWorkspace.builder().build()
                 : workspace)
@@ -36,62 +37,87 @@ public class PerformancePlanStorage {
     }
 
     public void saveWorkspace(Path configPath, PerformancePlanWorkspace workspace) {
+        saveWorkspace(configPath, workspace, false);
+    }
+
+    /**
+     * @param force {@code false} 时内容与加载基准相同则不写盘，避免仅因切换/退出就重新生成被删除的文件或覆盖外部修改
+     */
+    public void saveWorkspace(Path configPath, PerformancePlanWorkspace workspace, boolean force) {
         if (configPath == null) {
             return;
         }
         try {
-            PerformancePlanWorkspace safeWorkspace = normalizeWorkspace(workspace);
             ensureDirExists(configPath);
-            JSONObject jsonRoot = new JSONObject();
-            jsonRoot.set("version", "1.1");
-            jsonRoot.set("activePlanId", safeWorkspace.getActivePlanId());
-            List<JSONObject> planJsonList = new ArrayList<>();
-            for (PerformanceSavedPlan plan : safeWorkspace.getPlans()) {
-                planJsonList.add(toPlanJson(plan));
+            String json = toJson(workspace);
+            if (force) {
+                SafeFileUtil.writeStringAtomically(configPath, json);
+            } else {
+                SafeFileUtil.writeIfChanged(configPath, json);
             }
-            jsonRoot.set("plans", planJsonList);
-
-            writeAtomically(configPath, JSONUtil.toJsonPrettyStr(jsonRoot));
         } catch (IOException e) {
             log.error("Failed to save performance test config: {}", e.getMessage(), e);
         }
     }
 
+    /**
+     * 以界面当前加载出的方案作为保存基准。
+     */
+    public void rememberLoaded(Path configPath, PerformancePlanWorkspace workspace) {
+        if (configPath != null) {
+            SafeFileUtil.rememberLoaded(configPath, toJson(workspace));
+        }
+    }
+
+    private String toJson(PerformancePlanWorkspace workspace) {
+        PerformancePlanWorkspace safeWorkspace = normalizeWorkspace(workspace);
+        JSONObject jsonRoot = new JSONObject();
+        jsonRoot.set("version", "1.1");
+        jsonRoot.set("activePlanId", safeWorkspace.getActivePlanId());
+        List<JSONObject> planJsonList = new ArrayList<>();
+        for (PerformanceSavedPlan plan : safeWorkspace.getPlans()) {
+            planJsonList.add(toPlanJson(plan));
+        }
+        jsonRoot.set("plans", planJsonList);
+        return JSONUtil.toJsonPrettyStr(jsonRoot);
+    }
+
     public PerformancePlanConfiguration loadConfiguration(Path configPath) {
-        PerformancePlanWorkspace workspace = loadWorkspace(configPath);
+        PerformancePlanWorkspace workspace = readWorkspace(configPath, false);
         return workspace == null ? null : workspace.getActiveConfiguration();
     }
 
+    /**
+     * 界面加载：读取的版本会作为之后保存的基准（配合 {@link #rememberLoaded}）。
+     */
     public PerformancePlanWorkspace loadWorkspace(Path configPath) {
+        return readWorkspace(configPath, true);
+    }
+
+    private PerformancePlanWorkspace readWorkspace(Path configPath, boolean asBaseline) {
         if (configPath == null) {
             return null;
         }
         File file = configPath.toFile();
-        if (!file.exists()) {
-            return null;
-        }
-
         try {
-            long fileSizeInBytes = file.length();
-            if (fileSizeInBytes > MAX_FILE_SIZE) {
-                log.warn("Config file is too large ({} bytes), deleting and starting fresh", fileSizeInBytes);
-                deleteFile(file);
+            if (file.isFile() && file.length() > MAX_FILE_SIZE) {
+                log.warn("Config file is too large ({} bytes), ignoring it and keeping the file unchanged", file.length());
+                SafeFileUtil.backupUnreadable(configPath);
                 return null;
             }
-            if (fileSizeInBytes == 0) {
+            Optional<String> content = asBaseline
+                    ? SafeFileUtil.readForLoad(configPath)
+                    : (file.isFile() ? Optional.of(Files.readString(configPath, StandardCharsets.UTF_8)) : Optional.empty());
+            if (content.isEmpty() || content.get().trim().isEmpty()) {
                 return null;
             }
-
-            String jsonString = Files.readString(configPath, StandardCharsets.UTF_8);
-            if (jsonString.trim().isEmpty()) {
-                return null;
-            }
+            String jsonString = content.get();
 
             JSONObject jsonRoot = JSONUtil.parseObj(jsonString);
             return deserializeWorkspace(jsonRoot);
         } catch (Exception e) {
-            log.error("Failed to load performance test config: {}", e.getMessage(), e);
-            deleteFile(file);
+            log.error("Failed to load performance test config, keeping the file unchanged: {}", e.getMessage(), e);
+            SafeFileUtil.backupUnreadable(configPath);
             return null;
         }
     }
@@ -117,23 +143,6 @@ public class PerformancePlanStorage {
         Path configDir = configPath.getParent();
         if (configDir != null && !Files.exists(configDir)) {
             Files.createDirectories(configDir);
-        }
-    }
-
-    private void writeAtomically(Path configPath, String content) throws IOException {
-        Path configDir = configPath.getParent();
-        Path tempFile = configDir == null
-                ? Files.createTempFile(configPath.getFileName().toString(), ".tmp")
-                : Files.createTempFile(configDir, configPath.getFileName().toString(), ".tmp");
-        try {
-            Files.writeString(tempFile, content, StandardCharsets.UTF_8);
-            try {
-                Files.move(tempFile, configPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (IOException atomicMoveFailure) {
-                Files.move(tempFile, configPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } finally {
-            Files.deleteIfExists(tempFile);
         }
     }
 

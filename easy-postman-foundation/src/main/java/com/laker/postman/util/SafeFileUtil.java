@@ -121,6 +121,7 @@ public class SafeFileUtil {
         byte[] bytes = (content == null ? "" : content).getBytes(StandardCharsets.UTF_8);
         try {
             Files.write(temporary, bytes);
+            backupExternalVersion(absoluteTarget, digest(bytes));
             try {
                 Files.move(temporary, absoluteTarget, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException ignored) {
@@ -132,6 +133,22 @@ public class SafeFileUtil {
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    /**
+     * 磁盘在上次加载/保存之后被外部修改（例如用户推迟了重新加载）时，覆盖前先备份外部版本。
+     */
+    private static void backupExternalVersion(Path target, String newDigest) {
+        Baseline baseline = BASELINES.get(registryKey(target));
+        String current = fileDigest(target).orElse(ABSENT);
+        if (baseline != null && !current.equals(ABSENT) && !current.equals(baseline.diskDigest())
+                && !current.equals(newDigest)) {
+            backupUnreadable(target, overwrittenBackupDirectory());
+        }
+    }
+
+    static Path overwrittenBackupDirectory() {
+        return Paths.get(SystemUtil.getEasyPostmanPath(), "backups", "overwritten");
     }
 
     /**
@@ -155,7 +172,7 @@ public class SafeFileUtil {
                 Files.createDirectories(backupDirectory);
                 Files.write(backup, content);
             }
-            log.warn("Unreadable data file kept unchanged: {}, backup: {}", file.toAbsolutePath(), backup);
+            log.warn("Data file backed up: {}, backup: {}", file.toAbsolutePath(), backup);
             return Optional.of(backup);
         } catch (IOException e) {
             log.error("Failed to back up unreadable data file: {}", file.toAbsolutePath(), e);

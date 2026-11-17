@@ -105,4 +105,43 @@ public class SafeFileUtilTest {
         assertTrue(SafeFileUtil.writeIfChanged(target, "{\"a\":1}"));
         assertEquals(Files.readString(target), "{\"a\":1}");
     }
+
+    @Test
+    public void overwritingPostponedExternalChangeShouldKeepBackup() throws Exception {
+        Path target = Files.createTempDirectory("safe-file-external").resolve("mock_servers.json");
+        Files.writeString(target, "[]", StandardCharsets.UTF_8);
+        SafeFileUtil.rememberLoaded(target, "[]");
+        String external = "[{\"external\":\"" + System.nanoTime() + "\"}]";
+        Files.writeString(target, external, StandardCharsets.UTF_8);
+
+        SafeFileUtil.writeStringAtomically(target, "[{\"mine\":true}]");
+
+        assertEquals(Files.readString(target), "[{\"mine\":true}]");
+        Path backup;
+        try (Stream<Path> files = Files.list(SafeFileUtil.overwrittenBackupDirectory())) {
+            backup = files.filter(p -> {
+                try {
+                    return Files.readString(p).equals(external);
+                } catch (Exception e) {
+                    return false;
+                }
+            }).findFirst().orElseThrow();
+        }
+        Files.delete(backup);
+
+        // 自己的写入不再触发备份
+        SafeFileUtil.writeStringAtomically(target, "[]");
+        try (Stream<Path> files = Files.list(SafeFileUtil.overwrittenBackupDirectory())) {
+            assertTrue(files.noneMatch(p -> p.getFileName().toString().startsWith("mock_servers.json")
+                    && readQuietly(p).contains("mine")));
+        }
+    }
+
+    private static String readQuietly(Path path) {
+        try {
+            return Files.readString(path);
+        } catch (Exception e) {
+            return "";
+        }
+    }
 }

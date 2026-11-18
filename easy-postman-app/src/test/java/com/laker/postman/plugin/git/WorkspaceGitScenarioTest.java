@@ -216,6 +216,17 @@ public class WorkspaceGitScenarioTest {
         assertFalse(GitWorkspaceLayout.detect(workspace(sub)).orElseThrow().isFullControl());
     }
 
+    @Test
+    public void remoteStatusShouldReadBranchAndHeadFromDiskWithoutRemote() throws Exception {
+        Path repo = initRepo("no-remote-repo");
+        var status = service.getRemoteStatus(workspace(repo));
+        assertFalse(status.hasRemote);
+        assertEquals(status.currentBranch, "main");
+        try (Git git = Git.open(repo.toFile())) {
+            assertEquals(status.headCommitId, git.getRepository().resolve("HEAD").getName());
+        }
+    }
+
     private Path initRepo(String name) throws Exception {
         Path repo = tempDir.resolve(name);
         try (Git git = Git.init().setInitialBranch("main").setDirectory(repo.toFile()).call()) {

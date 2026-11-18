@@ -34,6 +34,7 @@ import org.eclipse.jgit.diff.EditList;
 import org.eclipse.jgit.dircache.DirCache;
 import org.eclipse.jgit.dircache.DirCacheEntry;
 import org.eclipse.jgit.dircache.DirCacheIterator;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectLoader;
 import org.eclipse.jgit.lib.PersonIdent;
@@ -1458,12 +1459,14 @@ public class GitWorkspacePluginService implements GitPluginService {
             RemoteStatus status = new RemoteStatus();
             var remotes = git.remoteList().call();
             status.hasRemote = !remotes.isEmpty();
+            String currentBranch = git.getRepository().getBranch();
+            status.currentBranch = currentBranch;
+            ObjectId head = git.getRepository().resolve(Constants.HEAD);
+            status.headCommitId = head == null ? null : head.getName();
             if (status.hasRemote) {
                 status.remoteUrl = remotes.get(0).getURIs().get(0).toString();
-                String currentBranch = git.getRepository().getBranch();
                 String tracking = git.getRepository().getConfig().getString("branch", currentBranch, "merge");
                 status.hasUpstream = tracking != null;
-                status.currentBranch = currentBranch;
                 status.upstreamBranch = tracking;
             }
             return status;

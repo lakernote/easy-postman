@@ -828,6 +828,7 @@ public final class MessageKeys {
     public static final String GIT_WORKSPACE_REPOSITORY_MISSING = "git.workspace.repository_missing";
     public static final String GIT_WORKSPACE_ALREADY_IN_REPOSITORY = "git.workspace.already_in_repository";
     public static final String GIT_WORKSPACE_EMBEDDED_HINT = "git.workspace.embedded_hint";
+    public static final String GIT_WORKSPACE_EXISTING_REPOSITORY_HINT = "git.workspace.existing_repository_hint";
     public static final String GIT_OPERATION_REQUIRES_DEDICATED_REPOSITORY = "git.operation.requires_dedicated_repository";
 
     // Git Branch Dialog

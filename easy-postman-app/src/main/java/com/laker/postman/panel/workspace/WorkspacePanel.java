@@ -624,7 +624,7 @@ public class WorkspacePanel extends UiSingletonPanel {
         if (!WorkspaceStorageUtil.isDefaultWorkspace(workspace)) {
             // 重命名
             JMenuItem renameItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.WORKSPACE_RENAME));
-            renameItem.setIcon(IconUtil.createThemed("icons/refresh.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+            renameItem.setIcon(IconUtil.createThemed("icons/edit.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
             renameItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0));
             renameItem.addActionListener(e -> renameWorkspace(workspace));
             menu.add(renameItem);
@@ -1048,8 +1048,9 @@ public class WorkspacePanel extends UiSingletonPanel {
         boolean hasRemote = false;
         boolean hasUpstream = false;
         boolean remoteStatusKnown = false;
+        RemoteStatus remoteStatus = null;
         try {
-            RemoteStatus remoteStatus = workspaceService.getRemoteStatus(workspace.getId());
+            remoteStatus = workspaceService.getRemoteStatus(workspace.getId());
             hasRemote = remoteStatus.hasRemote;
             hasUpstream = remoteStatus.hasUpstream;
             remoteStatusKnown = true;
@@ -1068,10 +1069,20 @@ public class WorkspacePanel extends UiSingletonPanel {
                 () -> showGitHistory(workspace),
                 () -> showGitBranches(workspace),
                 () -> showGitDiff(workspace),
-                layout.isFullControl() ? null : I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_EMBEDDED_HINT,
-                        layout.getRepositoryRoot().toString(),
-                        layout.isEmbedded() ? layout.getScope() : "./")
+                repositoryHint(layout),
+                remoteStatus
         );
+    }
+
+    private static String repositoryHint(GitWorkspaceLayout layout) {
+        if (layout.isFullControl()) {
+            return null;
+        }
+        return layout.isEmbedded()
+                ? I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_EMBEDDED_HINT,
+                layout.getRepositoryRoot().toString(), layout.getScope())
+                : I18nUtil.getMessage(MessageKeys.GIT_WORKSPACE_EXISTING_REPOSITORY_HINT,
+                layout.getRepositoryRoot().toString());
     }
 
     private void showError(String message) {

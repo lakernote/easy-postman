@@ -9,4 +9,5 @@ public class RemoteStatus {
     public String remoteUrl;
     public String currentBranch;
     public String upstreamBranch;
+    public String headCommitId;
 }

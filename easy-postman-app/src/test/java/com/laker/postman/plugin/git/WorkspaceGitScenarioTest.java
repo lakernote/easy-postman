@@ -227,6 +227,18 @@ public class WorkspaceGitScenarioTest {
         }
     }
 
+    @Test
+    public void remoteStatusShouldNotExposePasswordInRemoteUrl() throws Exception {
+        Path repo = initRepo("secret-remote-repo");
+        try (Git git = Git.open(repo.toFile())) {
+            git.remoteAdd().setName("origin")
+                    .setUri(new org.eclipse.jgit.transport.URIish("https://bob:s3cret@example.com/r.git")).call();
+        }
+        var status = service.getRemoteStatus(workspace(repo));
+        assertFalse(status.remoteUrl.contains("s3cret"));
+        assertTrue(status.remoteUrl.contains("example.com/r.git"));
+    }
+
     private Path initRepo(String name) throws Exception {
         Path repo = tempDir.resolve(name);
         try (Git git = Git.init().setInitialBranch("main").setDirectory(repo.toFile()).call()) {

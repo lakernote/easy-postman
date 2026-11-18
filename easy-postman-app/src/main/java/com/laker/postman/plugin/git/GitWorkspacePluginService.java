@@ -1464,7 +1464,8 @@ public class GitWorkspacePluginService implements GitPluginService {
             ObjectId head = git.getRepository().resolve(Constants.HEAD);
             status.headCommitId = head == null ? null : head.getName();
             if (status.hasRemote) {
-                status.remoteUrl = remotes.get(0).getURIs().get(0).toString();
+                var uris = remotes.get(0).getURIs();
+                status.remoteUrl = uris.isEmpty() ? null : uris.get(0).setPass(null).toString();
                 String tracking = git.getRepository().getConfig().getString("branch", currentBranch, "merge");
                 status.hasUpstream = tracking != null;
                 status.upstreamBranch = tracking;

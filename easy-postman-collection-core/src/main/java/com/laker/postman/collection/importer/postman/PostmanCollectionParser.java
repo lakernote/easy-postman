@@ -349,6 +349,23 @@ public class PostmanCollectionParser {
     /**
      * 解析Postman的formdata数组
      */
+    /**
+     * Postman stores GraphQL variables as text; GraphQL servers expect them as a JSON object
+     * (Apollo rejects a JSON-encoded string with 400), and blank variables as absent.
+     */
+    private static String toGraphqlPayload(JSONObject graphql) {
+        JSONObject payload = JSONUtil.parseObj(graphql.toString());
+        Object variables = payload.get("variables");
+        if (variables instanceof String text) {
+            if (text.isBlank()) {
+                payload.remove("variables");
+            } else if (JSONUtil.isTypeJSONObject(text.trim())) {
+                payload.set("variables", JSONUtil.parseObj(text));
+            }
+        }
+        return payload.toString();
+    }
+
     private static List<HttpFormData> parseFormData(JSONArray arr) {
         if (arr == null || arr.isEmpty()) {
             return new ArrayList<>();
@@ -538,7 +555,7 @@ public class PostmanCollectionParser {
                     req.setBodyType(BODY_TYPE_RAW);
                     JSONObject graphql = body.getJSONObject("graphql");
                     if (graphql != null) {
-                        req.setBody(graphql.toString());
+                        req.setBody(toGraphqlPayload(graphql));
                     }
                 } else if ("file".equals(mode)) {
                     req.setBodyType(BODY_TYPE_BINARY);

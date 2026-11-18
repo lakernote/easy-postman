@@ -1056,6 +1056,42 @@ public class CurlParserTest {
                 "https://example.com/search?q=a+b");
     }
 
+    @Test(description = "^ in single-quoted bash bodies is literal")
+    public void testBashBodyKeepsCaret() {
+        String curl = "curl 'https://example.com/api' -H 'Content-Type: application/json' " +
+                "--data-raw '{\"pattern\":\"^[A-Z]{3}$\",\"re\":\"a^\"}'";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.body, "{\"pattern\":\"^[A-Z]{3}$\",\"re\":\"a^\"}");
+    }
+
+    @Test(description = "^ in a single-quoted value after = is literal")
+    public void testBashInlineQuotedValueKeepsCaret() {
+        String curl = "curl https://example.com --data-raw='value^[x]'";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.body, "value^[x]");
+    }
+
+    @Test(description = "an apostrophe inside double quotes keeps the CMD caret escapes")
+    public void testWindowsCmdApostropheInDoubleQuotes() {
+        String curl = "curl \"https://example.com/api?first=1^&second=2\" -H \"X-Note: 'draft'\"";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.url, "https://example.com/api?first=1&second=2");
+        assertEquals(findHeaderValue(result.headersList, "X-Note"), "'draft'");
+    }
+
+    @Test(description = "a lone apostrophe in an unquoted CMD argument keeps the caret escapes")
+    public void testWindowsCmdWordApostropheKeepsCaretEscapes() {
+        String curl = "curl https://example.com/o'connor?first=1^&second=2";
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertFalse(result.url.contains("^"), result.url);
+        assertEquals(findParamValue(result.paramsList, "first"), "1");
+        assertEquals(findParamValue(result.paramsList, "second"), "2");
+    }
+
     @Test(description = "测试 data-urlencode 单个参数中的 & 是 value 内容")
     public void testDataUrlencodeTreatsAmpersandAsValueContentForPost() {
         String curl = "curl -XPOST 'https://example.com/search' " +

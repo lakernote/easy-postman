@@ -116,7 +116,7 @@ class CurlCommandTokenizer {
     }
 
     private static String transformWindowsCmdEscapes(String command) {
-        if (command.indexOf('^') < 0) {
+        if (command.indexOf('^') < 0 || hasShellSingleQuote(command)) {
             return command;
         }
 
@@ -160,6 +160,26 @@ class CurlCommandTokenizer {
             transformed.append(c);
         }
         return transformed.toString();
+    }
+
+    /**
+     * cmd.exe has no single-quote quoting, so a '...' segment outside double quotes means a
+     * shell command, where ^ is literal text. A ' inside double quotes, or one with no closing
+     * ' (like the apostrophe in o'connor), is just a character.
+     */
+    private static boolean hasShellSingleQuote(String command) {
+        boolean inDoubleQuotes = false;
+        for (int i = 0; i < command.length(); i++) {
+            char c = command.charAt(i);
+            if (c == '\\' || (c == '^' && !inDoubleQuotes)) {
+                i++;
+            } else if (c == '"') {
+                inDoubleQuotes = !inDoubleQuotes;
+            } else if (c == '\'' && !inDoubleQuotes) {
+                return command.indexOf('\'', i + 1) >= 0;
+            }
+        }
+        return false;
     }
 
     private static boolean isCmdEscapedChar(char c) {

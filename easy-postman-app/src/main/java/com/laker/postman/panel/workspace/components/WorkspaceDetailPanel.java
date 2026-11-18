@@ -236,15 +236,10 @@ public class WorkspaceDetailPanel extends JPanel {
         int row = 0;
 
         if (repositoryHint != null && !repositoryHint.isBlank()) {
-            JTextArea hintArea = new JTextArea(repositoryHint);
-            hintArea.setEditable(false);
-            hintArea.setLineWrap(true);
-            hintArea.setWrapStyleWord(true);
-            hintArea.setOpaque(false);
-            hintArea.setBorder(null);
-            hintArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-            hintArea.setForeground(ModernColors.getTextSecondary());
-            addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":", hintArea);
+            JLabel hintLabel = new JLabel(repositoryHint);
+            hintLabel.setToolTipText(repositoryHint);
+            hintLabel.setMinimumSize(new Dimension(0, hintLabel.getPreferredSize().height));
+            addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":", hintLabel);
         } else {
             addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":",
                     workspace.getGitRepoSource() == GitRepoSource.CLONED

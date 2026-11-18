@@ -98,6 +98,9 @@ public class WorkspacePanel extends UiSingletonPanel {
                 AppToolWindowChrome.DEFAULT_SIDE_WIDTH
         );
         mainSplitPane.setResizeWeight(0.0);
+        // 详情区的自然最小宽度较大，会限制分隔条拖动范围；内容不足时由各自区域裁剪/滚动
+        leftPanel.setMinimumSize(new Dimension(160, 0));
+        workspaceContentSplitPane.setMinimumSize(new Dimension(320, 0));
 
         add(mainSplitPane, BorderLayout.CENTER);
 
@@ -582,6 +585,10 @@ public class WorkspacePanel extends UiSingletonPanel {
         addGitMenuItems(menu, workspace);
         addManagementMenuItems(menu, workspace);
 
+        int last = menu.getComponentCount() - 1;
+        if (last >= 0 && menu.getComponent(last) instanceof JSeparator) {
+            menu.remove(last);
+        }
         return menu;
     }
 

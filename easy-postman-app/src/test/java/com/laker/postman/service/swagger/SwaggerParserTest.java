@@ -243,6 +243,49 @@ public class SwaggerParserTest {
     }
 
     @Test
+    void testPathParametersBecomePathVariables() {
+        String openapi3Json = """
+                {
+                  "openapi": "3.0.0",
+                  "info": {"title": "Pets", "version": "1.0.0"},
+                  "paths": {
+                    "/pets/{petId}": {
+                      "get": {
+                        "summary": "Get pet",
+                        "parameters": [{"name": "petId", "in": "path", "required": true, "example": "42"}]
+                      }
+                    }
+                  }
+                }
+                """;
+        String swagger2Json = """
+                {
+                  "swagger": "2.0",
+                  "info": {"title": "Pets", "version": "1.0.0"},
+                  "paths": {
+                    "/pets/{petId}": {
+                      "get": {
+                        "summary": "Get pet",
+                        "parameters": [{"name": "petId", "in": "path", "required": true, "type": "string", "default": "42"}]
+                      }
+                    }
+                  }
+                }
+                """;
+
+        for (String spec : List.of(openapi3Json, swagger2Json)) {
+            DefaultMutableTreeNode root = TreeNodeBuilder.buildFromParseResult(SwaggerParser.parseSwagger(spec));
+            DefaultMutableTreeNode request = (DefaultMutableTreeNode) root.getChildAt(0).getChildAt(0);
+            HttpRequestItem item = (HttpRequestItem) ((Object[]) request.getUserObject())[1];
+
+            assertTrue(item.getUrl().endsWith("/pets/:petId"), item.getUrl());
+            assertEquals(item.getPathVariablesList().size(), 1);
+            assertEquals(item.getPathVariablesList().get(0).getKey(), "petId");
+            assertEquals(item.getPathVariablesList().get(0).getValue(), "42");
+        }
+    }
+
+    @Test
     void testParseInvalidSwagger() {
         String invalidJson = """
                 {

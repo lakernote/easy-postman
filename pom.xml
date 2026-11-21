@@ -84,7 +84,7 @@
         <autocomplete.version>3.3.2</autocomplete.version>
         <slf4j.version>2.0.17</slf4j.version>
         <testng.version>7.12.0</testng.version>
-        <jedis.version>5.2.0</jedis.version>
+        <jedis.version>8.0.1</jedis.version>
         <cfr.version>0.152</cfr.version>
 
         <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>

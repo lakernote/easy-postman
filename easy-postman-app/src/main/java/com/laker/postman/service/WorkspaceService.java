@@ -16,6 +16,7 @@ import com.laker.postman.plugin.git.GitWorkspaceLayout;
 import com.laker.postman.plugin.host.GitServiceAccess;
 import com.laker.postman.service.collections.CollectionDocumentJsonCodec;
 import com.laker.postman.service.collections.DefaultCollectionDocumentFactory;
+import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.SafeFileUtil;
 import com.laker.postman.service.env.DefaultEnvironments;
 import com.laker.postman.util.WorkspaceStorageUtil;
@@ -69,6 +70,7 @@ public class WorkspaceService {
      * 创建新工作区
      */
     private static final long GIT_LAYOUT_CACHE_TTL_MS = 3000;
+    static final String AGENT_GUIDE_FILE = "AGENTS.md";
     private static final List<String> WORKSPACE_DATA_FILES = List.of(
             "collections.json", "environments.json", "functional_config.json",
             "performance_config.json", "mock_servers.json");
@@ -110,6 +112,7 @@ public class WorkspaceService {
         // 对于非Git克隆模式，创建本地目录；空目录写入初始数据（已在代码仓库中时只写空文件，不带示例）
         Path workspacePath = Paths.get(workspace.getPath());
         boolean seeded = false;
+        boolean hadAgentGuide = Files.exists(workspacePath.resolve(AGENT_GUIDE_FILE));
         if (workspace.getType() != WorkspaceType.GIT || workspace.getGitRepoSource() != GitRepoSource.CLONED) {
             if (!Files.exists(workspacePath)) {
                 Files.createDirectories(workspacePath);
@@ -127,6 +130,9 @@ public class WorkspaceService {
                 if (seeded) {
                     Files.deleteIfExists(workspacePath.resolve("collections.json"));
                     Files.deleteIfExists(workspacePath.resolve("environments.json"));
+                    if (!hadAgentGuide) {
+                        Files.deleteIfExists(workspacePath.resolve(AGENT_GUIDE_FILE));
+                    }
                 }
                 throw e;
             }
@@ -692,6 +698,28 @@ public class WorkspaceService {
         String environments = withSamples ? DefaultEnvironments.json() : "[]";
         SafeFileUtil.writeStringAtomically(directory.resolve("collections.json"), collections);
         SafeFileUtil.writeStringAtomically(directory.resolve("environments.json"), environments);
+        writeAgentGuideIfAbsent(directory);
+    }
+
+    /**
+     * 写入给 AI agent 阅读的 AGENTS.md；已有时不覆盖。目录本身是已有仓库的根目录时跳过，避免和仓库自己的说明冲突。
+     */
+    static void writeAgentGuideIfAbsent(Path directory) {
+        Path target = directory.resolve(AGENT_GUIDE_FILE);
+        try {
+            if (Files.exists(target) || GitWorkspaceLayout.detectDirectory(directory)
+                    .map(layout -> !layout.isEmbedded()).orElse(false)) {
+                return;
+            }
+            String resource = I18nUtil.isChinese() ? "/workspace/AGENTS_zh.md" : "/workspace/AGENTS_en.md";
+            try (var in = WorkspaceService.class.getResourceAsStream(resource)) {
+                if (in != null) {
+                    Files.write(target, in.readAllBytes());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to write {}", target, e);
+        }
     }
 
     private static boolean seedDefaultWorkspaceOnFirstRun(Workspace workspace) {

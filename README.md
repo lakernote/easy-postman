@@ -186,6 +186,7 @@ java -jar easy-postman.jar functional run /srv/api-workspace --bail --out target
 | [MCP Server](docs/MCP_SERVER_DESIGN_zh.md) | Setup, tool inputs, workspace/environment routing, architecture, and security |
 | [Collection CLI](docs/COLLECTION_CLI_zh.md) | Headless collection runs, variables, data, uploads, and CI exit codes |
 | [Functional CLI](docs/FUNCTIONAL_CLI_zh.md) | Run functional tests from `functional_config.json` |
+| [Workspace files](docs/WORKSPACE_FILES_zh.md) | Workspace JSON formats, use inside a code repository, editing with AI agents (Chinese) |
 | [Plugin architecture](docs/PLUGINS_zh.md) | Plugin development and online/offline installation |
 | [Script API](docs/SCRIPT_API_REFERENCE_zh.md) | Pre-request and test script reference |
 | [Build guide](docs/BUILD_zh.md) | Source builds and native installers |

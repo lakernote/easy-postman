@@ -186,6 +186,7 @@ java -jar easy-postman.jar functional run /srv/api-workspace --bail --out target
 | [MCP Server](docs/MCP_SERVER_DESIGN_zh.md) | 安装、Tool 参数、工作区/环境选择、架构和安全边界 |
 | [Collection CLI](docs/COLLECTION_CLI_zh.md) | 集合无头运行、变量、迭代数据、上传和 CI 退出码 |
 | [Functional CLI](docs/FUNCTIONAL_CLI_zh.md) | 按 `functional_config.json` 执行功能测试 |
+| [工作区文件格式](docs/WORKSPACE_FILES_zh.md) | 工作区 JSON 格式、放进代码仓库、交给 AI agent 编辑 |
 | [插件架构](docs/PLUGINS_zh.md) | 插件开发、在线与离线安装 |
 | [脚本 API](docs/SCRIPT_API_REFERENCE_zh.md) | 请求前和测试脚本参考 |
 | [构建指南](docs/BUILD_zh.md) | 源码构建和原生安装包 |

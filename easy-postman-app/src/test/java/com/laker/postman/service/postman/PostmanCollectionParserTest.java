@@ -6,6 +6,8 @@ import com.laker.postman.request.model.AuthApiKeyPlacement;
 import com.laker.postman.request.model.AuthType;
 import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.request.model.RequestBodyTypes;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import org.testng.annotations.Test;
 
 import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_DATA;
@@ -640,6 +642,10 @@ public class PostmanCollectionParserTest {
         var graphql = result.getChildren().get(1).asRequest();
         assertEquals(graphql.getBodyType(), BODY_TYPE_RAW);
         assertTrue(graphql.getBody().contains("query Ping"));
+        // Postman stores variables as text; the request body needs them as an object
+        Object variables = JSONUtil.parseObj(graphql.getBody()).get("variables");
+        assertTrue(variables instanceof JSONObject, String.valueOf(variables));
+        assertEquals(((JSONObject) variables).getInt("id"), 1);
     }
 
     @Test

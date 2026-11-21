@@ -10,7 +10,7 @@ https://github.com/lakernote/easy-postman/blob/master/docs/WORKSPACE_FILES_zh.md
 - performance_config.json、mock_servers.json：建议在 EasyPostman 桌面端编辑
 
 ## 修改规则
-- 先阅读已有节点，新增内容照搬同类节点的字段写法，不要自创字段。
+- 先阅读已有节点，新增内容照搬同类节点的字段写法，不要自创字段；修改时保留已有字段。
 - 新节点使用新的 UUID 作为 id；复制节点时必须更换 id。
 - 地址、Token、密码使用变量（如 {{baseUrl}}、{{token}}），不要写入真实密钥。
 - 接口的路径、方法、参数和请求体以本仓库源码为准。

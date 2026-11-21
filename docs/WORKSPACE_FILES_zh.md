@@ -31,7 +31,7 @@ easy-postman/
 - 引用其他文件时用 `id`（例如功能测试引用请求 `id`），不要用名称。
 - 变量写成 `{{name}}`，可用于 URL、Header、参数、请求体和认证字段。
 - 密钥、Token、密码不要写真实值，使用 `{{token}}` 这类变量，真实值在本机环境或 CI 中注入。
-- 只写本文列出的字段；省略的字段使用默认值。
+- 本文只列出常用字段。修改已有节点时保留现有字段，不认识的字段原样保留；新增节点可省略未列出的字段，使用默认值。
 
 ## 3. `collections.json`
 
@@ -102,7 +102,7 @@ easy-postman/
 | `id`、`name`、`description` | 标识、名称、Markdown 描述 |
 | `method` | `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`HEAD`、`OPTIONS`、`TRACE` |
 | `url` | 完整地址，可含 `{{变量}}` 和 `:pathVar` 路径变量；查询参数建议写在 `paramsList` |
-| `protocol` | `HTTP`（默认）或 `WebSocket` |
+| `protocol` | `HTTP`（默认）或 `WEBSOCKET` |
 | `headersList` | 请求头：`{"enabled", "key", "value", "description"}` |
 | `paramsList` | 查询参数，格式同上 |
 | `pathVariablesList` | 路径变量（对应 URL 中的 `:name`），格式同上 |

@@ -120,7 +120,8 @@ class OpenApi3Parser {
         String operationId = operation.getStr("operationId", "");
         req.setName(summary.isEmpty() ? (operationId.isEmpty() ? method + " " + path : operationId) : summary);
         req.setDescription(operation.getStr("description", ""));
-        req.setUrl(baseUrl.isEmpty() ? path : baseUrl + path);
+        String urlPath = SwaggerCommonUtil.toPathVariables(path);
+        req.setUrl(baseUrl.isEmpty() ? urlPath : baseUrl + urlPath);
 
         parseParameters(openApiRoot, pathItem, operation, req);
         parseRequestBody(openApiRoot, operation, req);
@@ -136,6 +137,7 @@ class OpenApi3Parser {
         }
 
         List<HttpParam> queryParams = new ArrayList<>();
+        List<HttpParam> pathVariables = new ArrayList<>();
         List<HttpHeader> headers = req.getHeadersList() == null ? new ArrayList<>() : new ArrayList<>(req.getHeadersList());
 
         for (JSONObject param : parameters) {
@@ -166,6 +168,8 @@ class OpenApi3Parser {
                     headers.add(new HttpHeader(true, "Cookie", name + "=" + value));
                     break;
                 case "path":
+                    pathVariables.add(new HttpParam(true, name, value));
+                    break;
                 default:
                     break;
             }
@@ -173,6 +177,9 @@ class OpenApi3Parser {
 
         if (!queryParams.isEmpty()) {
             req.setParamsList(queryParams);
+        }
+        if (!pathVariables.isEmpty()) {
+            req.setPathVariablesList(pathVariables);
         }
         if (!headers.isEmpty()) {
             req.setHeadersList(headers);

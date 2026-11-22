@@ -1,5 +1,8 @@
 package com.laker.postman.service.swagger;
 
+import com.laker.postman.http.request.PreparedRequestFactory;
+import com.laker.postman.http.request.PreparedRequestFinalizer;
+import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.model.Environment;
 import com.laker.postman.collection.model.RequestGroup;
 import com.laker.postman.request.model.RequestAuthTypes;
@@ -9,6 +12,8 @@ import com.laker.postman.request.model.HttpRequestItem;
 
 import com.laker.postman.collection.model.CollectionParseResult;
 import com.laker.postman.service.common.TreeNodeBuilder;
+import com.laker.postman.service.variable.RequestExecutionContext;
+import com.laker.postman.service.variable.RequestExecutionScope;
 import org.testng.annotations.Test;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -240,6 +245,147 @@ public class SwaggerParserTest {
         assertEquals(postItem.getName(), "Create user");
         assertEquals(postItem.getMethod(), "POST");
         assertNotNull(postItem.getBody());
+    }
+
+    @Test
+    void testPathParametersBecomePathVariables() {
+        String openapi3Json = """
+                {
+                  "openapi": "3.0.0",
+                  "info": {"title": "Pets", "version": "1.0.0"},
+                  "paths": {
+                    "/pets/{petId}": {
+                      "get": {
+                        "summary": "Get pet",
+                        "parameters": [{"name": "petId", "in": "path", "required": true, "example": "42"}]
+                      }
+                    }
+                  }
+                }
+                """;
+        String swagger2Json = """
+                {
+                  "swagger": "2.0",
+                  "info": {"title": "Pets", "version": "1.0.0"},
+                  "paths": {
+                    "/pets/{petId}": {
+                      "get": {
+                        "summary": "Get pet",
+                        "parameters": [{"name": "petId", "in": "path", "required": true, "type": "string", "default": "42"}]
+                      }
+                    }
+                  }
+                }
+                """;
+
+        for (String spec : List.of(openapi3Json, swagger2Json)) {
+            DefaultMutableTreeNode root = TreeNodeBuilder.buildFromParseResult(SwaggerParser.parseSwagger(spec));
+            DefaultMutableTreeNode request = (DefaultMutableTreeNode) root.getChildAt(0).getChildAt(0);
+            HttpRequestItem item = (HttpRequestItem) ((Object[]) request.getUserObject())[1];
+
+            assertTrue(item.getUrl().endsWith("/pets/:petId"), item.getUrl());
+            assertEquals(item.getPathVariablesList().size(), 1);
+            assertEquals(item.getPathVariablesList().get(0).getKey(), "petId");
+            assertEquals(item.getPathVariablesList().get(0).getValue(), "42");
+        }
+    }
+
+    @Test
+    void testPathParameterBoundariesArePreservedBeforeSending() {
+        String swagger2Spec = """
+                {
+                  "swagger": "2.0",
+                  "info": {"title": "Files", "version": "1.0"},
+                  "host": "api.example.com",
+                  "schemes": ["https"],
+                  "paths": {
+                    "/files/{name}-latest/{file.name}.json": {
+                      "get": {
+                        "parameters": [
+                          {"name": "name", "in": "path", "required": true, "type": "string", "x-example": "report"},
+                          {"name": "file.name", "in": "path", "required": true, "type": "string", "x-example": "photo"}
+                        ],
+                        "responses": {"200": {"description": "OK"}}
+                      }
+                    }
+                  }
+                }
+                """;
+        String openApi3Spec = """
+                {
+                  "openapi": "3.0.3",
+                  "info": {"title": "Files", "version": "1.0"},
+                  "servers": [{"url": "https://api.example.com"}],
+                  "paths": {
+                    "/files/{name}-latest/{file.name}.json": {
+                      "get": {
+                        "parameters": [
+                          {"name": "name", "in": "path", "required": true,
+                           "schema": {"type": "string"}, "example": "report"},
+                          {"name": "file.name", "in": "path", "required": true,
+                           "schema": {"type": "string"}, "example": "photo"}
+                        ],
+                        "responses": {"200": {"description": "OK"}}
+                      }
+                    }
+                  }
+                }
+                """;
+
+        String expectedUrl = "https://api.example.com/files/report-latest/photo.json";
+        assertEquals(finalizeImportedUrl(swagger2Spec), expectedUrl, "Swagger 2.0");
+        assertEquals(finalizeImportedUrl(openApi3Spec), expectedUrl, "OpenAPI 3.0");
+    }
+
+    @Test
+    void testOpenApi3PathParametersFallBackToSchemaExamples() {
+        String spec = """
+                {
+                  "openapi": "3.0.3",
+                  "info": {"title": "Files", "version": "1.0"},
+                  "servers": [{"url": "https://api.example.com"}],
+                  "components": {"schemas": {"FileId": {"type": "string", "example": "photo"}}},
+                  "paths": {
+                    "/files/{folderId}/{fileId}/{format}/{revision}": {
+                      "get": {
+                        "parameters": [
+                          {"name": "folderId", "in": "path", "required": true,
+                           "schema": {"type": "integer", "example": 42}},
+                          {"name": "fileId", "in": "path", "required": true,
+                           "schema": {"$ref": "#/components/schemas/FileId"}},
+                          {"name": "format", "in": "path", "required": true,
+                           "schema": {"type": "string", "example": "png"}, "example": "jpeg"},
+                          {"name": "revision", "in": "path", "required": true,
+                           "schema": {"type": "integer", "default": 0, "example": 1}, "example": 2}
+                        ],
+                        "responses": {"200": {"description": "OK"}}
+                      }
+                    }
+                  }
+                }
+                """;
+
+        assertEquals(finalizeImportedUrl(spec), "https://api.example.com/files/42/photo/jpeg/0");
+    }
+
+    private static String finalizeImportedUrl(String spec) {
+        CollectionParseResult result = SwaggerParser.parseSwagger(spec);
+        assertNotNull(result);
+        HttpRequestItem item = result.getChildren().get(0).getChildren().get(0).asRequest();
+        RequestExecutionScope previousScope = RequestExecutionContext.captureCurrentScope();
+        RequestExecutionContext.setCurrentScope(
+                RequestExecutionScope.fromVariables(result.getEnvironments().get(0).getVariableList()));
+        try {
+            PreparedRequest request = PreparedRequestFactory.buildWithoutInheritance(item);
+            PreparedRequestFinalizer.finalizeForSend(request);
+            return request.url;
+        } finally {
+            if (previousScope == null) {
+                RequestExecutionContext.clearCurrentScope();
+            } else {
+                RequestExecutionContext.setCurrentScope(previousScope);
+            }
+        }
     }
 
     @Test

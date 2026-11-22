@@ -88,35 +88,19 @@ public class PerformanceWorkerServerTest {
         )) {
             server.start();
             HttpClient client = HttpClient.newHttpClient();
-            PerformanceWorkerRunRequest runRequest = PerformanceWorkerRunRequest.builder()
-                    .runId("run-http")
-                    .plan(emptyPlan())
-                    .assignment(PerformanceWorkerAssignment.builder().runId("run-http").workerId("worker-a").build())
-                    .build();
+            String runId = "run-http";
+            submitRun(client, storage, server.getPort(), runId);
 
-            HttpResponse<String> accepted = client.send(HttpRequest.newBuilder()
-                            .uri(URI.create("http://127.0.0.1:" + server.getPort() + "/api/performance/v1/runs"))
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(storage.toJson(runRequest)))
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
-
-            assertEquals(accepted.statusCode(), 202, accepted.body());
-            assertNotNull(captured.get());
-            assertEquals(captured.get().getRunId(), "run-http");
-
-            HttpResponse<String> status = client.send(HttpRequest.newBuilder()
-                            .uri(URI.create("http://127.0.0.1:" + server.getPort() + "/api/performance/v1/runs/run-http"))
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
-            PerformanceWorkerRunStatusResponse statusResponse = storage.statusResponseFromJson(status.body());
-
-            assertEquals(status.statusCode(), 200, status.body());
+            PerformanceWorkerRunStatusResponse statusResponse =
+                    awaitStatus(client, storage, server.getPort(), runId, "SUCCESS");
             assertEquals(statusResponse.getStatus(), "SUCCESS");
+            PerformanceWorkerRunRequest executedRequest = captured.get();
+            assertNotNull(executedRequest);
+            assertEquals(executedRequest.getRunId(), runId);
 
             HttpResponse<String> result = client.send(HttpRequest.newBuilder()
-                            .uri(URI.create("http://127.0.0.1:" + server.getPort() + "/api/performance/v1/runs/run-http/result"))
+                            .uri(URI.create("http://127.0.0.1:" + server.getPort()
+                                    + "/api/performance/v1/runs/" + runId + "/result"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());

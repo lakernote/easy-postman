@@ -1469,11 +1469,21 @@ public class ModuleArchitectureBoundaryTest {
     @Test
     public void pluginIconReferencesUsePluginOrSharedUiResources() throws IOException {
         Path root = repositoryRoot();
+        Path pluginsRoot = root.resolve("easy-postman-plugins");
         Set<String> uiIcons = resourceFileNames(root.resolve("easy-postman-ui/src/main/resources/icons"));
-        Set<String> pluginIcons = pluginIconFileNames(root.resolve("easy-postman-plugins"));
+        Set<String> pluginIcons = pluginIconFileNames(pluginsRoot);
         Set<String> appIcons = resourceFileNames(root.resolve("easy-postman-app/src/main/resources/icons"));
 
-        List<String> violations = javaSourceFiles(root.resolve("easy-postman-plugins")).stream()
+        List<Path> pluginSourceFiles = new ArrayList<>();
+        try (var modules = Files.newDirectoryStream(pluginsRoot)) {
+            for (Path module : modules) {
+                Path sourceRoot = module.resolve("src");
+                if (Files.isDirectory(sourceRoot)) {
+                    pluginSourceFiles.addAll(javaSourceFiles(sourceRoot));
+                }
+            }
+        }
+        List<String> violations = pluginSourceFiles.stream()
                 .flatMap(file -> iconReferences(file).stream()
                         .filter(icon -> !uiIcons.contains(icon) && !pluginIcons.contains(icon))
                         .map(icon -> file + " references app-only or missing icon " + icon
@@ -1506,6 +1516,7 @@ public class ModuleArchitectureBoundaryTest {
         try (Stream<Path> files = Files.walk(root)) {
             return files
                     .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .filter(Files::isRegularFile)
                     .toList();
         }
     }

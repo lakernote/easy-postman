@@ -8,6 +8,7 @@ import com.laker.postman.request.model.HttpParam;
 import com.laker.postman.request.model.HttpFormData;
 import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.util.HttpUrlUtil;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
@@ -141,7 +142,8 @@ class Swagger2Parser {
         String operationId = operation.getStr("operationId", "");
         req.setName(summary.isEmpty() ? (operationId.isEmpty() ? method + " " + path : operationId) : summary);
         req.setDescription(operation.getStr("description", ""));
-        req.setUrl(baseUrl.isEmpty() ? path : baseUrl + path);
+        String urlPath = HttpUrlUtil.toRequestPathTemplate(path);
+        req.setUrl(baseUrl.isEmpty() ? urlPath : baseUrl + urlPath);
 
         parseParameters(swaggerRoot, pathItem, operation, req);
         parseRequestBody(swaggerRoot, pathItem, operation, req);
@@ -157,6 +159,7 @@ class Swagger2Parser {
         }
 
         List<HttpParam> queryParams = new ArrayList<>();
+        List<HttpParam> pathVariables = new ArrayList<>();
         List<HttpHeader> headers = req.getHeadersList() == null ? new ArrayList<>() : new ArrayList<>(req.getHeadersList());
         List<HttpFormData> formData = new ArrayList<>();
         List<HttpFormUrlencoded> urlencoded = new ArrayList<>();
@@ -193,6 +196,8 @@ class Swagger2Parser {
                     }
                     break;
                 case "path":
+                    pathVariables.add(new HttpParam(true, name, value));
+                    break;
                 case "body":
                 default:
                     break;
@@ -201,6 +206,9 @@ class Swagger2Parser {
 
         if (!queryParams.isEmpty()) {
             req.setParamsList(queryParams);
+        }
+        if (!pathVariables.isEmpty()) {
+            req.setPathVariablesList(pathVariables);
         }
         if (!headers.isEmpty()) {
             req.setHeadersList(headers);

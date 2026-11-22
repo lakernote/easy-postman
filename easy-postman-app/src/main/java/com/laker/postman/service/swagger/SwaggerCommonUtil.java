@@ -24,13 +24,6 @@ import java.util.Set;
 class SwaggerCommonUtil {
 
     /**
-     * OpenAPI writes path parameters as {petId}; requests here use :petId path variables.
-     */
-    static String toPathVariables(String path) {
-        return path.replaceAll("\\{([A-Za-z_][A-Za-z0-9_-]*)}", ":$1");
-    }
-
-    /**
      * 判断是否不是 HTTP 方法
      */
     static boolean isNotHttpMethod(String method) {

@@ -13,9 +13,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @UtilityClass
 public class HttpUrlUtil {
+
+    private static final Pattern BRACED_PATH_VARIABLE = Pattern.compile("(?<!\\{)\\{([^{}\\s/?#]+)\\}(?!\\})");
 
     public static String buildEncodedUrl(String rawUrl, List<HttpParam> paramsList) {
         if (rawUrl == null) {
@@ -336,6 +340,23 @@ public class HttpUrlUtil {
         return urlParams;
     }
 
+    /**
+     * Converts path templates to request path variables, using {@code :{name}} when
+     * the short form cannot preserve the name or distinguish it from a literal suffix.
+     */
+    public static String toRequestPathTemplate(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        return BRACED_PATH_VARIABLE.matcher(path).replaceAll(match -> {
+            int nameEnd = match.end(1);
+            boolean simpleName = readBarePathVariableNameEnd(path, match.start(1), nameEnd) == nameEnd;
+            boolean hasNameSuffix = match.end() < path.length() && isPathVariableNamePart(path.charAt(match.end()));
+            String placeholder = simpleName && !hasNameSuffix ? match.group(1) : match.group();
+            return Matcher.quoteReplacement(":" + placeholder);
+        });
+    }
+
     public static List<HttpParam> extractPathVariables(String url) {
         List<PathVariableSegment> segments = extractPathVariableSegments(url);
         if (segments.isEmpty()) {
@@ -500,20 +521,31 @@ public class HttpUrlUtil {
     }
 
     private static PathVariableSegment readPathVariableSegment(String url, int startIndex, int pathEndIndex) {
-        if (url.charAt(startIndex) != ':' || startIndex + 1 >= pathEndIndex) {
+        int nameStart = startIndex + 1;
+        if (url.charAt(startIndex) != ':' || nameStart >= pathEndIndex) {
             return null;
         }
+        if (url.charAt(nameStart) == '{') {
+            Matcher variable = BRACED_PATH_VARIABLE.matcher(url).region(nameStart, pathEndIndex);
+            return variable.lookingAt() ? new PathVariableSegment(startIndex, variable.end(), variable.group(1)) : null;
+        }
 
-        char firstNameChar = url.charAt(startIndex + 1);
-        if (!isPathVariableNameStart(firstNameChar)) {
+        int nameEnd = readBarePathVariableNameEnd(url, nameStart, pathEndIndex);
+        if (nameEnd == nameStart) {
             return null;
         }
+        return new PathVariableSegment(startIndex, nameEnd, url.substring(nameStart, nameEnd));
+    }
 
-        int endIndex = startIndex + 2;
-        while (endIndex < pathEndIndex && isPathVariableNamePart(url.charAt(endIndex))) {
-            endIndex++;
+    private static int readBarePathVariableNameEnd(String url, int nameStart, int limit) {
+        if (!isPathVariableNameStart(url.charAt(nameStart))) {
+            return nameStart;
         }
-        return new PathVariableSegment(startIndex, endIndex, url.substring(startIndex + 1, endIndex));
+        int nameEnd = nameStart + 1;
+        while (nameEnd < limit && isPathVariableNamePart(url.charAt(nameEnd))) {
+            nameEnd++;
+        }
+        return nameEnd;
     }
 
     private static boolean isPathVariableNameStart(char c) {

@@ -8,6 +8,7 @@ import com.laker.postman.request.model.HttpParam;
 import com.laker.postman.request.model.HttpFormData;
 import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.util.HttpUrlUtil;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
@@ -120,7 +121,7 @@ class OpenApi3Parser {
         String operationId = operation.getStr("operationId", "");
         req.setName(summary.isEmpty() ? (operationId.isEmpty() ? method + " " + path : operationId) : summary);
         req.setDescription(operation.getStr("description", ""));
-        String urlPath = SwaggerCommonUtil.toPathVariables(path);
+        String urlPath = HttpUrlUtil.toRequestPathTemplate(path);
         req.setUrl(baseUrl.isEmpty() ? urlPath : baseUrl + urlPath);
 
         parseParameters(openApiRoot, pathItem, operation, req);
@@ -152,10 +153,13 @@ class OpenApi3Parser {
             }
 
             JSONObject schema = SwaggerCommonUtil.resolveRefObject(openApiRoot, param.getJSONObject("schema"));
-            Object defaultValue = schema != null && schema.containsKey("default")
+            Object parameterValue = schema != null && schema.containsKey("default")
                     ? schema.get("default")
                     : param.get("example");
-            String value = defaultValue == null ? "" : String.valueOf(defaultValue);
+            if (parameterValue == null) {
+                parameterValue = SwaggerCommonUtil.getExampleValue(schema);
+            }
+            String value = parameterValue == null ? "" : String.valueOf(parameterValue);
 
             switch (in) {
                 case "query":

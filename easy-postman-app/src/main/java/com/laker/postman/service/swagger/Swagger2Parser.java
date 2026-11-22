@@ -8,6 +8,7 @@ import com.laker.postman.request.model.HttpParam;
 import com.laker.postman.request.model.HttpFormData;
 import com.laker.postman.request.model.HttpFormUrlencoded;
 import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.util.HttpUrlUtil;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
@@ -141,7 +142,7 @@ class Swagger2Parser {
         String operationId = operation.getStr("operationId", "");
         req.setName(summary.isEmpty() ? (operationId.isEmpty() ? method + " " + path : operationId) : summary);
         req.setDescription(operation.getStr("description", ""));
-        String urlPath = SwaggerCommonUtil.toPathVariables(path);
+        String urlPath = HttpUrlUtil.toRequestPathTemplate(path);
         req.setUrl(baseUrl.isEmpty() ? urlPath : baseUrl + urlPath);
 
         parseParameters(swaggerRoot, pathItem, operation, req);

@@ -118,6 +118,7 @@ public class CollectionTreePanel extends UiSingletonPanel {
 
             @Override
             public void paint(Graphics g) {
+                CollectionTreeHoverOverlay.syncHoveredRow(this);
                 super.paint(g);
                 // 在树正常绘制之后，对 hover 行叠加整行背景高亮
                 CollectionTreeHoverOverlay.paint(g, this);

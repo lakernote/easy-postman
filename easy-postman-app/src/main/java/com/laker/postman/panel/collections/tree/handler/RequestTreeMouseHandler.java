@@ -57,6 +57,11 @@ public class RequestTreeMouseHandler extends MouseAdapter {
     }
 
     @Override
+    public void mouseDragged(MouseEvent e) {
+        handleHover(e);
+    }
+
+    @Override
     public void mouseEntered(MouseEvent e) {
         handleHover(e);
     }

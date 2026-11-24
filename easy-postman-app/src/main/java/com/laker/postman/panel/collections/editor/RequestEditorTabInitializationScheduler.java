@@ -14,6 +14,7 @@ import java.util.function.BooleanSupplier;
  */
 @RequiredArgsConstructor
 final class RequestEditorTabInitializationScheduler {
+    private static final int STARTUP_WARM_UP_DELAY_MS = 1500;
     private final JTabbedPane tabbedPane;
     private final BooleanSupplier startupRestoreSelectionInProgress;
 
@@ -29,7 +30,10 @@ final class RequestEditorTabInitializationScheduler {
     }
 
     void warmUpDeferredRequestTabsAfterStartup() {
-        SwingUtilities.invokeLater(() -> warmUpDeferredRequestTabsSequentially(0));
+        // 主窗口刚显示时 EDT 要先完成首帧绘制；立即预热（每个约 100ms）会让新窗口保持灰色空白
+        Timer timer = new Timer(STARTUP_WARM_UP_DELAY_MS, e -> warmUpDeferredRequestTabsSequentially(0));
+        timer.setRepeats(false);
+        timer.start();
     }
 
     private void scheduleSelectedRequestTabInitialization(boolean animatePlaceholderTransition) {

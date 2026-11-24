@@ -1,6 +1,8 @@
 package com.laker.postman.startup;
 
 import com.laker.postman.ioc.BeanFactory;
+import com.laker.postman.panel.collections.tree.StartupCollectionPrefetch;
+import com.laker.postman.util.SystemUtil;
 import com.laker.postman.plugin.api.service.RequestCollectionImportService;
 import com.laker.postman.plugin.host.AppSwingRequestCollectionImportService;
 import com.laker.postman.plugin.runtime.PluginRuntime;
@@ -19,7 +21,9 @@ class GuiStartupBootstrap {
     }
 
     void initWorkspaceState() {
-        WorkspaceService.getInstance();
+        WorkspaceService workspaceService = WorkspaceService.getInstance();
+        // 与插件加载、主窗口创建并行预读，主内容挂载时集合树通常可直接显示
+        StartupCollectionPrefetch.start(SystemUtil.getCollectionPathForWorkspace(workspaceService.getCurrentWorkspace()));
         EnvironmentService.getAllEnvironments();
     }
 

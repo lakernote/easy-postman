@@ -69,6 +69,7 @@ public class CollectionTreePanel extends UiSingletonPanel {
     @Getter
     private transient SwingCollectionTreePersistence collectionTreePersistence;
     private final transient List<Runnable> switchesDeferredByStartupLoad = new ArrayList<>();
+    private transient SwingCollectionTreePersistence.LoadRequest pendingStartupLoad;
     private transient SwingCollectionRequestSaveCoordinator requestSaveCoordinator;
 
     /**
@@ -172,6 +173,26 @@ public class CollectionTreePanel extends UiSingletonPanel {
         requestTree.addMouseMotionListener(mouseHandler);
 
         SwingCollectionTreePersistence.LoadRequest startupLoad = collectionTreePersistence.beginStartupLoad();
+        pendingStartupLoad = startupLoad;
+        // 正常启动由 RequestCollectionsPanel 在两侧面板都创建后、首帧绘制前触发；这里兜底单独创建树面板的情况
+        SwingUtilities.invokeLater(this::startStartupLoad);
+    }
+
+    /**
+     * EDT：开始挂载启动数据。预读已完成时同步挂载树并恢复标签，使首帧直接显示完整内容；否则转后台读取。
+     * 依赖 RequestEditorPanel 和本面板单例都已注册，不能在本面板初始化过程中调用。
+     */
+    public void startStartupLoad() {
+        SwingCollectionTreePersistence.LoadRequest startupLoad = pendingStartupLoad;
+        if (startupLoad == null) {
+            return;
+        }
+        pendingStartupLoad = null;
+        StartupCollectionPrefetch.Result prefetched = StartupCollectionPrefetch.take(startupLoad.filePath(), false);
+        if (prefetched != null) {
+            applyStartupSnapshot(toStartupSnapshot(startupLoad, prefetched));
+            return;
+        }
         EasyTaskExecutor.execute(
                 () -> loadStartupSnapshot(startupLoad),
                 this::applyStartupSnapshot,
@@ -181,8 +202,23 @@ public class CollectionTreePanel extends UiSingletonPanel {
     }
 
     private StartupLoadSnapshot loadStartupSnapshot(SwingCollectionTreePersistence.LoadRequest startupLoad) {
+        StartupCollectionPrefetch.Result prefetched = StartupCollectionPrefetch.take(startupLoad.filePath(), true);
+        if (prefetched != null) {
+            return toStartupSnapshot(startupLoad, prefetched);
+        }
         SwingCollectionTreePersistence.LoadedCollections collections = collectionTreePersistence.read(startupLoad);
-        Optional<List<HttpRequestItem>> session = OpenedRequestTabsStore.tryLoadAll();
+        return toStartupSnapshot(collections, OpenedRequestTabsStore.tryLoadAll());
+    }
+
+    private static StartupLoadSnapshot toStartupSnapshot(SwingCollectionTreePersistence.LoadRequest startupLoad,
+                                                         StartupCollectionPrefetch.Result prefetched) {
+        return toStartupSnapshot(new SwingCollectionTreePersistence.LoadedCollections(
+                startupLoad.generation(), startupLoad.filePath(), startupLoad.treeChangeCount(),
+                prefetched.document()), prefetched.session());
+    }
+
+    private static StartupLoadSnapshot toStartupSnapshot(SwingCollectionTreePersistence.LoadedCollections collections,
+                                                         Optional<List<HttpRequestItem>> session) {
         List<HttpRequestItem> openedRequests = session.orElse(List.of());
         HttpRequestItem lastNonNewRequest = CollectionTreeQueryService.findLastPersistedRequest(openedRequests);
         return new StartupLoadSnapshot(collections, openedRequests, session.isPresent(), lastNonNewRequest);

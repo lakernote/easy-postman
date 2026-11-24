@@ -24,6 +24,7 @@ class SplashStartupWorker extends SwingWorker<MainFrame, String> {
         long startTimeMillis = System.currentTimeMillis();
         try {
             MainFrame mainFrame = startupCoordinator.prepareMainFrameShell(this::publishStage);
+            startupCoordinator.awaitStartupDataBeforeShowing();
             ensureMinimumDisplayTime(startTimeMillis);
             return mainFrame;
         } catch (Exception e) {

@@ -8,7 +8,7 @@ import javax.swing.Timer;
 import java.util.function.Consumer;
 
 /**
- * 监听主窗口启动门闩：启动壳可见，以及可选的主内容加载完成。
+ * 监听主窗口启动门闩：主窗口已绘制首帧且主内容加载完成。
  */
 @RequiredArgsConstructor
 @Slf4j
@@ -16,7 +16,6 @@ class MainFrameReadinessWatcher {
     private static final int STARTUP_SHELL_PAINT_FALLBACK_MS = 300;
 
     private final MainFrame mainFrame;
-    private final boolean waitForMainContent;
     private final Runnable onReady;
     private final Consumer<Throwable> onFailure;
 
@@ -65,13 +64,11 @@ class MainFrameReadinessWatcher {
     }
 
     private void notifyReadyIfPossible() {
-        if (readyNotified || failureHandled || !shellReady || (waitForMainContent && !contentReady)) {
+        if (readyNotified || failureHandled || !shellReady || !contentReady) {
             return;
         }
         readyNotified = true;
-        AppLauncher.markStartupCheckpoint(contentReady
-                ? "main content ready"
-                : "startup shell painted");
+        AppLauncher.markStartupCheckpoint("main content ready");
         log.info("Main frame readiness satisfied; running startup continuation");
         onReady.run();
     }

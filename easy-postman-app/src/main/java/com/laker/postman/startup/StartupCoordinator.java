@@ -3,6 +3,7 @@ package com.laker.postman.startup;
 import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.frame.MainFrame;
 import com.laker.postman.ioc.BeanFactory;
+import com.laker.postman.panel.collections.tree.StartupCollectionPrefetch;
 import com.laker.postman.service.sync.WebDavSyncScheduler;
 import lombok.extern.slf4j.Slf4j;
 
@@ -15,6 +16,7 @@ import java.util.function.Consumer;
  */
 @Slf4j
 public class StartupCoordinator {
+    private static final long MAIN_CONTENT_PREFETCH_WAIT_MS = 1000;
     private final long launchStartedAtNanos;
     private CompletableFuture<Void> hostIocInitialization;
 
@@ -106,20 +108,7 @@ public class StartupCoordinator {
     public void runAfterMainContentReady(MainFrame mainFrame,
                                          Runnable onReady,
                                          Consumer<Throwable> onFailure) {
-        waitForMainFrameReadiness(mainFrame, true, onReady, onFailure);
-    }
-
-    public void runAfterStartupShellReady(MainFrame mainFrame,
-                                          Runnable onReady,
-                                          Consumer<Throwable> onFailure) {
-        waitForMainFrameReadiness(mainFrame, false, onReady, onFailure);
-    }
-
-    private void waitForMainFrameReadiness(MainFrame mainFrame,
-                                           boolean waitForMainContent,
-                                           Runnable onReady,
-                                           Consumer<Throwable> onFailure) {
-        new MainFrameReadinessWatcher(mainFrame, waitForMainContent, onReady, onFailure).start();
+        new MainFrameReadinessWatcher(mainFrame, onReady, onFailure).start();
     }
 
     private void notifyProgress(StartupProgressListener progressListener, StartupStage stage) {
@@ -162,19 +151,56 @@ public class StartupCoordinator {
     }
 
     private void showMainFrameAndLoadContentOnEdt(MainFrame mainFrame) {
+        registerMainContentReadyLog(mainFrame);
         showMainFrameOnEdt(mainFrame);
         log.info("Scheduling main content loading");
         // 先让轻量启动壳完成首帧显示，再切换到完整主内容，减少首屏阻塞。
-        SwingUtilities.invokeLater(mainFrame::loadMainContentAsync);
+        // 集合预读较慢时最多多显示一会儿启动壳，避免主内容先以空白树出现。
+        StartupCollectionPrefetch.whenReady(MAIN_CONTENT_PREFETCH_WAIT_MS)
+                .thenRun(() -> SwingUtilities.invokeLater(mainFrame::loadMainContentAsync));
     }
 
-    private void showMainFrameOnEdt(MainFrame mainFrame) {
-        log.info("Showing main frame on EDT");
+    /**
+     * Splash 后台线程：等待集合预读（有上限），使随后在 EDT 上挂载主内容时不必再读文件，也不会先挂空树。
+     */
+    public void awaitStartupDataBeforeShowing() {
+        StartupCollectionPrefetch.whenReady(MAIN_CONTENT_PREFETCH_WAIT_MS).join();
+    }
+
+    /**
+     * Splash 模式：Splash 仍遮挡时同步挂载主内容再显示窗口，窗口首次出现即为完整界面，不再出现空白启动壳。
+     */
+    public void showMainFrameWithContent(MainFrame mainFrame, Runnable afterShown) {
+        if (mainFrame == null) {
+            return;
+        }
+        Runnable task = () -> {
+            registerMainContentReadyLog(mainFrame);
+            mainFrame.loadMainContentBeforeShowing();
+            // 下一轮再预绘制并显示，让挂载期间排队的界面填充任务（表格、树展开等）先执行
+            SwingUtilities.invokeLater(() -> {
+                mainFrame.paintBeforeShowing();
+                showMainFrameOnEdt(mainFrame);
+                afterShown.run();
+            });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    private void registerMainContentReadyLog(MainFrame mainFrame) {
         mainFrame.whenMainContentLoaded(() -> {
             AppLauncher.markStartupCheckpoint("main content ready");
             log.info("GUI main content ready in {} ms since launch entry",
                     (System.nanoTime() - launchStartedAtNanos) / 1_000_000);
         });
+    }
+
+    private void showMainFrameOnEdt(MainFrame mainFrame) {
+        log.info("Showing main frame on EDT");
         mainFrame.setVisible(true);
         AppLauncher.markStartupCheckpoint("main frame made visible");
         AppSingleInstanceController.registerReadyMainFrame(mainFrame);

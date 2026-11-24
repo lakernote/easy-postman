@@ -101,22 +101,29 @@ public class SwingCollectionTreePersistence {
      * 后台线程：读取并修复集合文件，不触碰树模型。读取失败时返回空集合。
      */
     public LoadedCollections read(LoadRequest request) {
-        CollectionFilePersistence reader = new CollectionFilePersistence(request.filePath());
+        return new LoadedCollections(request.generation(), request.filePath(), request.treeChangeCount(),
+                readDocument(request.filePath()));
+    }
+
+    /**
+     * 后台线程：读取并修复指定集合文件。读取失败时返回空集合。
+     */
+    public static CollectionDocument readDocument(String filePath) {
+        CollectionFilePersistence reader = new CollectionFilePersistence(filePath);
         CollectionDocument document;
         try {
             document = reader.load();
         } catch (Exception e) {
-            log.error("Error loading request collections: {}", request.filePath(), e);
+            log.error("Error loading request collections: {}", filePath, e);
             // 不能保留上一个工作区的树，否则后续保存会把它写进新工作区。
-            return new LoadedCollections(request.generation(), request.filePath(), request.treeChangeCount(),
-                    CollectionDocument.empty());
+            return CollectionDocument.empty();
         }
         int repaired = CollectionIdNormalizer.ensureUniqueIds(document);
         if (repaired > 0) {
             log.info("Reassigned {} duplicate or blank collection IDs (group/request/example)", repaired);
             reader.save(document);
         }
-        return new LoadedCollections(request.generation(), request.filePath(), request.treeChangeCount(), document);
+        return document;
     }
 
     /**

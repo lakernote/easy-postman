@@ -277,13 +277,12 @@ class SplashWindow extends JFrame {
     void startFadeOutAnimation(MainFrame mainFrame, StartupCoordinator startupCoordinator) {
         if (isDisposed) return;
 
-        // 先显示主窗口；一旦启动占位符稳定绘制完成就尽快退场，不再阻塞等待主内容完全加载。
-        startupCoordinator.showMainFrameAndLoadContent(mainFrame);
-        startupCoordinator.runAfterStartupShellReady(
+        // Splash 遮挡期间先挂载完整主内容再显示主窗口；主窗口首帧绘制后 Splash 退场，避免露出空白启动壳。
+        startupCoordinator.showMainFrameWithContent(mainFrame, () -> startupCoordinator.runAfterMainContentReady(
                 mainFrame,
                 () -> closeSplash(startupCoordinator),
                 this::handleMainFrameLoadError
-        );
+        ));
     }
 
     boolean isDisposed() {

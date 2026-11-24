@@ -95,7 +95,10 @@ App.main()
        -> SwingUtilities.invokeLater()
             -> SplashWindow or no-splash SwingWorker
             -> background worker waits for IOC, then initializes PluginRuntime
-            -> create MainFrame with its menu on EDT, show its shell, then load main content
+            -> workspace init also starts StartupCollectionPrefetch (collection file + opened tabs)
+            -> create MainFrame with its menu on EDT
+            -> splash: wait for prefetch (≤1s), mount main content, pre-paint, then show the frame
+            -> no-splash: show the startup shell, wait for prefetch (≤1s), then mount main content
 ```
 
 ---

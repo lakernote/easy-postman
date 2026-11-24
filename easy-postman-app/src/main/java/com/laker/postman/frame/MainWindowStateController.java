@@ -1,5 +1,6 @@
 package com.laker.postman.frame;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import com.laker.postman.util.UserPreferencesStore;
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,6 +35,10 @@ class MainWindowStateController {
     private final Timer saveStateTimer;
     private Dimension cachedMinWindowSize;
     private String lastDisplayId;
+    /**
+     * macOS 以最大化尺寸直接显示后，系统记住的“还原尺寸”也是整屏；首次取消最大化时改回保存的普通尺寸。
+     */
+    private Dimension macNormalSizeAfterUnzoom;
 
     MainWindowStateController(JFrame frame) {
         this.frame = frame;
@@ -68,9 +73,10 @@ class MainWindowStateController {
 
         Dimension usableArea = defaultUsableDisplayArea();
         Dimension initialSize = getInitialWindowSize();
-        frame.setSize(initialSize);
         if (MainWindowSizePolicy.shouldStartMaximized(usableArea.getWidth())) {
-            frame.setExtendedState(Frame.MAXIMIZED_BOTH);
+            applyMaximized(initialSize, Frame.MAXIMIZED_BOTH);
+        } else {
+            frame.setSize(initialSize);
         }
         log.info("主窗口使用初始状态: size={}, state={}, display={}",
                 initialSize, describeState(frame.getExtendedState()), currentDisplaySnapshot());
@@ -89,6 +95,7 @@ class MainWindowStateController {
                 log.info("主窗口状态变化: oldState={}, newState={}, frameBounds={}, display={}",
                         describeState(e.getOldState()), describeState(e.getNewState()),
                         frame.getBounds(), currentDisplaySnapshot());
+                restoreNormalSizeAfterMacUnzoomIfNeeded(e);
                 scheduleSaveWindowState();
             }
         });
@@ -105,6 +112,31 @@ class MainWindowStateController {
                 scheduleSaveWindowStateIfVisible();
             }
         });
+    }
+
+    private void applyMaximized(Dimension normalSize, int state) {
+        if (SystemInfo.isMacOS) {
+            // macOS 在窗口显示后才执行最大化并播放放大动画；直接以可用区域显示，首帧即为最终尺寸
+            frame.setBounds(currentDisplaySnapshot().usableBounds());
+            macNormalSizeAfterUnzoom = normalSize;
+        } else {
+            frame.setSize(normalSize);
+            frame.setLocationRelativeTo(null);
+        }
+        frame.setExtendedState(state);
+    }
+
+    private void restoreNormalSizeAfterMacUnzoomIfNeeded(WindowEvent e) {
+        Dimension normalSize = macNormalSizeAfterUnzoom;
+        boolean unzoomed = (e.getOldState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH
+                && (e.getNewState() & Frame.MAXIMIZED_BOTH) == 0
+                && (e.getNewState() & Frame.ICONIFIED) == 0;
+        if (normalSize == null || !unzoomed) {
+            return;
+        }
+        macNormalSizeAfterUnzoom = null;
+        frame.setSize(normalSize);
+        frame.setLocationRelativeTo(null);
     }
 
     void scheduleSaveWindowState() {
@@ -201,9 +233,7 @@ class MainWindowStateController {
             int actualState = (extendedState != null) ? extendedState : Frame.NORMAL;
 
             if ((actualState & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                frame.setSize(actualSize);
-                frame.setLocationRelativeTo(null);
-                frame.setExtendedState(actualState);
+                applyMaximized(actualSize, actualState);
             } else {
                 frame.setSize(actualSize);
                 frame.setExtendedState(actualState);

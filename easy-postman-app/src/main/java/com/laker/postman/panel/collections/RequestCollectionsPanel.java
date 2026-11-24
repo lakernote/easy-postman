@@ -49,6 +49,7 @@ public class RequestCollectionsPanel extends UiSingletonPanel {
 
     @Override
     protected void registerListeners() {
-        // no op
+        // 两侧面板都已注册且尚未首帧绘制：预读就绪时树和标签随主内容一起出现
+        UiSingletonFactory.getInstance(CollectionTreePanel.class).startStartupLoad();
     }
 }

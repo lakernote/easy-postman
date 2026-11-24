@@ -81,23 +81,75 @@ public class MainFrame extends JFrame {
             return;
         }
         // 主内容延后到启动壳显示后加载，避免首次展示窗口时被完整工作区初始化阻塞。
-        Runnable task = () -> {
-            if (closing) {
+        SwingUtilities.invokeLater(this::mountMainContent);
+    }
+
+    /**
+     * EDT：窗口显示前同步挂载主内容，窗口首次出现即为完整界面（Splash 模式使用，Splash 遮挡期间完成构建）。
+     */
+    public void loadMainContentBeforeShowing() {
+        if (startupLifecycle.markMainContentLoadRequested()) {
+            mountMainContent();
+        }
+    }
+
+    /**
+     * EDT：显示前创建窗口 peer，并把完整界面先画进窗口表面。
+     * macOS 显示窗口后要等系统 expose 再首次绘制（冷启动约 200ms+），期间会露出整窗灰底；
+     * 预先画好后窗口出现即为完整界面，同时预热了布局、字体与渲染管线。
+     */
+    public void paintBeforeShowing() {
+        if (closing || isVisible()) {
+            return;
+        }
+        try {
+            if (!isDisplayable()) {
+                addNotify();
+            }
+            validate();
+            JRootPane rootPane = getRootPane();
+            Graphics windowGraphics = getGraphics();
+            if (windowGraphics == null || rootPane.getWidth() <= 0 || rootPane.getHeight() <= 0) {
                 return;
             }
             try {
-                log.info("Main content initialization started");
-                replaceStartupShellWithContent(UiSingletonFactory.getInstance(MainPanel.class));
-                startupShellPanel = null;
-                startupLifecycle.markMainContentLoaded();
-                log.info("Main content initialization completed");
-            } catch (Throwable throwable) {
-                log.error("Failed to initialize main content", throwable);
-                startupLifecycle.markMainContentLoadFailed(throwable);
+                Graphics rootGraphics = windowGraphics.create(
+                        rootPane.getX(), rootPane.getY(), rootPane.getWidth(), rootPane.getHeight());
+                try {
+                    rootPane.paint(rootGraphics);
+                } finally {
+                    rootGraphics.dispose();
+                }
+                Toolkit.getDefaultToolkit().sync();
+            } finally {
+                windowGraphics.dispose();
             }
-        };
+        } catch (RuntimeException e) {
+            log.debug("Main frame pre-show paint skipped", e);
+        }
+    }
 
-        SwingUtilities.invokeLater(task);
+    private void mountMainContent() {
+        if (closing) {
+            return;
+        }
+        try {
+            log.info("Main content initialization started");
+            replaceStartupShellWithContent(UiSingletonFactory.getInstance(MainPanel.class));
+            startupShellPanel = null;
+            startupLifecycle.markMainContentLoaded();
+            log.info("Main content initialization completed");
+        } catch (Throwable throwable) {
+            log.error("Failed to initialize main content", throwable);
+            startupLifecycle.markMainContentLoadFailed(throwable);
+        }
+    }
+
+    @Override
+    public void paint(Graphics g) {
+        super.paint(g);
+        // 主内容先于显示挂载时启动壳不会绘制，以窗口首次绘制作为“首帧已显示”的信号
+        startupLifecycle.markStartupShellPainted();
     }
 
     private void installStartupShell() {

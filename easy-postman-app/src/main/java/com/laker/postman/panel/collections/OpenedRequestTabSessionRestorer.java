@@ -37,7 +37,8 @@ public class OpenedRequestTabSessionRestorer {
             for (int i = 0; i < restorableRequests.size(); i++) {
                 HttpRequestItem item = restorableRequests.get(i);
                 boolean selectTab = i == restorableRequests.size() - 1;
-                RequestEditSubPanel panel = RequestEditorTabInserter.insertRequestTab(item, selectTab, true);
+                // 选中标签直接构建真实编辑器：先画骨架再替换会出现“骨架 → 卡顿 → 淡出”的二次刷新
+                RequestEditSubPanel panel = RequestEditorTabInserter.insertRequestTab(item, selectTab, !selectTab);
                 RequestEditorTabInserter.setTabNewRequestMarker(panel, item.isNewRequest());
             }
             if (onComplete != null) {

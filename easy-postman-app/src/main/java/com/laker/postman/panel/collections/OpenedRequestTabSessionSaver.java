@@ -45,12 +45,15 @@ public class OpenedRequestTabSessionSaver {
 
         List<HttpRequestItem> openedRequestItems =
                 OpenedRequestTabSnapshotCollector.collectOpenedRequestItems(tabbedPane, saveAll);
-        // 集合加载完成前，旧会话仍留在磁盘上。先保留它，再合并用户刚打开的标签。
-        if (new File(OpenedRequestTabsStore.PATHNAME).isFile()) {
+        // 启动恢复完成前，旧会话仍是唯一可信快照。先保留它，再合并用户刚打开的标签。
+        if (!OpenedRequestTabSessionRestorer.isStartupRestoreCompleted()
+                && new File(OpenedRequestTabsStore.PATHNAME).isFile()) {
             if (openedRequestItems.isEmpty()) {
                 return;
             }
-            openedRequestItems = mergeWithPendingSession(OpenedRequestTabsStore.loadAll(), openedRequestItems);
+            // 旧会话不可读时读取阶段已备份原文件，这里以当前标签为准
+            List<HttpRequestItem> pending = OpenedRequestTabsStore.tryLoadAll().orElse(List.of());
+            openedRequestItems = mergeWithPendingSession(pending, openedRequestItems);
         }
         OpenedRequestTabsStore.saveAll(OpenedRequestTabSnapshotCollector.limitToMostRecent(
                 openedRequestItems,

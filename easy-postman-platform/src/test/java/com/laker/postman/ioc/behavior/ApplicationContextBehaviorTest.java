@@ -2,6 +2,7 @@ package com.laker.postman.ioc.behavior;
 
 import com.laker.postman.ioc.ApplicationContext;
 import com.laker.postman.ioc.BeanCreationException;
+import com.laker.postman.ioc.BeanException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -55,6 +56,16 @@ public class ApplicationContextBehaviorTest {
         } finally {
             currentThread.setContextClassLoader(previousClassLoader);
         }
+    }
+
+    @Test
+    public void shouldRegisterExplicitComponentsWithoutScanning() {
+        context.register(MethodInjectedService.class, MethodInjectedDependency.class);
+
+        MethodInjectedService service = context.getBean(MethodInjectedService.class);
+
+        assertSame(service.getDependency(), context.getBean("methodInjectedDependency"));
+        assertThrows(BeanException.class, () -> context.register(String.class));
     }
 
     @Test

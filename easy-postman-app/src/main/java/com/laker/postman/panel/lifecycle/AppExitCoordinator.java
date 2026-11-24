@@ -5,6 +5,7 @@ import com.laker.postman.common.exception.CancelException;
 import com.laker.postman.frame.MainFrame;
 import com.laker.postman.ioc.Component;
 import com.laker.postman.panel.collections.OpenedRequestTabSessionSaver;
+import com.laker.postman.panel.collections.tree.CollectionTreePanel;
 import com.laker.postman.panel.functional.FunctionalPanel;
 import com.laker.postman.panel.performance.PerformancePanel;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,13 @@ public class AppExitCoordinator {
         } catch (RuntimeException e) {
             exitInProgress = false;
             throw e;
+        }
+
+        try {
+            UiSingletonFactory.getExistingInstance(CollectionTreePanel.class)
+                    .ifPresent(CollectionTreePanel::flushPendingStartupLoad);
+        } catch (Exception e) {
+            log.error("Failed to flush pending collection changes on exit", e);
         }
 
         // 保存功能测试配置

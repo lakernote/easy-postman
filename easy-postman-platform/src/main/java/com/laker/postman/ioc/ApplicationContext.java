@@ -84,6 +84,18 @@ public class ApplicationContext {
     }
 
     /**
+     * 显式注册组件类，免去启动时的类路径扫描。
+     */
+    public void register(Class<?>... componentClasses) {
+        for (Class<?> componentClass : componentClasses) {
+            if (!componentClass.isAnnotationPresent(Component.class)) {
+                throw new BeanException("Class is not annotated with @Component: " + componentClass.getName());
+            }
+            registerBean(componentClass);
+        }
+    }
+
+    /**
      * 扫描指定包下的所有类，注册带有@Component注解的类
      */
     public void scan(String... basePackages) {

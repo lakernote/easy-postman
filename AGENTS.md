@@ -86,12 +86,11 @@ App.main()
        -> AppCommandRouter.route(args)
             -> performance run/worker/master: set java.awt.headless=true
             -> run/worker: HeadlessStartupBootstrap.initRuntime()
-                 -> BeanFactory.init("com.laker.postman")
-                 -> PluginRuntime.initialize()
+                 -> PluginRuntime.initialize()  // no app IOC
             -> master: load plan + dispatch workers over HTTP/JSON
             -> return CLI exit code without entering Swing EDT
        -> configurePlatformWindowDecorations()  // GUI branch, Linux: FlatLaf window decorations
-       -> StartupCoordinator.startHostIocInitialization()  // background IOC scan and workspace state
+       -> StartupCoordinator.startHostIocInitialization()  // background IOC registration (HostComponents) and workspace state
        -> SimpleThemeManager.initTheme()  // launcher thread, before Swing components exist
        -> SwingUtilities.invokeLater()
             -> SplashWindow or no-splash SwingWorker
@@ -107,7 +106,7 @@ The project uses its **own lightweight IOC container** (`com.laker.postman.ioc`)
 
 | Annotation | Purpose |
 |---|---|
-| `@Component` | Marks a class as a managed bean (auto-scanned from `com.laker.postman`) |
+| `@Component` | Marks a class as a managed bean; host components must also be listed in `startup.HostComponents` (no classpath scan at startup, `HostComponentsTest` enforces the list) |
 | `@Autowired` | Field/constructor/method injection |
 | `@PostConstruct` | Called after all fields are injected |
 | `@PreDestroy` | Called on `BeanFactory.destroy()` |

@@ -6,7 +6,6 @@ import com.laker.postman.panel.collections.editor.request.RequestEditSubPanel;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
 import com.laker.postman.panel.collections.tree.adapter.SwingCollectionTreeQueries;
 import com.laker.postman.request.model.HttpRequestItem;
-import com.laker.postman.service.collections.OpenedRequestTabsStore;
 import lombok.experimental.UtilityClass;
 
 import javax.swing.*;
@@ -14,6 +13,19 @@ import java.util.List;
 
 @UtilityClass
 public class OpenedRequestTabSessionRestorer {
+
+    private static volatile boolean startupRestoreCompleted;
+
+    /**
+     * 启动恢复完成后，磁盘快照保留到退出时覆盖写入，崩溃或强制结束后下次仍能恢复。
+     */
+    public static void markStartupRestoreCompleted() {
+        startupRestoreCompleted = true;
+    }
+
+    public static boolean isStartupRestoreCompleted() {
+        return startupRestoreCompleted;
+    }
 
     public static void restoreOpenedRequests(List<HttpRequestItem> requestItems, Runnable onComplete) {
         Runnable restoreTask = () -> {
@@ -28,7 +40,6 @@ public class OpenedRequestTabSessionRestorer {
                 RequestEditSubPanel panel = RequestEditorTabInserter.insertRequestTab(item, selectTab, true);
                 RequestEditorTabInserter.setTabNewRequestMarker(panel, item.isNewRequest());
             }
-            OpenedRequestTabsStore.clear();
             if (onComplete != null) {
                 onComplete.run();
             }

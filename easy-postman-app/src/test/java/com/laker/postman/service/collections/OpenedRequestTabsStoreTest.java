@@ -11,7 +11,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
 
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class OpenedRequestTabsStoreTest {
     private Path openedRequestsPath;
@@ -54,5 +56,15 @@ public class OpenedRequestTabsStoreTest {
         OpenedRequestTabsStore.saveAll(List.of());
 
         assertFalse(Files.exists(openedRequestsPath));
+    }
+
+    @Test
+    public void tryLoadAllShouldDistinguishUnreadableSessionFromMissingSession() throws IOException {
+        Files.deleteIfExists(openedRequestsPath);
+        assertEquals(OpenedRequestTabsStore.tryLoadAll().orElseThrow(), List.of());
+
+        Files.createDirectories(openedRequestsPath.getParent());
+        Files.writeString(openedRequestsPath, "[{ broken", StandardCharsets.UTF_8);
+        assertTrue(OpenedRequestTabsStore.tryLoadAll().isEmpty());
     }
 }

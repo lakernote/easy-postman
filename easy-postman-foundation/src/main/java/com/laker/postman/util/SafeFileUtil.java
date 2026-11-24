@@ -147,6 +147,17 @@ public class SafeFileUtil {
         }
     }
 
+    /**
+     * 备份即将被放弃的一份数据内容（例如重载读到、但因本地编辑而未采用的外部版本）。
+     * 读取时该版本已被记为加载基准，之后的保存不会再自动备份它，需要调用方显式备份。
+     */
+    public static Optional<Path> backupDiscardedVersion(Path file, String content) {
+        if (file == null || content == null) {
+            return Optional.empty();
+        }
+        return writeBackup(file, content.getBytes(StandardCharsets.UTF_8), overwrittenBackupDirectory());
+    }
+
     static Path overwrittenBackupDirectory() {
         return Paths.get(SystemUtil.getEasyPostmanPath(), "backups", "overwritten");
     }
@@ -164,8 +175,16 @@ public class SafeFileUtil {
             return Optional.empty();
         }
         try {
-            byte[] content = Files.readAllBytes(file);
-            // 以内容摘要命名，同一份损坏内容反复加载时只备份一次。
+            return writeBackup(file, Files.readAllBytes(file), backupDirectory);
+        } catch (IOException e) {
+            log.error("Failed to back up unreadable data file: {}", file.toAbsolutePath(), e);
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<Path> writeBackup(Path file, byte[] content, Path backupDirectory) {
+        try {
+            // 以内容摘要命名，同一份内容反复备份时只保留一份。
             String backupName = file.getFileName() + "." + shortDigest(content) + ".bak";
             Path backup = backupDirectory.resolve(backupName);
             if (!Files.exists(backup)) {
@@ -175,7 +194,7 @@ public class SafeFileUtil {
             log.warn("Data file backed up: {}, backup: {}", file.toAbsolutePath(), backup);
             return Optional.of(backup);
         } catch (IOException e) {
-            log.error("Failed to back up unreadable data file: {}", file.toAbsolutePath(), e);
+            log.error("Failed to back up data file: {}", file.toAbsolutePath(), e);
             return Optional.empty();
         }
     }

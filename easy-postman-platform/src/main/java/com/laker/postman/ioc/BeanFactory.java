@@ -20,6 +20,13 @@ public class BeanFactory {
     }
 
     /**
+     * 显式注册组件类，启动时无需扫描类路径
+     */
+    public void register(Class<?>... componentClasses) {
+        context.register(componentClasses);
+    }
+
+    /**
      * 根据名称获取Bean
      */
     public <T> T getBean(String beanName) {

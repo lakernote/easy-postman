@@ -15,10 +15,26 @@ public class CollectionFilePersistence {
     private static final ConcurrentHashMap<String, Object> FILE_LOCKS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> LOADING_STATUS = new ConcurrentHashMap<>();
 
-    private String filePath;
+    private volatile String filePath;
 
     public CollectionFilePersistence(String filePath) {
         this.filePath = filePath;
+    }
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    /**
+     * 只切换后续保存的目标文件，不读取；用于已在后台读取好新文件、在 EDT 上与树替换同步切换的场景。
+     */
+    public void switchFilePath(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        synchronized (FILE_LOCKS.computeIfAbsent(filePath, ignored -> new Object())) {
+            this.filePath = path;
+        }
     }
 
     public CollectionDocument load() throws IOException {

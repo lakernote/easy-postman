@@ -4,7 +4,6 @@ import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.ModernButtonFactory;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.platform.update.changelog.ChangelogService;
-import com.laker.postman.platform.update.source.UpdateSource;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
@@ -165,24 +164,15 @@ public class ChangelogDialog extends JDialog {
      * 打开 GitHub 网页版
      */
     private void openGitHubWeb() {
-        UpdateSource github = changelogService.getSourceSelector().selectBestSource();
-        // 如果当前不是 GitHub，获取 GitHub 实例
-        if (!"GitHub".equals(github.getName())) {
-            github = changelogService.getSourceSelector().getFallbackSource(github);
-        }
-        openUrl(github.getWebUrl());
+        // 打开固定站点，无需测速（此方法在 EDT 上执行）
+        openUrl(changelogService.getSourceSelector().getSource("GitHub").getWebUrl());
     }
 
     /**
      * 打开 Gitee 网页版
      */
     private void openGiteeWeb() {
-        UpdateSource source = changelogService.getSourceSelector().selectBestSource();
-        // 如果当前不是 Gitee，获取 Gitee 实例
-        if (!"Gitee".equals(source.getName())) {
-            source = changelogService.getSourceSelector().getFallbackSource(source);
-        }
-        openUrl(source.getWebUrl());
+        openUrl(changelogService.getSourceSelector().getSource("Gitee").getWebUrl());
     }
 
     /**

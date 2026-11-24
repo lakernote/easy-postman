@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 请求集合面板，展示所有请求分组和请求项
@@ -67,9 +68,16 @@ public class CollectionTreePanel extends UiSingletonPanel {
     private DefaultTreeModel treeModel;
     @Getter
     private transient SwingCollectionTreePersistence collectionTreePersistence;
+    private final transient List<Runnable> switchesDeferredByStartupLoad = new ArrayList<>();
     private transient SwingCollectionRequestSaveCoordinator requestSaveCoordinator;
 
-    private record StartupLoadSnapshot(List<HttpRequestItem> openedRequests, HttpRequestItem lastNonNewRequest) {
+    /**
+     * @param sessionReadable 会话快照不存在或读取成功；读取失败时为 false，退出时不能把快照当作已恢复而覆盖
+     */
+    private record StartupLoadSnapshot(SwingCollectionTreePersistence.LoadedCollections collections,
+                                       List<HttpRequestItem> openedRequests,
+                                       boolean sessionReadable,
+                                       HttpRequestItem lastNonNewRequest) {
     }
 
 
@@ -163,31 +171,54 @@ public class CollectionTreePanel extends UiSingletonPanel {
         requestTree.addMouseListener(mouseHandler);
         requestTree.addMouseMotionListener(mouseHandler);
 
+        SwingCollectionTreePersistence.LoadRequest startupLoad = collectionTreePersistence.beginStartupLoad();
         EasyTaskExecutor.execute(
-                this::loadStartupSnapshot,
+                () -> loadStartupSnapshot(startupLoad),
                 this::applyStartupSnapshot,
                 this::handleStartupLoadError,
                 "RequestCollections-Loader"
         );
     }
 
-    private StartupLoadSnapshot loadStartupSnapshot() {
-        collectionTreePersistence.loadIntoTree();
-        List<HttpRequestItem> openedRequests = OpenedRequestTabsStore.loadAll();
+    private StartupLoadSnapshot loadStartupSnapshot(SwingCollectionTreePersistence.LoadRequest startupLoad) {
+        SwingCollectionTreePersistence.LoadedCollections collections = collectionTreePersistence.read(startupLoad);
+        Optional<List<HttpRequestItem>> session = OpenedRequestTabsStore.tryLoadAll();
+        List<HttpRequestItem> openedRequests = session.orElse(List.of());
         HttpRequestItem lastNonNewRequest = CollectionTreeQueryService.findLastPersistedRequest(openedRequests);
-        return new StartupLoadSnapshot(openedRequests, lastNonNewRequest);
+        return new StartupLoadSnapshot(collections, openedRequests, session.isPresent(), lastNonNewRequest);
     }
 
     private void applyStartupSnapshot(StartupLoadSnapshot snapshot) {
         RequestEditorPanel requestEditPanel = UiSingletonFactory.getInstance(RequestEditorPanel.class);
         requestEditPanel.setAutoInitializeSelectedTabOnTabAdd(true);
-        restoreOpenedRequestTabs(snapshot, requestEditPanel);
-        restoreTreeSelection(snapshot);
+        if (collectionTreePersistence.applyLoaded(snapshot.collections())) {
+            restoreOpenedRequestTabs(snapshot, requestEditPanel);
+            restoreTreeSelection(snapshot);
+        }
+        // 结果过期只会发生在退出前已同步完成启动加载时，无需再恢复标签
+        runSwitchesDeferredByStartupLoad();
+    }
+
+    private void runSwitchesDeferredByStartupLoad() {
+        List<Runnable> deferred = new ArrayList<>(switchesDeferredByStartupLoad);
+        switchesDeferredByStartupLoad.clear();
+        deferred.forEach(Runnable::run);
+    }
+
+    /**
+     * 退出前调用：启动加载未完成时同步完成它，避免推迟保存的集合改动丢失。
+     */
+    public void flushPendingStartupLoad() {
+        collectionTreePersistence.flushPendingStartupLoad();
     }
 
     private void restoreOpenedRequestTabs(StartupLoadSnapshot snapshot, RequestEditorPanel requestEditPanel) {
         if (snapshot.openedRequests().isEmpty()) {
             requestEditPanel.addPlusTab();
+            if (snapshot.sessionReadable()) {
+                OpenedRequestTabSessionRestorer.markStartupRestoreCompleted();
+            }
+            log.info("Startup request session restored: tabs=0, readable={}", snapshot.sessionReadable());
             return;
         }
         requestEditPanel.setStartupRestoreSelectingLastTab(true);
@@ -196,9 +227,14 @@ public class CollectionTreePanel extends UiSingletonPanel {
         OpenedRequestTabSessionRestorer.restoreOpenedRequests(
                 snapshot.openedRequests(),
                 () -> {
+                    OpenedRequestTabSessionRestorer.markStartupRestoreCompleted();
                     requestEditPanel.setStartupRestoreSelectingLastTab(false);
                     requestEditPanel.setAutoInitializeSelectedTabOnTabAdd(true);
                     requestEditPanel.initializeSelectedStartupRestoreTab();
+                    // 排在选中标签编辑器初始化之后执行，用于衡量“上次的请求可以继续编辑”的时间点
+                    SwingUtilities.invokeLater(() -> log.info(
+                            "Startup request session restored: tabs={}, selected editor initialized",
+                            snapshot.openedRequests().size()));
                     requestEditPanel.warmUpDeferredRequestTabsAfterStartup();
                 }
         );
@@ -224,7 +260,10 @@ public class CollectionTreePanel extends UiSingletonPanel {
 
     private void handleStartupLoadError(Throwable error) {
         log.error("Error loading request collections", error);
+        // 同步补做集合加载，解除启动期的保存拦截；会话未读取，退出时保留旧快照
+        collectionTreePersistence.loadIntoTree();
         UiSingletonFactory.getInstance(RequestEditorPanel.class).addPlusTab();
+        runSwitchesDeferredByStartupLoad();
     }
 
 
@@ -405,17 +444,22 @@ public class CollectionTreePanel extends UiSingletonPanel {
      * 切换到指定工作区的请求集合文件，并在集合树加载完成后执行回调。
      */
     public void switchWorkspaceAndRefreshUI(String collectionFilePath, Runnable onSuccessCallback) {
+        if (collectionTreePersistence.isStartupPending()) {
+            // 启动加载挂载前切换会让推迟保存的改动失去归属，排到启动加载完成后执行
+            log.info("Deferring collection switch until startup collections are applied: {}", collectionFilePath);
+            switchesDeferredByStartupLoad.add(() -> switchWorkspaceAndRefreshUI(collectionFilePath, onSuccessCallback));
+            return;
+        }
         // 使用 AsyncTaskExecutor 异步切换工作区
-        EasyTaskExecutor.builder()
+        SwingCollectionTreePersistence.LoadRequest switchLoad = collectionTreePersistence.beginSwitch(collectionFilePath);
+        EasyTaskExecutor.<SwingCollectionTreePersistence.LoadedCollections>builder()
                 .threadName("SwitchWorkspace-Loader")
-                .backgroundTask(() -> {
-                    // 后台线程：执行文件加载操作
-                    if (collectionTreePersistence != null) {
-                        collectionTreePersistence.switchDataFilePath(collectionFilePath);
+                // 后台线程只读取文件；树模型替换和保存目标切换在 onSuccess（EDT）中同步完成
+                .backgroundTask(() -> collectionTreePersistence.read(switchLoad))
+                .onSuccess(loaded -> {
+                    if (!collectionTreePersistence.applyLoaded(loaded)) {
+                        return;
                     }
-                })
-                .onSuccess(() -> {
-                    // EDT线程：更新UI
                     UiSingletonFactory.getInstance(RequestEditorPanel.class).getTabbedPane().removeAll();
                     UiSingletonFactory.getInstance(RequestEditorPanel.class).addPlusTab();
                     expandFirstGroup();

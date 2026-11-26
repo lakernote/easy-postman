@@ -55,6 +55,8 @@ public final class MessageKeys {
     public static final String UPDATE_IGNORE_VERSION = "update.ignore_version";
     public static final String UPDATE_DOWNLOADING = "update.downloading";
     public static final String UPDATE_CONNECTING = "update.connecting";
+    public static final String UPDATE_CHECKING = "update.checking";
+    public static final String UPDATE_CHECK_IN_PROGRESS = "update.check_in_progress";
     public static final String UPDATE_CANCEL_DOWNLOAD = "update.cancel_download";
     public static final String UPDATE_DOWNLOAD_CANCELLED = "update.download_cancelled";
     public static final String UPDATE_DOWNLOAD_FAILED = "update.download_failed";

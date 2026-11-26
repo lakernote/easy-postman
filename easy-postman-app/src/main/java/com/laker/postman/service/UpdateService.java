@@ -13,6 +13,7 @@ import com.laker.postman.common.component.notification.NotificationCenter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 版本更新服务
@@ -27,6 +28,8 @@ public class UpdateService {
     @Autowired
     private PluginUpdateCheckCoordinator pluginUpdateCheckCoordinator;
 
+    private final AtomicBoolean manualCheckInProgress = new AtomicBoolean();
+
     /**
      * 启动时异步检查更新
      */
@@ -40,16 +43,28 @@ public class UpdateService {
      * 手动检查更新（用于菜单调用）
      */
     public void checkUpdateManually() {
-        CompletableFuture<PluginUpdateCheckResult> pluginUpdateFuture = pluginUpdateCheckCoordinator.checkForUpdateManually();
-        appUpdateCheckCoordinator.checkForUpdateManually()
-                .thenCombine(pluginUpdateFuture, (updateInfo, pluginUpdateResult) -> {
-                    handleManualCheckResult(updateInfo, pluginUpdateResult);
-                    return null;
-                })
-                .exceptionally(throwable -> {
-                    log.error("Manual update check failed", throwable);
-                    return null;
-                });
+        if (!manualCheckInProgress.compareAndSet(false, true)) {
+            NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.UPDATE_CHECK_IN_PROGRESS));
+            return;
+        }
+        // 网络请求可能耗时数秒，先给出即时反馈，避免用户以为点击无效
+        NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.UPDATE_CHECKING));
+        try {
+            CompletableFuture<PluginUpdateCheckResult> pluginUpdateFuture = pluginUpdateCheckCoordinator.checkForUpdateManually();
+            appUpdateCheckCoordinator.checkForUpdateManually()
+                    .thenCombine(pluginUpdateFuture, (updateInfo, pluginUpdateResult) -> {
+                        handleManualCheckResult(updateInfo, pluginUpdateResult);
+                        return null;
+                    })
+                    .whenComplete((ignored, throwable) -> manualCheckInProgress.set(false))
+                    .exceptionally(throwable -> {
+                        log.error("Manual update check failed", throwable);
+                        return null;
+                    });
+        } catch (RuntimeException ex) {
+            manualCheckInProgress.set(false);
+            throw ex;
+        }
     }
 
     private void handleManualCheckResult(UpdateInfo updateInfo, PluginUpdateCheckResult pluginUpdateResult) {

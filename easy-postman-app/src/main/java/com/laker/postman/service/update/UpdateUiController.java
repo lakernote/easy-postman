@@ -76,7 +76,8 @@ public class UpdateUiController {
             // 处理用户选择: 0=手动下载, 1=自动更新, 2=稍后提醒, 3=忽略此版本, -1=关闭对话框
             switch (choice) {
                 case 0 -> openManualDownloadPage();
-                case 1 -> showUpdateTypeSelectionAndStart(updateInfo);
+                // 让更新对话框的关闭和主窗口重绘先完成，再进入进度对话框的 modal 循环
+                case 1 -> SwingUtilities.invokeLater(() -> showUpdateTypeSelectionAndStart(updateInfo));
                 case 3 -> runIgnoreVersion(onIgnoreVersion);
                 case 2, -1 -> { /* 用户稍后提醒或关闭对话框 */ }
                 default -> log.debug("Unknown dialog choice: {}", choice);

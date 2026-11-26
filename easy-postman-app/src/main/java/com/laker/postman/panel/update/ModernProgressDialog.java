@@ -51,7 +51,7 @@ public class ModernProgressDialog {
             }
         });
 
-        percentLabel  = new JLabel("0%", SwingConstants.CENTER);
+        percentLabel  = new JLabel("--", SwingConstants.CENTER);
         statusLabel   = new JLabel(I18nUtil.getMessage(MessageKeys.UPDATE_CONNECTING), SwingConstants.CENTER);
         progressBar   = new JProgressBar(0, 100);
         sizeLabel     = new JLabel("-- / -- MB");
@@ -166,6 +166,11 @@ public class ModernProgressDialog {
 
     public void updateProgress(int percentage, long downloaded, long total, double speed) {
         SwingUtilities.invokeLater(() -> {
+            if (total <= 0 && downloaded <= 0) {
+                // 重试或切换备用源时会回到 0，重新显示“连接中”动画
+                showConnectingState();
+                return;
+            }
             boolean totalKnown = total > 0;
             progressBar.setIndeterminate(!totalKnown);
             if (totalKnown) {
@@ -179,6 +184,18 @@ public class ModernProgressDialog {
             statusLabel.setText(I18nUtil.getMessage(MessageKeys.UPDATE_DOWNLOADING));
             speedLabel.setText(formatSpeed(speed));
         });
+    }
+
+    /**
+     * 建立连接、等待服务器响应期间使用不确定进度动画，避免静止的 0% 看起来像卡死
+     */
+    private void showConnectingState() {
+        progressBar.setValue(0);
+        progressBar.setIndeterminate(true);
+        percentLabel.setText("--");
+        statusLabel.setText(I18nUtil.getMessage(MessageKeys.UPDATE_CONNECTING));
+        sizeLabel.setText("-- / -- MB");
+        speedLabel.setText("-- KB/s");
     }
 
     private String formatBytes(long bytes) {
@@ -215,12 +232,7 @@ public class ModernProgressDialog {
     }
 
     private void showOnEdt() {
-        progressBar.setIndeterminate(false);
-        progressBar.setValue(0);
-        percentLabel.setText("0%");
-        statusLabel.setText(I18nUtil.getMessage(MessageKeys.UPDATE_CONNECTING));
-        sizeLabel.setText("-- / -- MB");
-        speedLabel.setText("-- KB/s");
+        showConnectingState();
         dialog.setVisible(true); // modal — 阻塞在这里直到 hide() 被调用
     }
 

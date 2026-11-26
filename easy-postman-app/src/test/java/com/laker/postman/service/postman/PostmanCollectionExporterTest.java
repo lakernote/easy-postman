@@ -73,6 +73,23 @@ public class PostmanCollectionExporterTest {
     }
 
     @Test
+    public void testToPostmanItem_QueryParamsInUrlAndParamsListExportedOnce() {
+        // URL 与 Params 表保持同步，同一组参数只应导出一次
+        HttpRequestItem item = new HttpRequestItem();
+        item.setName("Search");
+        item.setMethod("GET");
+        item.setUrl("https://api.example.com/search?q=test&limit=10");
+        item.setParamsList(List.of(new HttpParam(true, "q", "test"), new HttpParam(true, "limit", "10")));
+
+        JSONObject postmanItem = PostmanCollectionExporter.toPostmanItem(item);
+
+        JSONArray query = postmanItem.getJSONObject("request").getJSONObject("url").getJSONArray("query");
+        assertEquals(query.size(), 2);
+        assertEquals(query.getJSONObject(0).getStr("key"), "q");
+        assertEquals(query.getJSONObject(1).getStr("key"), "limit");
+    }
+
+    @Test
     public void testToPostmanItem_WithPathVariables() {
         HttpRequestItem item = new HttpRequestItem();
         item.setName("Get User");

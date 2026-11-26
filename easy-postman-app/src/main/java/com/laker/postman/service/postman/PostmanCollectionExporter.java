@@ -241,9 +241,9 @@ public class PostmanCollectionExporter {
             }
         } catch (Exception ignore) {
         }
-        // 额外合并 params
+        // params 与 URL 里的查询参数是同一组，有 params 时以它为准，避免每个参数导出两次
         if (item.getParamsList() != null && !item.getParamsList().isEmpty()) {
-            JSONArray queryArr = url.containsKey("query") ? url.getJSONArray("query") : new JSONArray();
+            JSONArray queryArr = new JSONArray();
             for (HttpParam param : item.getParamsList()) {
                 if (param.isEnabled()) {
                     JSONObject q = new JSONObject();

@@ -268,7 +268,7 @@ jobs:
 
       - name: Upload initial dry-run manifests（上传首版清单预览）
         if: steps.meta.outputs.mode == 'initial' && steps.meta.outputs.submit != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: winget-initial-manifests-${{ steps.meta.outputs.version }}
           path: winget-manifests
@@ -387,7 +387,7 @@ jobs:
 
       - name: Setup .NET 6 runtime（配置 .NET 6 运行时）
         if: steps.meta.outputs.mode == 'update'
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '6.0.x'
 
@@ -444,7 +444,7 @@ jobs:
 
       - name: Upload update dry-run manifests（上传更新清单预览）
         if: steps.meta.outputs.mode == 'update' && steps.meta.outputs.submit != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: winget-update-manifests-${{ steps.meta.outputs.version }}
           path: winget-manifests

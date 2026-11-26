@@ -121,11 +121,6 @@
         </dependency>
         <dependency>
             <groupId>org.graalvm.polyglot</groupId>
-            <artifactId>js</artifactId>
-            <type>pom</type>
-        </dependency>
-        <dependency>
-            <groupId>org.graalvm.polyglot</groupId>
             <artifactId>js-community</artifactId>
             <type>pom</type>
         </dependency>
@@ -162,11 +157,6 @@
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp-urlconnection</artifactId>
-            <version>${okhttp.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp-sse</artifactId>
             <version>${okhttp.version}</version>
         </dependency>
@@ -186,11 +176,6 @@
             <artifactId>okhttp-tls</artifactId>
             <version>${okhttp.version}</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp-brotli</artifactId>
-            <version>${okhttp.version}</version>
         </dependency>
         <dependency>
             <groupId>commons-codec</groupId>

@@ -15,16 +15,27 @@ import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.*;
 import lombok.Getter;
+import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -34,6 +45,7 @@ import java.util.function.Consumer;
  * - 语法高亮显示（JSON、XML、HTML、JavaScript、CSS 等）
  * - 自动/手动格式化
  * - 文本搜索
+ * - JSONPath 过滤
  * - 自动换行控制
  * - 下载响应内容
  * - 大文件优化处理
@@ -46,6 +58,22 @@ public class ResponseBodyPanel extends JPanel {
     @Getter
     private SaveResponseButton saveResponseButton; // 保存响应按钮（仅HTTP请求）
     private final SearchButton searchButton; // 搜索按钮
+    private final JToggleButton jsonPathFilterButton;
+    private final ResponseJsonPathFilterBar jsonPathFilterBar;
+    /** 显示 JSONPath 过滤结果时保存的原始编辑器文档；未过滤时为 null。恢复时直接换回，避免在 EDT 上重新插入大文本。 */
+    private Document unfilteredDocument;
+    /** 本面板最近写入 {@link #FILTER_DOCUMENT_CACHE} 的数据源键，用于关闭过滤时只释放自己的缓存。 */
+    private String filterDocumentSource;
+    /** 每次发起过滤或响应变化时递增，用于丢弃后台过时结果。 */
+    private final AtomicLong jsonPathFilterGeneration = new AtomicLong();
+    private CompletableFuture<Void> pendingJsonPathFilter = CompletableFuture.completedFuture(null);
+    /**
+     * 过滤输入上限（落盘文件按字节、内存响应体按字符）。解析后的对象树约为原文的 7~8 倍
+     * （实测 50MB JSON 约 380MB），在默认 1GB 堆下需留足余量。
+     */
+    private long jsonPathFilterMaxSourceSize = 20L * 1024 * 1024;
+    /** 过滤结果上限（字符），避免 $..* 之类的表达式生成远大于原响应的结果。 */
+    private int jsonPathFilterMaxResultChars = 10 * 1024 * 1024;
     private HttpResponse currentResponse;
     private final ResponseBodyDownloader downloader;
     private final EasyComboBox<String> syntaxComboBox;
@@ -62,6 +90,13 @@ public class ResponseBodyPanel extends JPanel {
 
     // 常量定义
     private static final int LARGE_RESPONSE_THRESHOLD = 500 * 1024; // 500KB threshold
+    /** 已解析文档缓存，全局只保留一份，避免多个标签页同时打开过滤时各自持有一棵大对象树。 */
+    private static final AtomicReference<CachedFilterDocument> FILTER_DOCUMENT_CACHE = new AtomicReference<>();
+    private static final ExecutorService JSON_PATH_FILTER_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "response-jsonpath-filter");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final String CARD_TEXT = "TEXT";
     private static final String CARD_IMAGE = "IMAGE";
     private static final String CARD_MEDIA = "MEDIA";
@@ -108,7 +143,14 @@ public class ResponseBodyPanel extends JPanel {
         // 使用 CardLayout 在文本、图片、媒体和文件概览之间切换
         centerPanel = new JPanel(new CardLayout());
         ToolWindowSurfaceStyle.applyCard(centerPanel);
-        centerPanel.add(searchableTextArea, CARD_TEXT);
+        jsonPathFilterBar = new ResponseJsonPathFilterBar(
+                this::applyJsonPathFilter, this::invalidatePendingJsonPathFilter, this::closeJsonPathFilter);
+        jsonPathFilterBar.setVisible(false);
+        JPanel textCard = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(textCard);
+        textCard.add(searchableTextArea, BorderLayout.CENTER);
+        textCard.add(jsonPathFilterBar, BorderLayout.SOUTH);
+        centerPanel.add(textCard, CARD_TEXT);
         centerPanel.add(imageScrollPane, CARD_IMAGE);
         centerPanel.add(mediaResponsePanel, CARD_MEDIA);
         centerPanel.add(fileResponsePanel, CARD_FILE);
@@ -160,6 +202,28 @@ public class ResponseBodyPanel extends JPanel {
         });
         toolBarPanel.add(searchButton);
         toolBarPanel.add(Box.createHorizontalStrut(1)); // 间隔
+
+        // JSONPath 过滤切换按钮
+        jsonPathFilterButton = new JToggleButton();
+        jsonPathFilterButton.setToolTipText(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP));
+        jsonPathFilterButton.getAccessibleContext().setAccessibleName(
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP));
+        jsonPathFilterButton.setFocusable(false);
+        jsonPathFilterButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        jsonPathFilterButton.putClientProperty(
+                FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        updateJsonPathFilterIcon(false);
+        jsonPathFilterButton.addItemListener(e -> updateJsonPathFilterIcon(jsonPathFilterButton.isSelected()));
+        jsonPathFilterButton.addActionListener(e -> {
+            if (jsonPathFilterButton.isSelected()) {
+                openJsonPathFilter();
+            } else {
+                closeJsonPathFilter();
+            }
+        });
+        toolBarPanel.add(jsonPathFilterButton);
+        toolBarPanel.add(Box.createHorizontalStrut(1));
 
         // Key 排序切换按钮，沿用自动换行工具按钮的选中态视觉
         autoSortJsonKeysButton = new JToggleButton();
@@ -298,7 +362,283 @@ public class ResponseBodyPanel extends JPanel {
     }
 
     private ResponseBodyDownloader.Source currentBodySource() {
-        return ResponseBodyDownloader.Source.of(currentResponse, responseBodyPane.getText());
+        return ResponseBodyDownloader.Source.of(currentResponse, unfilteredEditorText());
+    }
+
+    private void openJsonPathFilter() {
+        jsonPathFilterButton.setSelected(true);
+        jsonPathFilterBar.setVisible(true);
+        revalidate();
+        repaint();
+        jsonPathFilterBar.focusInput();
+        applyJsonPathFilter(jsonPathFilterBar.getExpression());
+    }
+
+    private void closeJsonPathFilter() {
+        jsonPathFilterBar.cancelPendingApply();
+        restoreUnfilteredBody();
+        releaseFilterDocument();
+        jsonPathFilterBar.clearStatus();
+        jsonPathFilterBar.setVisible(false);
+        jsonPathFilterButton.setSelected(false);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * 对原始响应体应用 JSONPath 表达式。读取、解析、查询和结果文档构建都在后台线程执行，避免大响应阻塞 EDT；
+     * 表达式无效时保留上一次显示内容并提示错误。
+     */
+    void applyJsonPathFilter(String expression) {
+        long generation = jsonPathFilterGeneration.incrementAndGet();
+        if (!jsonPathFilterBar.isVisible()) {
+            return;
+        }
+        if (expression == null || expression.isBlank()) {
+            restoreUnfilteredBody();
+            jsonPathFilterBar.clearStatus();
+            return;
+        }
+        JsonPathFilterSource source = jsonPathFilterSource();
+        if (source == null) {
+            restoreUnfilteredBody();
+            jsonPathFilterBar.showError(I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_UNAVAILABLE));
+            return;
+        }
+        CachedFilterDocument cached = FILTER_DOCUMENT_CACHE.get();
+        JsonPathUtil.JsonPathDocument cachedDocument = cached != null && cached.key().equals(source.key())
+                ? cached.document() : null;
+        long maxSourceSize = jsonPathFilterMaxSourceSize;
+        int maxResultChars = jsonPathFilterMaxResultChars;
+        pendingJsonPathFilter = CompletableFuture
+                .supplyAsync(() -> generation == jsonPathFilterGeneration.get()
+                        ? JsonPathFilterOutcome.evaluate(source, cachedDocument, expression, maxSourceSize, maxResultChars)
+                        : null, JSON_PATH_FILTER_EXECUTOR)
+                .thenAcceptAsync(outcome -> applyJsonPathFilterOutcome(generation, source.key(), outcome),
+                        SwingUtilities::invokeLater);
+    }
+
+    /** 表达式被编辑后，尚未完成的旧查询结果不再适用，等待防抖后的新查询。 */
+    private void invalidatePendingJsonPathFilter() {
+        jsonPathFilterGeneration.incrementAndGet();
+    }
+
+    /** 测试用：调整过滤输入/结果上限。 */
+    void setJsonPathFilterLimits(long maxSourceSize, int maxResultChars) {
+        jsonPathFilterMaxSourceSize = maxSourceSize;
+        jsonPathFilterMaxResultChars = maxResultChars;
+    }
+
+    /** 测试用：等待最近一次过滤完成并应用到界面。 */
+    CompletableFuture<Void> pendingJsonPathFilter() {
+        return pendingJsonPathFilter;
+    }
+
+    /**
+     * 过滤基于完整的原始响应体，而不是可能已被格式化/排序键的编辑器文本；
+     * 超过内存阈值的响应体已落盘，此时 body 只是提示文本，需读取临时文件。
+     *
+     * @return 完整响应体不可用（读取中断、超过下载上限被跳过等）时返回 null
+     */
+    private JsonPathFilterSource jsonPathFilterSource() {
+        HttpResponse response = currentResponse;
+        if (response != null && !fileRawPreviewActive) {
+            if (response.bodyIncomplete || response.bodyPreviewTruncated || response.bodyOmitted) {
+                return null;
+            }
+            if (response.filePath != null && !response.filePath.isBlank()) {
+                return JsonPathFilterSource.ofFile(new File(response.filePath), ResponseFiles.declaredCharset(response));
+            }
+        }
+        if (response != null && response.body != null) {
+            return JsonPathFilterSource.ofText(response.body);
+        }
+        return JsonPathFilterSource.ofText(unfilteredEditorText());
+    }
+
+    private String unfilteredEditorText() {
+        if (unfilteredDocument == null) {
+            return responseBodyPane.getText();
+        }
+        try {
+            return unfilteredDocument.getText(0, unfilteredDocument.getLength());
+        } catch (BadLocationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private void applyJsonPathFilterOutcome(long generation, String sourceKey, JsonPathFilterOutcome outcome) {
+        if (outcome == null || generation != jsonPathFilterGeneration.get() || !jsonPathFilterBar.isVisible()) {
+            return;
+        }
+        if (outcome.document() != null) {
+            filterDocumentSource = sourceKey;
+            FILTER_DOCUMENT_CACHE.set(new CachedFilterDocument(sourceKey, outcome.document()));
+        }
+        switch (outcome.status()) {
+            case UNAVAILABLE -> {
+                restoreUnfilteredBody();
+                jsonPathFilterBar.showError(I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_UNAVAILABLE));
+            }
+            case NOT_JSON -> {
+                restoreUnfilteredBody();
+                jsonPathFilterBar.showError(I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_NOT_JSON));
+            }
+            case SOURCE_TOO_LARGE -> {
+                restoreUnfilteredBody();
+                jsonPathFilterBar.showError(I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_SOURCE_TOO_LARGE,
+                        toMegabytes(outcome.limit())));
+            }
+            case RESULT_TOO_LARGE -> jsonPathFilterBar.showError(I18nUtil.getMessage(
+                    MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_RESULT_TOO_LARGE, toMegabytes(outcome.limit())));
+            case INVALID -> jsonPathFilterBar.showError(
+                    I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_INVALID, outcome.error()));
+            case NO_MATCH, MATCHED -> {
+                if (unfilteredDocument == null) {
+                    unfilteredDocument = responseBodyPane.getDocument();
+                }
+                // 结果文档已在后台构建，这里只替换文档，避免大结果在 EDT 上逐字插入
+                responseBodyPane.setDocument(outcome.resultDocument());
+                responseBodyPane.setCaretPosition(0);
+                if (outcome.status() == JsonPathFilterStatus.NO_MATCH) {
+                    jsonPathFilterBar.showInfo(I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_NO_MATCH));
+                } else {
+                    jsonPathFilterBar.clearStatus();
+                }
+                generateModelButton.setEnabled(isEnabled() && outcome.structured());
+            }
+        }
+    }
+
+    private static String toMegabytes(long size) {
+        return BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024L * 1024), 2, RoundingMode.HALF_UP)
+                .stripTrailingZeros().toPlainString();
+    }
+
+    private record CachedFilterDocument(String key, JsonPathUtil.JsonPathDocument document) {
+    }
+
+    private enum JsonPathFilterStatus {UNAVAILABLE, NOT_JSON, SOURCE_TOO_LARGE, RESULT_TOO_LARGE, INVALID, NO_MATCH, MATCHED}
+
+    /** 过滤数据源：内存中的原始响应体，或超过内存阈值后落盘的完整响应体。 */
+    private record JsonPathFilterSource(String key, String text, File file, Charset charset) {
+
+        static JsonPathFilterSource ofText(String text) {
+            return new JsonPathFilterSource(text, text, null, null);
+        }
+
+        static JsonPathFilterSource ofFile(File file, Charset charset) {
+            return new JsonPathFilterSource("file:" + file.getAbsolutePath(), null, file, charset);
+        }
+
+        long size() {
+            return file == null ? text.length() : file.length();
+        }
+
+        String load() throws IOException {
+            return file == null ? text : new String(Files.readAllBytes(file.toPath()), charset);
+        }
+    }
+
+    /** 后台过滤结果；document 为解析后的响应体（可缓存复用），resultDocument 为待展示的结果编辑器文档。 */
+    private record JsonPathFilterOutcome(JsonPathFilterStatus status, JsonPathUtil.JsonPathDocument document,
+                                         String error, RSyntaxDocument resultDocument, boolean structured, long limit) {
+
+        JsonPathFilterOutcome(JsonPathFilterStatus status, JsonPathUtil.JsonPathDocument document,
+                              String error, RSyntaxDocument resultDocument, boolean structured) {
+            this(status, document, error, resultDocument, structured, 0);
+        }
+
+        static JsonPathFilterOutcome evaluate(JsonPathFilterSource source, JsonPathUtil.JsonPathDocument cachedDocument,
+                                              String expression, long maxSourceSize, int maxResultChars) {
+            JsonPathUtil.JsonPathDocument document = cachedDocument;
+            if (document == null) {
+                if (source.size() > maxSourceSize) {
+                    return new JsonPathFilterOutcome(JsonPathFilterStatus.SOURCE_TOO_LARGE, null, null, null, false,
+                            maxSourceSize);
+                }
+                String json;
+                try {
+                    json = source.load();
+                } catch (IOException | UncheckedIOException e) {
+                    return new JsonPathFilterOutcome(JsonPathFilterStatus.UNAVAILABLE, null, null, null, false);
+                }
+                try {
+                    document = JsonPathUtil.parseDocument(json);
+                } catch (IllegalArgumentException notJson) {
+                    return new JsonPathFilterOutcome(JsonPathFilterStatus.NOT_JSON, null, null, null, false);
+                }
+            }
+            String result;
+            try {
+                result = JsonPathUtil.queryAsPrettyJson(document, expression, maxResultChars);
+            } catch (JsonPathUtil.ResultTooLargeException tooLarge) {
+                return new JsonPathFilterOutcome(JsonPathFilterStatus.RESULT_TOO_LARGE, document, null, null, false,
+                        tooLarge.getMaxResultChars());
+            } catch (RuntimeException invalid) {
+                // 表达式错误为 IllegalArgumentException；其它意外异常同样提示，避免界面无反馈
+                String message = invalid.getMessage() == null ? invalid.getClass().getSimpleName() : invalid.getMessage();
+                return new JsonPathFilterOutcome(JsonPathFilterStatus.INVALID, document, message, null, false);
+            }
+            RSyntaxDocument resultDocument = new RSyntaxDocument(SyntaxConstants.SYNTAX_STYLE_JSON);
+            if (result != null) {
+                try {
+                    resultDocument.insertString(0, result, null);
+                } catch (BadLocationException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+            // 结果由 Jackson 序列化，对象/数组必然以 { 或 [ 开头
+            boolean structured = result != null && (result.startsWith("{") || result.startsWith("["));
+            return new JsonPathFilterOutcome(result == null ? JsonPathFilterStatus.NO_MATCH : JsonPathFilterStatus.MATCHED,
+                    document, null, resultDocument, structured);
+        }
+    }
+
+    private void releaseFilterDocument() {
+        jsonPathFilterGeneration.incrementAndGet();
+        String ownKey = filterDocumentSource;
+        filterDocumentSource = null;
+        if (ownKey != null) {
+            FILTER_DOCUMENT_CACHE.updateAndGet(cached -> cached != null && cached.key() == ownKey ? null : cached);
+        }
+    }
+
+    private void restoreUnfilteredBody() {
+        if (unfilteredDocument == null) {
+            return;
+        }
+        Document original = unfilteredDocument;
+        unfilteredDocument = null;
+        // 换回原文档会恢复其自身的语法样式；用户在过滤期间手动指定的语法仍然生效
+        responseBodyPane.setDocument(original);
+        SyntaxType selectedSyntax = SyntaxType.getByIndex(syntaxComboBox.getSelectedIndex());
+        if (selectedSyntax != SyntaxType.AUTO_DETECT) {
+            responseBodyPane.setSyntaxEditingStyle(selectedSyntax.getSyntaxStyle());
+        }
+        responseBodyPane.setCaretPosition(0);
+        updateGenerateModelButtonState();
+    }
+
+    /** 新响应即将替换编辑器内容时丢弃旧的过滤快照，过滤表达式本身保留以便重新应用。 */
+    private void discardJsonPathFilterResult() {
+        jsonPathFilterBar.cancelPendingApply();
+        unfilteredDocument = null;
+        releaseFilterDocument();
+        jsonPathFilterBar.clearStatus();
+    }
+
+    private void reapplyJsonPathFilter() {
+        if (jsonPathFilterBar.isVisible() && !jsonPathFilterBar.getExpression().isEmpty()) {
+            applyJsonPathFilter(jsonPathFilterBar.getExpression());
+        }
+    }
+
+    private void updateJsonPathFilterIcon(boolean selected) {
+        String iconPath = "icons/filter.svg";
+        jsonPathFilterButton.setIcon(selected
+                ? IconUtil.createOnPrimary(iconPath, IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL)
+                : IconUtil.createThemed(iconPath, IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
     }
 
     /**
@@ -374,6 +714,7 @@ public class ResponseBodyPanel extends JPanel {
             return;
         }
 
+        discardJsonPathFilterResult();
         this.currentResponse = resp;
         this.fileRawPreviewActive = false;
         sizeWarningLabel.setToolTipText(null);
@@ -448,6 +789,7 @@ public class ResponseBodyPanel extends JPanel {
         }
 
         responseBodyPane.setCaretPosition(0);
+        reapplyJsonPathFilter();
     }
 
     private void showFileResponse(HttpResponse response) {
@@ -612,6 +954,8 @@ public class ResponseBodyPanel extends JPanel {
         responseBodyPane.setEnabled(enabled);
         syntaxComboBox.setEnabled(enabled);
         searchButton.setEnabled(enabled);
+        jsonPathFilterButton.setEnabled(enabled);
+        jsonPathFilterBar.getExpressionField().setEnabled(enabled);
         downloadButton.setEnabled(enabled && !downloader.isSaving());
         fileOverviewButton.setEnabled(enabled);
         searchableTextArea.setEnabled(enabled);
@@ -649,6 +993,9 @@ public class ResponseBodyPanel extends JPanel {
         autoSortJsonKeysButton.setVisible(!fileCard && !fileRawPreview);
         formatButton.setVisible(!fileCard && !fileRawPreview);
         generateModelButton.setVisible(!fileCard && !fileRawPreview);
+        boolean jsonPathFilterAvailable = CARD_TEXT.equals(cardName) && !fileRawPreview;
+        jsonPathFilterButton.setVisible(jsonPathFilterAvailable);
+        jsonPathFilterBar.setVisible(jsonPathFilterAvailable && jsonPathFilterButton.isSelected());
 
         if (centerPanel.getLayout() instanceof CardLayout cl) {
             cl.show(centerPanel, cardName);
@@ -730,6 +1077,7 @@ public class ResponseBodyPanel extends JPanel {
      * 清空响应体内容
      */
     private void clearResponseBody() {
+        discardJsonPathFilterResult();
         responseBodyPane.setText("");
         updateGenerateModelButtonState();
         currentResponse = null;

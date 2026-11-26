@@ -2,11 +2,18 @@ package com.laker.postman.common.component;
 
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
+import org.fife.ui.rsyntaxtextarea.RSyntaxUtilities;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Token;
 import org.fife.ui.rsyntaxtextarea.TokenImpl;
 import org.fife.ui.rsyntaxtextarea.TokenTypes;
+import org.fife.ui.rtextarea.Gutter;
+import org.fife.ui.rtextarea.LineNumberList;
+import org.fife.ui.rtextarea.RTextScrollPane;
+import org.testng.SkipException;
 import org.testng.annotations.Test;
 
+import javax.swing.SwingUtilities;
 import javax.swing.text.TabExpander;
 import java.awt.*;
 import java.awt.font.FontRenderContext;
@@ -18,10 +25,12 @@ import java.awt.image.BufferedImageOp;
 import java.awt.image.ImageObserver;
 import java.awt.image.RenderedImage;
 import java.awt.image.renderable.RenderableImage;
+import java.lang.reflect.Field;
 import java.text.AttributedCharacterIterator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -166,6 +175,104 @@ public class StandardEditorTokenPainterTest {
                 "A token must use one font so painting and editor layout share identical metrics");
         assertEquals(graphics.fontsAtDraw.get(0).getFamily(), fallbackFont.getFamily(),
                 "A token unsupported by its syntax font should use the configured fallback font");
+    }
+
+    @Test
+    public void shouldUseSystemDialogFontWhenConfiguredFallbackCannotDisplayToken() {
+        String arabic = "\"1 \u0627\u0644\u0645\u0644\u0643 ,8114\"";
+        Font dialogFont = new Font(Font.DIALOG, Font.PLAIN, 13);
+        if (dialogFont.canDisplayUpTo(arabic) != -1) {
+            throw new SkipException("The JDK logical Dialog font cannot display Arabic on this machine");
+        }
+        RSyntaxTextArea host = new FallbackAwareRSyntaxTextArea();
+        host.setFont(new AsciiOnlyFont(Font.MONOSPACED, Font.PLAIN, 13));
+        host.putClientProperty(EditorFontProperties.FALLBACK_FONT_CLIENT_PROPERTY,
+                new AsciiOnlyFont(Font.SERIF, Font.PLAIN, 13));
+        int lineHeightBefore = host.getLineHeight();
+
+        Font resolved = host.getFontForToken(token(arabic));
+
+        assertEquals(resolved.getName(), Font.DIALOG,
+                "Text unsupported by both editor fonts should use the platform composite font chain");
+        assertEquals(resolved.getSize2D(), 13f);
+        FontMetrics dialogMetrics = host.getFontMetrics(resolved);
+        assertTrue(host.getLineHeight() >= Math.max(lineHeightBefore, dialogMetrics.getHeight()),
+                "Line height should fit the system fallback font once it is used");
+        assertTrue(host.getMaxAscent() >= dialogMetrics.getMaxAscent());
+
+        host.setText("plain");
+        assertEquals(host.getLineHeight(), lineHeightBefore,
+                "Replacing the text should drop the system fallback line height");
+    }
+
+    @Test
+    public void lineNumberGutterShouldFollowSystemFallbackLineHeight() throws Exception {
+        String arabic = "\"1 \u0627\u0644\u0645\u0644\u0643 ,8114\"";
+        Font dialogFont = new Font(Font.DIALOG, Font.PLAIN, 13);
+        if (dialogFont.canDisplayUpTo(arabic) != -1) {
+            throw new SkipException("The JDK logical Dialog font cannot display Arabic on this machine");
+        }
+        RSyntaxTextArea host = new FallbackAwareRSyntaxTextArea();
+        host.setFont(AsciiOnlyFont.flattened(Font.MONOSPACED));
+        host.putClientProperty(EditorFontProperties.FALLBACK_FONT_CLIENT_PROPERTY, AsciiOnlyFont.flattened(Font.SERIF));
+        new RTextScrollPane(host, true);
+        int lineHeightBefore = host.getLineHeight();
+        assertEquals(gutterCellHeight(host), lineHeightBefore);
+
+        host.getFontForToken(token(arabic));
+        SwingUtilities.invokeAndWait(() -> {
+        });
+        if (host.getLineHeight() == lineHeightBefore) {
+            throw new SkipException("The system fallback font does not change the line height on this machine");
+        }
+        assertEquals(gutterCellHeight(host), host.getLineHeight(),
+                "Line numbers should use the line height that includes the system fallback font");
+
+        host.setText("plain");
+        assertEquals(gutterCellHeight(host), lineHeightBefore,
+                "Line numbers should drop the system fallback line height together with the text");
+    }
+
+    @Test
+    public void systemFallbackShouldNotRebuildViewsWhenLineMetricsAreUnchanged() throws Exception {
+        String arabic = "\"1 \u0627\u0644\u0645\u0644\u0643 ,8114\"";
+        if (new Font(Font.DIALOG, Font.PLAIN, 13).canDisplayUpTo(arabic) != -1) {
+            throw new SkipException("The JDK logical Dialog font cannot display Arabic on this machine");
+        }
+        RSyntaxTextArea host = new FallbackAwareRSyntaxTextArea();
+        // 主字体远高于 Dialog，兜底字体不会改变行高和基线
+        host.setFont(AsciiOnlyFont.scaled(Font.MONOSPACED, 3));
+        new RTextScrollPane(host, true);
+        int lineHeight = host.getLineHeight();
+        int maxAscent = host.getMaxAscent();
+        AtomicInteger rebuilds = new AtomicInteger();
+        host.addPropertyChangeListener(RSyntaxTextArea.SYNTAX_SCHEME_PROPERTY, ignored -> rebuilds.incrementAndGet());
+
+        assertEquals(host.getFontForToken(token(arabic)).getName(), Font.DIALOG);
+        SwingUtilities.invokeAndWait(() -> {
+        });
+        host.setText("plain");
+        host.getFontForToken(token(arabic));
+        host.setDocument(new RSyntaxDocument(SyntaxConstants.SYNTAX_STYLE_JSON));
+        SwingUtilities.invokeAndWait(() -> {
+        });
+
+        if (host.getLineHeight() != lineHeight || host.getMaxAscent() != maxAscent) {
+            throw new AssertionError("Test setup expects the primary font to be taller than Dialog");
+        }
+        assertEquals(rebuilds.get(), 0, "Unchanged line metrics must not trigger a full view rebuild");
+    }
+
+    private static int gutterCellHeight(RSyntaxTextArea host) throws ReflectiveOperationException {
+        Gutter gutter = RSyntaxUtilities.getGutter(host);
+        for (Component component : gutter.getComponents()) {
+            if (component instanceof LineNumberList lineNumbers) {
+                Field cellHeight = LineNumberList.class.getDeclaredField("cellHeight");
+                cellHeight.setAccessible(true);
+                return cellHeight.getInt(lineNumbers);
+            }
+        }
+        throw new AssertionError("Line number list not found");
     }
 
     @Test
@@ -383,6 +490,20 @@ public class StandardEditorTokenPainterTest {
     private static final class AsciiOnlyFont extends Font {
         private AsciiOnlyFont(String name, int style, int size) {
             super(name, style, size);
+        }
+
+        /** 纵向压扁的字体，使系统回退字体必然比编辑器字体更高。 */
+        private static AsciiOnlyFont flattened(String name) {
+            return scaled(name, 0.5);
+        }
+
+        private static AsciiOnlyFont scaled(String name, double scaleY) {
+            return new AsciiOnlyFont(new Font(name, Font.PLAIN, 13)
+                    .deriveFont(AffineTransform.getScaleInstance(1, scaleY)).getAttributes());
+        }
+
+        private AsciiOnlyFont(Map<? extends AttributedCharacterIterator.Attribute, ?> attributes) {
+            super(attributes);
         }
 
         @Override

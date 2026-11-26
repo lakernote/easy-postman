@@ -58,7 +58,9 @@ public class EasyComboBoxTest {
         comboBox.setFixedHeight(28);
 
         comboBox.setSelectedItem("A");
-        assertEquals(comboBox.getPreferredSize().width, UIScale.scale(64));
+        // 单项自然宽度随 LAF 而异（如 macOS Aqua 为 65），按普通下拉框宽度夹到区间内比较
+        int expectedShortWidth = Math.min(UIScale.scale(160), Math.max(UIScale.scale(64), plainWidth(comboBox, "A")));
+        assertEquals(comboBox.getPreferredSize().width, expectedShortWidth);
         assertEquals(comboBox.getPreferredSize().height, UIScale.scale(28));
         assertNull(comboBox.getToolTipText());
 

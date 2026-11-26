@@ -34,6 +34,11 @@ public class JsonUtil {
             .defaultPrettyPrinter(DEFAULT_PRETTY_PRINTER)
             .build();
 
+    /** 供同包工具基于统一配置（注释支持、美化格式）派生专用 mapper。 */
+    static JsonMapper sharedMapper() {
+        return mapper;
+    }
+
     /**
      * 创建 ObjectNode
      *

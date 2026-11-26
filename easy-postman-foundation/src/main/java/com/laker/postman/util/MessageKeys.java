@@ -1702,6 +1702,14 @@ public final class MessageKeys {
     public static final String RESPONSE_BODY_AUTO_SORT_JSON_KEYS = "response.body.auto_sort_json_keys";
     public static final String RESPONSE_BODY_AUTO_SORT_JSON_KEYS_TOOLTIP = "response.body.auto_sort_json_keys.tooltip";
     public static final String RESPONSE_BODY_SKIP_AUTO_PROCESSING_LARGE = "response.body.skip_auto_processing_large";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP = "response.body.jsonpath_filter.tooltip";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_PLACEHOLDER = "response.body.jsonpath_filter.placeholder";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_NO_MATCH = "response.body.jsonpath_filter.no_match";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_NOT_JSON = "response.body.jsonpath_filter.not_json";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_UNAVAILABLE = "response.body.jsonpath_filter.unavailable";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_SOURCE_TOO_LARGE = "response.body.jsonpath_filter.source_too_large";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_RESULT_TOO_LARGE = "response.body.jsonpath_filter.result_too_large";
+    public static final String RESPONSE_BODY_JSONPATH_FILTER_INVALID = "response.body.jsonpath_filter.invalid";
     public static final String SETTINGS_GENERAL_STARTUP_SPLASH = "settings.general.startup_splash";
     public static final String SETTINGS_GENERAL_STARTUP_SPLASH_TOOLTIP = "settings.general.startup_splash.tooltip";
     public static final String SETTINGS_GENERAL_SIDEBAR_EXPANDED = "settings.general.sidebar_expanded";

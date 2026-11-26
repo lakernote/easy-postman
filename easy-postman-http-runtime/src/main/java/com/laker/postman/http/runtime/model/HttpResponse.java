@@ -38,6 +38,10 @@ public class HttpResponse {
      * PREVIEW 模式下响应体超过读取上限，{@link #body} 只保留了前缀（未追加任何提示文本）。
      */
     public transient boolean bodyPreviewTruncated;
+    /**
+     * 响应体未被读取或保留（超过最大下载大小、被性能模式跳过等），{@link #body} 只是提示文本而非真实内容。
+     */
+    public transient boolean bodyOmitted;
     public int code; // 添加响应状态码字段
     public String threadName; // 添加线程名称字段
     public String filePath; // 临时文件下载路径字段

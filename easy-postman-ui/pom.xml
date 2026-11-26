@@ -37,10 +37,6 @@
             <artifactId>rsyntaxtextarea</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.fifesoft</groupId>
-            <artifactId>autocomplete</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <scope>provided</scope>

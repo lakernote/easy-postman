@@ -76,6 +76,7 @@
         <!-- Keep Jackson aligned with the official MCP Java SDK JSON provider. -->
         <jackson.version>3.1.4</jackson.version>
         <mcp.version>2.0.1</mcp.version>
+        <json-path.version>2.10.0</json-path.version>
         <lombok.version>1.18.48</lombok.version>
         <twelvemonkeys.version>3.15.0</twelvemonkeys.version>
         <!-- Keep the Kotlin runtime aligned with OkHttp 5.5.0. -->
@@ -120,6 +121,22 @@
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
+            <!--
+                JSONPath 查询引擎；文档解析走 Jackson 3 适配器。
+                json-smart 不能排除：Jayway 编译过滤表达式里的 JSON 字面量（如 in ['a']）时直接使用它；
+                asm 只用于 json-smart 运行时生成 Bean 访问器字节码，此处不做 Bean 映射，排除以控制包体积。
+            -->
+            <dependency>
+                <groupId>com.jayway.jsonpath</groupId>
+                <artifactId>json-path</artifactId>
+                <version>${json-path.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.ow2.asm</groupId>
+                        <artifactId>asm</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <dependency>
                 <groupId>io.modelcontextprotocol.sdk</groupId>
                 <artifactId>mcp</artifactId>
@@ -139,12 +156,6 @@
                 <groupId>org.graalvm.polyglot</groupId>
                 <artifactId>polyglot</artifactId>
                 <version>${polyglot.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.graalvm.polyglot</groupId>
-                <artifactId>js</artifactId>
-                <version>${polyglot.version}</version>
-                <type>pom</type>
             </dependency>
             <dependency>
                 <groupId>org.graalvm.polyglot</groupId>

@@ -251,6 +251,7 @@ public class OkHttpResponseHandler {
 
         if (!keepPreview) {
             response.body = I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_SKIPPED_PERFORMANCE, totalBytes);
+            response.bodyOmitted = true;
             return;
         }
 
@@ -262,6 +263,7 @@ public class OkHttpResponseHandler {
 
     private static void markLightweightBodyTooLarge(HttpResponse response, int maxDownloadSize) {
         response.body = I18nUtil.getMessage(MessageKeys.TEXT_TOO_LARGE_BODY, maxDownloadSize / 1024 / 1024);
+        response.bodyOmitted = true;
         response.bodySize = 0;
         response.filePath = null;
     }
@@ -477,6 +479,7 @@ public class OkHttpResponseHandler {
             warnResponseTooLarge(responseSizeLimitWarningSink,
                     new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.BINARY, contentLengthHeader, maxDownloadSize));
             response.body = I18nUtil.getMessage(MessageKeys.BINARY_TOO_LARGE_BODY, maxDownloadSize / 1024 / 1024);
+            response.bodyOmitted = true;
             response.bodySize = 0;
             response.filePath = null;
             return;
@@ -508,6 +511,7 @@ public class OkHttpResponseHandler {
                         new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.BINARY,
                                 (int) Math.min(e.receivedBytes, Integer.MAX_VALUE), e.maxDownloadBytes));
                 response.body = I18nUtil.getMessage(MessageKeys.BINARY_TOO_LARGE_BODY, e.maxDownloadBytes / 1024 / 1024);
+                response.bodyOmitted = true;
                 response.bodySize = 0;
                 response.filePath = null;
             } catch (IOException e) {
@@ -598,6 +602,7 @@ public class OkHttpResponseHandler {
             warnResponseTooLarge(responseSizeLimitWarningSink,
                     new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.TEXT, contentLengthHeader, maxDownloadSize));
             response.body = I18nUtil.getMessage(MessageKeys.TEXT_TOO_LARGE_BODY, maxDownloadSize / 1024 / 1024);
+            response.bodyOmitted = true;
             response.bodySize = 0;
             response.filePath = null;
             return;
@@ -623,6 +628,7 @@ public class OkHttpResponseHandler {
                 warnResponseTooLarge(responseSizeLimitWarningSink,
                         new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.TEXT, bytes.length, maxDownloadSize));
                 response.body = I18nUtil.getMessage(MessageKeys.TEXT_TOO_LARGE_BODY, maxDownloadSize / 1024 / 1024);
+                response.bodyOmitted = true;
                 response.bodySize = 0;
                 response.filePath = null;
                 return;

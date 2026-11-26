@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -451,6 +452,320 @@ public class ResponseBodyPanelTest extends AbstractSwingUiTest {
             }
             if (component instanceof Container child) {
                 JButton found = findButtonByTooltip(child, tooltip);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void jsonPathFilterShouldShowMatchesAndRestoreOriginalBodyWhenClosed() throws Exception {
+        String body = "{\"data\":[{\"id\":1,\"city\":\"Jazan\"},{\"id\":2,\"city\":\"Riyadh\"}]}";
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody(body));
+        AbstractButton filterButton = findToggleByTooltip(panel,
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP));
+        ResponseJsonPathFilterBar filterBar = findComponent(panel, ResponseJsonPathFilterBar.class);
+        assertNotNull(filterButton);
+        assertNotNull(filterBar);
+        String[] original = new String[1];
+
+        SwingUtilities.invokeAndWait(() -> {
+            original[0] = panel.getResponseBodyPane().getText();
+            filterButton.doClick();
+            filterBar.setExpression("$.data[*].city");
+            filterBar.getExpressionField().postActionEvent();
+        });
+        awaitJsonPathFilter(panel);
+
+        assertTrue(filterBar.isVisible());
+        assertTrue(com.laker.postman.util.JsonUtil.isStructurallyEqual(
+                panel.getResponseBodyPane().getText(), "[\"Jazan\",\"Riyadh\"]"));
+
+        SwingUtilities.invokeAndWait(filterButton::doClick);
+
+        assertFalse(filterBar.isVisible());
+        assertEquals(panel.getResponseBodyPane().getText(), original[0]);
+    }
+
+    @Test
+    public void jsonPathFilterShouldReapplyToNewResponsesAndKeepLastResultOnInvalidPath() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody("{\"id\":1}"));
+        AbstractButton filterButton = findToggleByTooltip(panel,
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP));
+        ResponseJsonPathFilterBar filterBar = findComponent(panel, ResponseJsonPathFilterBar.class);
+
+        SwingUtilities.invokeAndWait(() -> {
+            filterButton.doClick();
+            filterBar.setExpression("$.id");
+            filterBar.getExpressionField().postActionEvent();
+            panel.setBodyText(responseWithBody("{\"id\":42}"));
+        });
+        awaitJsonPathFilter(panel);
+        assertEquals(panel.getResponseBodyPane().getText(), "42");
+
+        SwingUtilities.invokeAndWait(() -> {
+            filterBar.setExpression("$.items[?(@.x >");
+            filterBar.getExpressionField().postActionEvent();
+        });
+        awaitJsonPathFilter(panel);
+        assertEquals(panel.getResponseBodyPane().getText(), "42");
+        assertNotNull(filterBar.getStatusText());
+
+        SwingUtilities.invokeAndWait(() -> {
+            filterBar.setExpression("$.missing");
+            filterBar.getExpressionField().postActionEvent();
+        });
+        awaitJsonPathFilter(panel);
+        assertEquals(panel.getResponseBodyPane().getText(), "");
+        assertEquals(filterBar.getStatusText(),
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_NO_MATCH));
+    }
+
+    @Test
+    public void jsonPathFilterShouldQueryRawBodyWithoutLosingPrecision() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(
+                responseWithBody("{\"z\":1,\"price\":1.10,\"big\":0.1000000000000000055511151231257827}"));
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.price");
+        assertEquals(panel.getResponseBodyPane().getText(), "1.1");
+
+        applyAndAwait(panel, filterBar, "$.big");
+        assertEquals(panel.getResponseBodyPane().getText(), "0.1000000000000000055511151231257827");
+
+        applyAndAwait(panel, filterBar, "$.*");
+        assertEquals(panel.getResponseBodyPane().getText().replaceAll("\\s", ""),
+                "[1,1.1,0.1000000000000000055511151231257827]");
+    }
+
+    @Test
+    public void jsonPathFilterShouldAcceptNullJsonRoot() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody("null"));
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$");
+
+        assertEquals(panel.getResponseBodyPane().getText(), "null");
+        assertNull(filterBar.getStatusText());
+    }
+
+    @Test
+    public void jsonPathFilterShouldReadBodySavedToTempFile() throws Exception {
+        File saved = File.createTempFile("easyPostman_jsonpath_", ".json");
+        saved.deleteOnExit();
+        Files.writeString(saved.toPath(), "{\"city\":\"\u062c\u0627\u0632\u0627\u0646\"}", StandardCharsets.UTF_8);
+        HttpResponse response = responseWithBody("[Body exceeds 1KB, saved as temp file]");
+        response.filePath = saved.getAbsolutePath();
+        response.bodySize = saved.length();
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.city");
+
+        assertEquals(panel.getResponseBodyPane().getText(), "\"\u062c\u0627\u0632\u0627\u0646\"");
+        assertNull(filterBar.getStatusText());
+    }
+
+    @Test
+    public void jsonPathFilterShouldReportIncompleteBodyInsteadOfInvalidJson() throws Exception {
+        HttpResponse response = responseWithBody("Response body incomplete: unexpected end of stream");
+        response.bodyIncomplete = true;
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.id");
+
+        assertEquals(filterBar.getStatusText(),
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_UNAVAILABLE));
+        assertEquals(panel.getResponseBodyPane().getText(), response.body);
+    }
+
+    @Test
+    public void jsonPathFilterShouldReportOmittedBodyInsteadOfInvalidJson() throws Exception {
+        HttpResponse response = responseWithBody("[Response body too large, skipped]");
+        response.bodyOmitted = true;
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.id");
+
+        assertEquals(filterBar.getStatusText(),
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_UNAVAILABLE));
+        assertEquals(panel.getResponseBodyPane().getText(), response.body);
+    }
+
+    @Test
+    public void jsonPathFilterShouldRejectSourceOverSizeLimit() throws Exception {
+        File saved = File.createTempFile("easyPostman_jsonpath_", ".json");
+        saved.deleteOnExit();
+        Files.writeString(saved.toPath(), "{\"items\":[" + "1,".repeat(100) + "1]}", StandardCharsets.UTF_8);
+        HttpResponse response = responseWithBody("[Body saved as temp file]");
+        response.filePath = saved.getAbsolutePath();
+        ResponseBodyPanel panel = createPanelWithResponse(response);
+        SwingUtilities.invokeAndWait(() -> panel.setJsonPathFilterLimits(100, 1024));
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.items[0]");
+
+        assertEquals(filterBar.getStatusText(),
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_SOURCE_TOO_LARGE, "0"));
+        assertEquals(panel.getResponseBodyPane().getText(), response.body);
+    }
+
+    @Test
+    public void jsonPathFilterShouldRejectResultOverSizeLimit() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(
+                responseWithBody("{\"id\":1,\"items\":[\"" + "x".repeat(200) + "\"]}"));
+        SwingUtilities.invokeAndWait(() -> panel.setJsonPathFilterLimits(10_000, 100));
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.id");
+        assertEquals(panel.getResponseBodyPane().getText(), "1");
+
+        applyAndAwait(panel, filterBar, "$.items");
+
+        assertEquals(filterBar.getStatusText(),
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_RESULT_TOO_LARGE, "0"));
+        assertEquals(panel.getResponseBodyPane().getText(), "1", "previous result should stay visible");
+    }
+
+    @Test
+    public void parsedDocumentCacheShouldBeSharedAndReleasedOnlyByItsOwner() throws Exception {
+        ResponseBodyPanel first = createPanelWithResponse(responseWithBody("{\"id\":1}"));
+        ResponseBodyPanel second = createPanelWithResponse(responseWithBody("{\"id\":2}"));
+        ResponseJsonPathFilterBar firstBar = openJsonPathFilter(first);
+        ResponseJsonPathFilterBar secondBar = openJsonPathFilter(second);
+
+        applyAndAwait(first, firstBar, "$.id");
+        applyAndAwait(second, secondBar, "$.id");
+        assertEquals(cachedFilterKey(), "{\"id\":2}", "only the latest parsed document should be retained");
+
+        closeJsonPathFilter(first);
+        assertEquals(cachedFilterKey(), "{\"id\":2}", "closing another panel must not drop this panel's cache");
+        closeJsonPathFilter(second);
+        assertNull(cachedFilterKey());
+    }
+
+    private void closeJsonPathFilter(ResponseBodyPanel panel) throws Exception {
+        AbstractButton filterButton = findToggleByTooltip(panel,
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP));
+        SwingUtilities.invokeAndWait(filterButton::doClick);
+    }
+
+    private static String cachedFilterKey() throws ReflectiveOperationException {
+        java.lang.reflect.Field field = ResponseBodyPanel.class.getDeclaredField("FILTER_DOCUMENT_CACHE");
+        field.setAccessible(true);
+        Object cached = ((java.util.concurrent.atomic.AtomicReference<?>) field.get(null)).get();
+        if (cached == null) {
+            return null;
+        }
+        java.lang.reflect.Method key = cached.getClass().getDeclaredMethod("key");
+        key.setAccessible(true);
+        return (String) key.invoke(cached);
+    }
+
+    @Test
+    public void editingExpressionShouldDiscardInFlightQueryResult() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody("{\"a\":\"old\",\"b\":\"new\"}"));
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+        String[] original = new String[1];
+
+        SwingUtilities.invokeAndWait(() -> {
+            original[0] = panel.getResponseBodyPane().getText();
+            filterBar.setExpression("$.a");
+            filterBar.getExpressionField().postActionEvent();
+            // 防抖尚未触发新查询时继续编辑：旧查询结果不能再覆盖预览
+            filterBar.setExpression("$.b");
+            filterBar.cancelPendingApply();
+        });
+        awaitJsonPathFilter(panel);
+
+        assertEquals(panel.getResponseBodyPane().getText(), original[0]);
+    }
+
+    @Test
+    public void jsonPathFilterShouldSwapDocumentsInsteadOfReinsertingText() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody("{\"id\":7}"));
+        javax.swing.text.Document[] original = new javax.swing.text.Document[1];
+        SwingUtilities.invokeAndWait(() -> original[0] = panel.getResponseBodyPane().getDocument());
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$.id");
+        assertEquals(panel.getResponseBodyPane().getText(), "7");
+        assertTrue(panel.getResponseBodyPane().getDocument() != original[0]);
+
+        applyAndAwait(panel, filterBar, "");
+        assertTrue(panel.getResponseBodyPane().getDocument() == original[0]);
+        assertEquals(panel.getResponseBodyPane().getSyntaxEditingStyle(), org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JSON);
+    }
+
+    @Test
+    public void jsonPathFilterShouldAcceptScalarJsonRoot() throws Exception {
+        ResponseBodyPanel panel = createPanelWithResponse(responseWithBody("\"hello\""));
+        ResponseJsonPathFilterBar filterBar = openJsonPathFilter(panel);
+
+        applyAndAwait(panel, filterBar, "$");
+
+        assertEquals(panel.getResponseBodyPane().getText(), "\"hello\"");
+        assertNull(filterBar.getStatusText());
+    }
+
+    @Test
+    public void longJsonPathErrorShouldNotSqueezeExpressionField() throws Exception {
+        String longError = "JSONPath error " + "x".repeat(300);
+        ResponseJsonPathFilterBar[] holder = new ResponseJsonPathFilterBar[1];
+        SwingUtilities.invokeAndWait(() -> {
+            ResponseJsonPathFilterBar filterBar = new ResponseJsonPathFilterBar(expression -> {
+            }, () -> {
+            }, () -> {
+            });
+            filterBar.setSize(400, 32);
+            filterBar.showError(longError);
+            filterBar.doLayout();
+            holder[0] = filterBar;
+        });
+
+        assertTrue(holder[0].getExpressionField().getWidth() >= 400 * 0.4,
+                "expression field width: " + holder[0].getExpressionField().getWidth());
+        assertEquals(holder[0].getStatusText(), longError);
+    }
+
+    private ResponseJsonPathFilterBar openJsonPathFilter(ResponseBodyPanel panel) throws Exception {
+        AbstractButton filterButton = findToggleByTooltip(panel,
+                I18nUtil.getMessage(MessageKeys.RESPONSE_BODY_JSONPATH_FILTER_TOOLTIP));
+        ResponseJsonPathFilterBar filterBar = findComponent(panel, ResponseJsonPathFilterBar.class);
+        assertNotNull(filterButton);
+        assertNotNull(filterBar);
+        SwingUtilities.invokeAndWait(filterButton::doClick);
+        return filterBar;
+    }
+
+    private void applyAndAwait(ResponseBodyPanel panel, ResponseJsonPathFilterBar filterBar, String expression)
+            throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            filterBar.setExpression(expression);
+            filterBar.getExpressionField().postActionEvent();
+        });
+        awaitJsonPathFilter(panel);
+    }
+
+    private void awaitJsonPathFilter(ResponseBodyPanel panel) throws Exception {
+        java.util.concurrent.CompletableFuture<Void>[] pending = new java.util.concurrent.CompletableFuture[1];
+        SwingUtilities.invokeAndWait(() -> pending[0] = panel.pendingJsonPathFilter());
+        pending[0].get(10, TimeUnit.SECONDS);
+        SwingUtilities.invokeAndWait(() -> {
+        });
+    }
+
+    private AbstractButton findToggleByTooltip(Container container, String tooltip) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JToggleButton button && tooltip.equals(button.getToolTipText())) {
+                return button;
+            }
+            if (component instanceof Container child) {
+                AbstractButton found = findToggleByTooltip(child, tooltip);
                 if (found != null) {
                     return found;
                 }
